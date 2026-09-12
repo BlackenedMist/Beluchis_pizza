@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Beluchis — My Orders</title>
+<link rel="icon" href="data:," />
+<style>
+  :root {
+    --bg: #faf7f0;
+    --panel: #fffdf9;
+    --ink: #2a2520;
+    --muted: #6f675d;
+    --line: #e4dccd;
+    --accent: #b3351f;
+    --accent-dark: #8f2816;
+    --good: #2e7d32;
+    --bad: #c62828;
+    --warn-bg: #fdf3df;
+    --warn-ink: #7a5b17;
+    --radius: 12px;
+    --shadow: 0 10px 30px rgba(42,37,32,.12);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.45;
+  }
+  header {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--ink);
+    color: #fff;
+    padding: 14px 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.18);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand .logo {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    display: grid; place-items: center;
+    font-weight: 800; font-size: 16px;
+  }
+  .brand h1 { font-size: 17px; margin: 0; letter-spacing: .3px; }
+  .brand .sub { font-size: 11px; color: #c9c0b4; }
+  nav.site { display: flex; gap: 8px; align-items: center; }
+  nav.site a {
+    color: #fff; text-decoration: none; font-size: 13px;
+    padding: 8px 10px; border-radius: 8px; opacity: .85;
+  }
+  nav.site a:hover { opacity: 1; background: rgba(255,255,255,.08); }
+  main { max-width: 900px; margin: 0 auto; padding: 28px 20px 60px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 22px;
+    margin-bottom: 22px;
+  }
+  h2 { margin: 0 0 14px; font-size: 19px; }
+  h3 { margin: 0 0 12px; font-size: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; }
+  .col { flex: 1 1 260px; min-width: 0; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 5px; }
+  input[type=text], input[type=password], input[type=tel], input[type=search], select {
+    width: 100%; padding: 10px 12px; font-size: 14px;
+    border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--ink);
+  }
+  button {
+    border: 0; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: 700; padding: 10px 16px;
+  }
+  button.primary { background: var(--accent); color: #fff; }
+  button.primary:hover { background: var(--accent-dark); }
+  button.ghost {
+    background: transparent; color: var(--accent); border: 1px solid var(--accent);
+  }
+  button.ghost:hover { background: rgba(179,53,31,.06); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .err { background: #fdecea; color: var(--bad); border: 1px solid #f5c6c6; border-radius: 9px; padding: 9px 12px; font-size: 13px; margin-bottom: 12px; }
+  .ok { background: #e9f6ec; color: var(--good); border: 1px solid #bfe5c9; border-radius: 9px; padding: 9px 12px; font-size: 13px; margin-bottom: 12px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .welcome { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .welcome h2 { margin: 0; }
+  .tier { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; }
+  .tier.platinum { background: #e8e3f7; color: #5b3fa8; }
+  .tier.gold { background: #fbf0d9; color: #93621a; }
+  .tier.silver { background: #e9edf2; color: #4a6072; }
+  .tier.bronze { background: #f1e4dc; color: #8a4b22; }
+  .tier.none { background: #ece7dd; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .4px; padding: 8px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  .status-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px; }
+  .s-placed { background: #e8f0fb; color: #24579a; }
+  .s-preparing { background: #fbf0d9; color: #93621a; }
+  .s-out_for_delivery { background: #e9e3f7; color: #5b3fa8; }
+  .s-delivered { background: #e9f6ec; color: var(--good); }
+  .s-cancelled { background: #fdecea; color: var(--bad); }
+  .offer {
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+  .offer code { background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; padding: 4px 8px; font-weight: 800; letter-spacing: .5px; }
+  .offer .value { font-size: 15px; font-weight: 800; color: var(--accent); }
+  .offer small { display: block; color: var(--muted); font-size: 12px; }
+  .order-head { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
+  .order-head .id { font-weight: 800; }
+  .order-head .meta { color: var(--muted); font-size: 12.5px; }
+  .order-total { margin-left: auto; text-align: right; }
+  .order-total .was { text-decoration: line-through; color: var(--muted); font-size: 12px; }
+  .order-total .discount { color: var(--good); font-size: 12px; font-weight: 700; }
+  .order-body { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 10px; }
+  details.order-card summary {
+    cursor: pointer; list-style: none; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--line); background: #fff;
+  }
+  details.order-card summary::-webkit-details-marker { display: none; }
+  details.order-card[open] summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  details.order-card { margin-bottom: 12px; }
+  .timeline { display: flex; gap: 0; align-items: stretch; margin: 12px 0 4px; }
+  .step { flex: 1; position: relative; padding-top: 22px; text-align: center; }
+  .step::before {
+    content: ""; position: absolute; top: 9px; left: 0; right: 0; height: 3px; background: var(--line);
+  }
+  .step:first-child::before { left: 50%; }
+  .step:last-child::before { right: 50%; }
+  .step .dot {
+    width: 18px; height: 18px; border-radius: 50%; background: var(--line);
+    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    border: 3px solid #fff; box-shadow: 0 0 0 1px var(--line);
+  }
+  .step.done .dot { background: var(--good); box-shadow: 0 0 0 1px var(--good); }
+  .step.done::before { background: var(--good); }
+  .step .lbl { font-size: 11px; font-weight: 700; color: var(--muted); }
+  .step.done .lbl { color: var(--good); }
+  .step .when { font-size: 10.5px; color: var(--muted); }
+  .cancelled-strip { background: #fdecea; color: var(--bad); border-radius: 9px; padding: 9px 12px; font-size: 13px; margin-top: 12px; }
+  .copy-btn { background: var(--accent); color: #fff; border-radius: 7px; padding: 6px 12px; font-size: 12px; }
+  .empty { text-align: center; color: var(--muted); padding: 28px 10px; font-size: 14px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tabs button { background: #fff; border: 1px solid var(--line); color: var(--muted); }
+  .tabs button.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: sp .7s linear infinite; vertical-align: -2px; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">B</div>
+    <div>
+      <h1>My Orders</h1>
+      <div class="sub">Beluchis Customer Portal</div>
+    </div>
+  </div>
+  <nav class="site">
+    <a href="/order">Order now</a>
+    <a href="/">Home</a>
+  </nav>
+</header>
+
+<main id="app">
+  <div class="panel" id="auth-view" hidden>
+    <h2>Customer portal</h2>
+    <div class="err" id="auth-err" hidden></div>
+    <div class="tabs">
+      <button id="tab-login" class="active" onclick="setAuthMode('login')">Log in</button>
+      <button id="tab-setpw" onclick="setAuthMode('setpw')">First time? Set your password</button>
+    </div>
+    <form id="login-form">
+      <div class="field">
+        <label for="login-phone">Cellphone</label>
+        <input type="tel" id="login-phone" placeholder="e.g. 081 234 5678" autocomplete="tel" required />
+      </div>
+      <div class="field">
+        <label for="login-pass">Password</label>
+        <input type="password" id="login-pass" placeholder="Your password" autocomplete="current-password" required />
+      </div>
+      <button class="primary" type="submit" id="login-btn">Log in</button>
+    </form>
+    <form id="setpw-form" hidden>
+      <div class="field">
+        <label for="setpw-phone">Cellphone you ordered with</label>
+        <input type="tel" id="setpw-phone" placeholder="e.g. 081 234 5678" autocomplete="tel" required />
+      </div>
+      <div class="field">
+        <label for="setpw-name">First name (optional, for guest accounts)</label>
+        <input type="text" id="setpw-name" placeholder="e.g. Paul" autocomplete="name" />
+      </div>
+      <div class="field">
+        <label for="setpw-pass">Choose a password</label>
+        <input type="password" id="setpw-pass" placeholder="At least 4 characters" autocomplete="new-password" required />
+      </div>
+      <button class="primary" type="submit" id="setpw-btn">Create password</button>
+    </form>
+    <p class="muted" style="margin-top:14px;">
+      Ordered as a guest? Go to <a href="/order">the menu</a>, place your order with your cellphone, then come back here to claim your account.
+    </p>
+  </div>
+
+  <div id="dash" hidden>
+    <div class="panel">
+      <div class="welcome">
+        <div>
+          <h2 id="dash-name">Welcome back</h2>
+          <div class="muted" id="dash-phone"></div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button class="ghost" onclick="location.href='/order'">Order now</button>
+          <button class="ghost" onclick="logout()">Log out</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="offers-panel" hidden>
+      <h3>Offers for you</h3>
+      <div id="offers"></div>
+      <p class="muted" style="margin-bottom:0;">Enter the code at checkout on the <a href="/order">order page</a>.</p>
+    </div>
+
+    <div class="panel">
+      <h3>Order history</h3>
+      <div id="orders"></div>
+      <div id="orders-err" class="err" hidden></div>
+    </div>
+  </div>
+</main>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const money = (n) => "R" + Number(n || 0).toLocaleString("en-ZA");
+
+async function api(url, opts = {}) {
+  const res = await fetch(url, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  return body;
+}
+
+function showErr(msg) {
+  const el = $("#auth-err");
+  el.textContent = msg;
+  el.hidden = false;
+}
+
+function setAuthMode(mode) {
+  $("#auth-err").hidden = true;
+  $("#tab-login").classList.toggle("active", mode === "login");
+  $("#tab-setpw").classList.toggle("active", mode === "setpw");
+  $("#login-form").hidden = mode !== "login";
+  $("#setpw-form").hidden = mode !== "setpw";
+}
+
+function btnLoading(btn, load) {
+  btn.disabled = load;
+  btn.innerHTML = load ? '<span class="spin"></span> Please wait…' : btn.dataset.label;
+}
+
+$("#login-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("#login-btn");
+  btnLoading(btn, true);
+  try {
+    await api("/api/customer/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ cellphone: $("#login-phone").value.trim(), password: $("#login-pass").value }),
+    });
+    await loadDash();
+  } catch (err) {
+    showErr(err.message);
+  } finally {
+    btnLoading(btn, false);
+  }
+});
+
+$("#setpw-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("#setpw-btn");
+  btnLoading(btn, true);
+  try {
+    await api("/api/customer/auth/set-password", {
+      method: "POST",
+      body: JSON.stringify({
+        cellphone: $("#setpw-phone").value.trim(),
+        firstName: $("#setpw-name").value.trim() || null,
+        password: $("#setpw-pass").value,
+      }),
+    });
+    await loadDash();
+  } catch (err) {
+    showErr(err.message);
+  } finally {
+    btnLoading(btn, false);
+  }
+});
+
+async function logout() {
+  await api("/api/customer/auth/logout", { method: "POST" }).catch(() => {});
+  location.reload();
+}
+
+// ---------------------------------------------------------------- Dashboard
+const STATUS_NAMES = {
+  placed: "Placed",
+  preparing: "Preparing",
+  out_for_delivery: "Out for delivery",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+};
+const FLOW = ["placed", "preparing", "out_for_delivery", "delivered"];
+
+function statusBadge(status) {
+  return `<span class="status-badge s-${status}">${esc(STATUS_NAMES[status] || status)}</span>`;
+}
+
+function timelineHtml(events) {
+  const reached = new Set(events.map((ev) => ev.status));
+  const cancelled = reached.has("cancelled");
+  const steps = FLOW.map((s, i) => {
+    const done = reached.has(s) || (FLOW.slice(0, i + 1).some((x) => reached.has(x)));
+    const ev = events.find((e) => e.status === s);
+    const when = ev
+      ? new Date(ev.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : "";
+    return `<div class="step ${done ? "done" : ""}"><span class="dot"></span><div class="lbl">${esc(STATUS_NAMES[s])}</div><div class="when">${when}</div></div>`;
+  }).join("");
+  const cancelledStrip = cancelled ? `<div class="cancelled-strip">This order was cancelled.</div>` : "";
+  return `<div class="timeline">${steps}</div>${cancelledStrip}`;
+}
+
+function orderCard(o) {
+  const items = o.items
+    .map(
+      (i) =>
+        `<tr>
+          <td>${esc(i.itemName)}${i.sizeLabel ? ` <span class="muted">(${esc(i.sizeLabel)})</span>` : ""}${i.extras ? ` <span class="muted">· ${esc(i.extras)}</span>` : ""}</td>
+          <td style="text-align:center">${i.quantity}</td>
+          <td style="text-align:right">${money(i.unitPrice)}</td>
+          <td style="text-align:right"><b>${money(i.total)}</b></td>
+        </tr>`
+    )
+    .join("");
+  const hasDiscount = o.discountAmount > 0;
+  const date = new Date(o.createdAt).toLocaleString([], {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `
+  <details class="order-card">
+    <summary>
+      <div class="order-head">
+        <span class="id">Order #${o.id}</span>
+        <span class="meta">${esc(date)}</span>
+        ${statusBadge(o.status)}
+        <span class="meta">${o.items.reduce((n, i) => n + i.quantity, 0)} item(s)</span>
+        <div class="order-total">
+          ${hasDiscount ? `<span class="was">${money(o.total)}</span> <span class="discount">−${money(o.discountAmount)}</span><br>` : ""}
+          <b>${money(o.grandTotal)}</b>
+          ${o.discountCode ? `<div class="discount">code ${esc(o.discountCode)}</div>` : ""}
+        </div>
+      </div>
+    </summary>
+    <div class="order-body">
+      ${timelineHtml(o.events || [])}
+      <table style="margin-top:10px">
+        <thead><tr><th>Item</th><th style="text-align:center">Qty</th><th style="text-align:right">Unit</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody>${items}</tbody>
+      </table>
+      ${o.deliveryAddress ? `<p class="muted">Delivery: ${esc(o.deliveryAddress)}</p>` : `<p class="muted">Collection</p>`}
+      ${o.notes ? `<p class="muted">Note: ${esc(o.notes)}</p>` : ""}
+    </div>
+  </details>`;
+}
+
+function renderOffers(rows) {
+  const el = $("#offers");
+  $("#offers-panel").hidden = rows.length === 0;
+  if (!rows.length) return;
+  el.innerHTML = rows
+    .map((c) => {
+      const when = c.expiresAt
+        ? ` · valid until ${new Date(c.expiresAt).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}`
+        : "";
+      const min = c.minSpend ? ` · minimum order ${money(c.minSpend)}` : "";
+      return `<div class="offer">
+        <div>
+          <div class="value">${esc(c.label)}</div>
+          <small>${esc(c.note || "")}${when}${min}</small>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <code>${esc(c.code)}</code>
+          <button class="copy-btn" onclick="copyCode('${esc(c.code)}', this)">Copy</button>
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+
+window.copyCode = async (code, btn) => {
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = code;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+  const old = btn.textContent;
+  btn.textContent = "Copied";
+  setTimeout(() => (btn.textContent = old), 1600);
+};
+
+async function loadDash() {
+  try {
+    const me = await api("/api/customer/auth/me");
+    $("#dash-name").textContent = `${me.firstName} ${me.lastName || ""}`.trim() || "Welcome back";
+    $("#dash-phone").textContent = me.cellphone || me.email || "";
+    $("#auth-view").hidden = true;
+    $("#dash").hidden = false;
+
+    const [orders, offers] = await Promise.all([
+      api("/api/customer/orders"),
+      api("/api/customer/offers"),
+    ]);
+    renderOffers(offers);
+    const oel = $("#orders");
+    if (!orders.length) {
+      oel.innerHTML = `<div class="empty">No orders yet. <a href="/order">Place your first order</a> and it will show up here.</div>`;
+    } else {
+      oel.innerHTML = orders.map(orderCard).join("");
+    }
+  } catch (err) {
+    $("#errors").hidden = true;
+    showErr(err.message);
+  }
+}
+
+async function init() {
+  try {
+    await api("/api/customer/auth/me");
+    await loadDash();
+  } catch {
+    $("#auth-view").hidden = false;
+    $("#dash").hidden = true;
+  }
+}
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>

@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Beluchis — Authentic &amp; Hand Crafted Pizzas, Worcester</title>
+<meta name="description" content="Authentic & hand crafted pizzas, pastas, grills and more in Worcester. Order online or visit us at 72 High Street, Q-Square. Open every day." />
+<link rel="icon" href="/home/favicon.jpg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Slab:wght@500;700;800&family=Satisfy&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --brand: #dd3333;
+    --brand-dark: #b32424;
+    --footer: #ad1e22;
+    --ink: #2a2520;
+    --muted: #6f675d;
+    --line: #e8e0d2;
+    --bg: #fdfdf9;
+    --panel: #ffffff;
+    --good: #2e7d32;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+
+  /* ------------------------------------------------- header / nav */
+  header {
+    position: sticky; top: 0; z-index: 40;
+    background: #fff;
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-inner {
+    max-width: 1180px; margin: 0 auto;
+    padding: 10px 20px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .nav-inner .logo { display: flex; align-items: center; }
+  .nav-inner .logo img { height: 46px; width: auto; }
+  .nav-links { display: flex; align-items: center; gap: 4px; }
+  .nav-links a {
+    padding: 9px 13px; border-radius: 8px; font-size: 14px; font-weight: 700;
+    letter-spacing: .4px;
+  }
+  .nav-links a:hover { color: var(--brand); }
+  .order-btn {
+    background: var(--brand); color: #fff; font-weight: 800;
+    border: 0; border-radius: 999px; padding: 11px 22px; font-size: 14px;
+    cursor: pointer; letter-spacing: .4px; display: inline-flex; align-items: center; gap: 8px;
+  }
+  .order-btn:hover { background: var(--brand-dark); }
+  .menu-toggle { display: none; background: none; border: 0; font-size: 26px; cursor: pointer; color: var(--ink); }
+
+  /* ----------------------------------------------------- hero */
+  .hero {
+    position: relative;
+    background: #1c1712;
+    color: #fff;
+    text-align: center;
+    overflow: hidden;
+  }
+  .hero .bg {
+    position: absolute; inset: 0;
+    background: url("/home/cover.jpg") center / cover no-repeat;
+  }
+  .hero .shade { position: absolute; inset: 0; background: rgba(20, 12, 6, .52); }
+  .hero-inner {
+    position: relative;
+    max-width: 900px; margin: 0 auto;
+    padding: 96px 22px 110px;
+  }
+  .hero .script {
+    font-family: Satisfy, cursive;
+    font-size: 34px; color: #ffd9a0; margin: 0 0 8px;
+  }
+  .hero h1 {
+    font-family: "Roboto Slab", Georgia, serif;
+    font-size: clamp(34px, 6vw, 58px);
+    line-height: 1.08; margin: 0 0 16px; letter-spacing: -.5px;
+  }
+  .hero p { font-size: 17px; color: #f3e4d2; margin: 0 auto 30px; max-width: 560px; }
+  .btn-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+
+  /* --------------------------------------------------- sections */
+  section { padding: 64px 20px; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  .section-title {
+    font-family: "Roboto Slab", Georgia, serif;
+    font-size: clamp(26px, 4vw, 36px);
+    margin: 0 0 6px; text-align: center; letter-spacing: -.4px;
+  }
+  .section-sub { text-align: center; color: var(--muted); margin: 0 0 34px; font-size: 15.5px; }
+
+  /* gallery grid */
+  .gallery {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    margin-bottom: 28px;
+  }
+  .gallery a {
+    position: relative; border-radius: 12px; overflow: hidden;
+    background: #efe7d8; box-shadow: 0 10px 26px rgba(42, 37, 32, .14);
+    aspect-ratio: 4 / 3;
+  }
+  .gallery a img { width: 100%; height: 100%; object-fit: cover; transition: transform .35s ease; }
+  .gallery a:hover img { transform: scale(1.05); }
+  .gallery a .cap {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 26px 14px 12px;
+    background: linear-gradient(transparent, rgba(0, 0, 0, .72));
+    color: #fff; font-size: 15px; font-weight: 700; letter-spacing: .3px;
+    text-align: left;
+  }
+  .gallery a .cap small { display: block; font-size: 11.5px; font-weight: 500; color: #ffd9a0; letter-spacing: 1px; text-transform: uppercase; }
+
+  .center { text-align: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--brand); color: #fff; font-weight: 800;
+    border-radius: 999px; padding: 13px 28px; font-size: 15px; letter-spacing: .5px;
+  }
+  .btn:hover { background: var(--brand-dark); }
+  .btn.outline { background: transparent; border: 2px solid currentColor; }
+
+  /* napoletana banner */
+  .napo { background: #f6efe2; }
+  .napo .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 34px; align-items: center; margin-bottom: 26px; }
+  .napo img { border-radius: 14px; box-shadow: 0 14px 34px rgba(42,37,32,.18); width: 100%; height: 100%; object-fit: cover; }
+  .napo h2 { margin: 0 0 14px; font-family: "Roboto Slab", Georgia, serif; font-size: clamp(24px, 3vw, 32px); }
+  .napo p { color: var(--muted); margin: 0 0 10px; font-size: 15.5px; }
+  .napo .big { font-size: 17px; color: var(--ink); font-weight: 700; margin-bottom: 14px; }
+  .napo .tag { display: inline-block; background: #fff; color: var(--brand); font-weight: 800; border-radius: 999px; padding: 6px 14px; font-size: 13px; margin-bottom: 12px; }
+
+  /* contact */
+  .contact { background: #fff; }
+  .contact .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+  .info-card {
+    background: #faf6ee; border: 1px solid var(--line); border-radius: 14px;
+    padding: 22px 22px 18px; margin-bottom: 14px;
+  }
+  .info-card h3 { margin: 0 0 10px; font-size: 19px; font-family: "Roboto Slab", Georgia, serif; }
+  .info-card p { margin: 4px 0; color: var(--muted); font-size: 15px; }
+  .info-card a:hover { color: var(--brand); }
+  .info-card .cash { font-weight: 700; color: var(--ink); }
+  .hours td { padding: 3px 10px 3px 0; color: var(--muted); font-size: 14.5px; }
+  .hours td:first-child { font-weight: 700; color: var(--ink); }
+  .form-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 24px; box-shadow: 0 12px 30px rgba(42,37,32,.08);
+  }
+  .form-card h3 { margin: 0 0 16px; font-size: 20px; font-family: "Roboto Slab", Georgia, serif; }
+  .form-card .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .field { margin-bottom: 13px; }
+  .field label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+  .field input, .field textarea {
+    width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px;
+    font-size: 14.5px; background: #fff; color: var(--ink); font-family: inherit;
+  }
+  .field input:focus, .field textarea:focus { outline: 2px solid color-mix(in srgb, var(--brand) 35%, transparent); border-color: var(--brand); }
+  .form-card button[type="submit"] { width: 100%; justify-content: center; border: 0; font-family: inherit; }
+  .form-card .msg { font-size: 13.5px; margin: 12px 0 0; }
+  .form-card .msg.ok { color: var(--good); }
+  .form-card .msg.err { color: var(--brand-dark); }
+
+  /* footer */
+  footer { background: var(--footer); color: #ffe9e2; }
+  .foot-inner { max-width: 1180px; margin: 0 auto; padding: 42px 20px 20px; text-align: center; }
+  .foot-inner .logo { margin: 0 auto 14px; }
+  .foot-inner .logo img { height: 52px; width: auto; filter: brightness(0) invert(1); margin: 0 auto; }
+  .foot-nav { display: flex; justify-content: center; gap: 8px 22px; flex-wrap: wrap; margin: 12px 0 16px; }
+  .foot-nav a { padding: 4px 2px; font-size: 13.5px; font-weight: 700; letter-spacing: .4px; }
+  .foot-nav a:hover { color: #fff; }
+  .foot-meta { font-size: 13px; color: #ffd9d0; }
+  .foot-meta a:hover { color: #fff; }
+  .foot-social { display: flex; justify-content: center; gap: 12px; margin-top: 14px; }
+  .foot-social a { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.14); color: #ffd9d0; display: grid; place-items: center; }
+  .foot-social a:hover { background: #fff; color: var(--footer); }
+  .foot-social svg { width: 19px; height: 19px; }
+  .foot-copy { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.18); font-size: 12.5px; color: #ffd9d0; }
+
+  /* social + whatsapp float */
+  .social-float {
+    position: fixed; right: 18px; bottom: 18px; z-index: 45;
+    display: flex; flex-direction: column; gap: 10px; align-items: center;
+  }
+  .social-float a {
+    width: 52px; height: 52px; border-radius: 50%;
+    color: #fff; display: grid; place-items: center;
+    box-shadow: 0 8px 22px rgba(0,0,0,.28);
+    transition: transform .15s ease;
+  }
+  .social-float a:hover { transform: translateY(-2px); }
+  .soc-fb { background: #1877f2; }
+  .soc-ig { background: radial-gradient(circle at 30% 110%, #fdf497 0%, #fd5949 45%, #d6249f 60%, #285AEB 90%); }
+  .wa { background: #25d366; }
+  .social-float svg { width: 28px; height: 28px; }
+  .social-float .wa svg { width: 30px; height: 30px; }
+
+  /* scroll to top */
+  .totop {
+    position: fixed; right: 18px; bottom: 84px; z-index: 45;
+    width: 42px; height: 42px; border-radius: 50%;
+    background: rgba(42,37,32,.72); color: #fff; border: 0; cursor: pointer;
+    font-size: 18px; display: none; place-items: center;
+  }
+  .totop.show { display: grid; }
+  .totop:hover { background: var(--brand); }
+
+  @media (max-width: 880px) {
+    .gallery { grid-template-columns: 1fr 1fr; }
+    .napo .grid, .contact .grid { grid-template-columns: 1fr; }
+    section { padding: 48px 18px; }
+  }
+  @media (max-width: 620px) {
+    .nav-links { display: none; position: absolute; top: 100%; left: 0; right: 0; background: #fff; border-bottom: 1px solid var(--line); flex-direction: column; align-items: stretch; padding: 10px 14px; gap: 2px; }
+    .nav-links.open { display: flex; }
+    .nav-links a { padding: 11px 8px; border-radius: 8px; }
+    .nav-links .order-btn { justify-content: center; padding: 12px; }
+    .menu-toggle { display: block; }
+    .hero-inner { padding: 64px 18px 84px; }
+    .form-card .row { grid-template-columns: 1fr; }
+    .gallery { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="nav-inner">
+    <a class="logo" href="/" aria-label="Beluchis home">
+      <img src="/home/logo.png" alt="Beluchi's logo with R" />
+    </a>
+    <button class="menu-toggle" aria-label="Toggle menu" aria-expanded="false">&#9776;</button>
+    <nav class="nav-links" aria-label="Main">
+      <a href="/">HOME</a>
+      <a href="/order">MENU</a>
+      <a href="/portal">MY ORDERS</a>
+      <a href="#contact">CONTACT US</a>
+      <a class="order-btn" href="/order">ORDER NOW!</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero" id="top">
+    <div class="bg" aria-hidden="true"></div>
+    <div class="shade" aria-hidden="true"></div>
+    <div class="hero-inner">
+      <p class="script">Authentic &amp; Hand Crafted</p>
+      <h1>Wood-fired flavour, made fresh every day</h1>
+      <p>Hand-stretched dough, slow-fermented for 48 hours. Order online and collect, or get it delivered within 3&nbsp;km of Worcester.</p>
+      <div class="btn-row">
+        <a class="btn" href="/order">ORDER NOW!</a>
+      </div>
+    </div>
+  </section>
+
+  <section id="specials">
+    <div class="wrap">
+      <h2 class="section-title">Authentic &amp; Hand Crafted</h2>
+      <p class="section-sub">Tap any dish to add it to your order.</p>
+      <div class="gallery">
+        <a href="/order?item=cheddar-steak-melt" aria-label="Order Cheddar Steak GOURMET">
+          <img src="/home/gallery/cheddar-steak.jpg" alt="Cheddar Steak GOURMET" loading="lazy" />
+          <span class="cap"><small>Gourmet</small>Cheddar Steak</span>
+        </a>
+        <a href="/order?item=regina" aria-label="Order Regina TRADITIONAL">
+          <img src="/home/gallery/regina.jpg" alt="Regina TRADITIONAL" loading="lazy" />
+          <span class="cap"><small>Traditional</small>Regina</span>
+        </a>
+        <a href="/order?item=working-class-hero" aria-label="Order Working Class Hero GOURMET">
+          <img src="/home/gallery/working-class-hero.jpg" alt="Working Class Hero GOURMET" loading="lazy" />
+          <span class="cap"><small>Signature</small>Working Class Hero</span>
+        </a>
+        <a href="/order?item=bbq-chicken" aria-label="Order BBQ Roast Chicken TRADITIONAL">
+          <img src="/home/gallery/bbq-roast-chicken.jpg" alt="BBQ Roast Chicken TRADITIONAL" loading="lazy" />
+          <span class="cap"><small>Traditional</small>BBQ Roast Chicken</span>
+        </a>
+        <a href="/order?item=rib-delight" aria-label="Order Rib Delight">
+          <img src="/home/gallery/rib-delight.jpg" alt="Rib Delight" loading="lazy" />
+          <span class="cap"><small>Deluxe</small>Rib Delight</span>
+        </a>
+        <a href="/order?item=rock-n-roll" aria-label="Order Rock 'n Roll Bacon DELUXE">
+          <img src="/home/gallery/rock-n-roll-bacon.jpg" alt="Rock 'n Roll Bacon DELUXE" loading="lazy" />
+          <span class="cap"><small>Deluxe</small>Rock 'n Roll Bacon</span>
+        </a>
+        <a href="/order?item=salami-supreme" aria-label="Order Salami Supreme DELUXE">
+          <img src="/home/gallery/salami-supreme.jpg" alt="Salami Supreme DELUXE" loading="lazy" />
+          <span class="cap"><small>Deluxe</small>Salami Supreme</span>
+        </a>
+        <a href="/order?cat=gourmet-pizzas" aria-label="Three Cheese Rocket Gourmet">
+          <img src="/home/gallery/three-cheese-rocket.jpg" alt="Three Cheese &amp; Rocket" loading="lazy" />
+          <span class="cap"><small>Gourmet</small>Three Cheese &amp; Rocket</span>
+        </a>
+        <a href="/order?cat=deluxe-pizzas" aria-label="BBF Pizza Deluxe">
+          <img src="/home/gallery/bbf-pizza.jpg" alt="BBF PIZZA" loading="lazy" />
+          <span class="cap"><small>New</small>BBF Pizza</span>
+        </a>
+      </div>
+      <div class="center">
+        <a class="btn outline" href="/order">VIEW MENU</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="napo" id="napoletana">
+    <div class="wrap">
+      <div class="grid">
+        <div>
+          <span class="tag">Now Available</span>
+          <h2>Napoletana Style Pizzas Now Available</h2>
+          <p class="big">All medium pizzas now available with Napoletana base at extra cost of R20</p>
+          <p>Made from well-fermented dough for chewy, airy crust pizzas with puffy edges. Dough takes 48&nbsp;hours to make, so when it is done for the day then we have to wait for the next batch to be ready.</p>
+        </div>
+        <img src="/home/napoletana.jpg" alt="Napoletana style pizza with avocado" loading="lazy" />
+      </div>
+      <div class="center">
+        <a class="btn" href="/order?cat=napoletana-pizzas">VIEW MENU</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="contact" id="contact">
+    <div class="wrap">
+      <h2 class="section-title">Get in Touch With Us!</h2>
+      <p class="section-sub">We are open for business every day.</p>
+      <div class="grid">
+        <div>
+          <div class="info-card">
+            <h3>Visit Us</h3>
+            <p>72 High Street, Q-Square, Worcester, South Africa</p>
+            <table class="hours">
+              <tr><td>Sun &ndash; Thu</td><td>10:00 &ndash; 21:00</td></tr>
+              <tr><td>Friday</td><td>10:00 &ndash; 22:00</td></tr>
+              <tr><td>Saturday</td><td>10:00 &ndash; 21:00</td></tr>
+            </table>
+          </div>
+          <div class="info-card">
+            <h3>Call or Email</h3>
+            <p class="cash">Tel: <a href="tel:+27233475447">023 347 5447</a></p>
+            <p><a href="mailto:info@beluchis.co.za">info@beluchis.co.za</a></p>
+            <p>No orders by email please &mdash; use the <a href="/order">order page</a> or WhatsApp.</p>
+          </div>
+        </div>
+        <div class="form-card">
+          <h3>Send Us a Message!</h3>
+          <form id="contact-form">
+            <div class="row">
+              <div class="field">
+                <label for="cf-name">Name *</label>
+                <input id="cf-name" name="name" required autocomplete="name" />
+              </div>
+              <div class="field">
+                <label for="cf-phone">Contact Number *</label>
+                <input id="cf-phone" name="cellphone" required autocomplete="tel" placeholder="+27 ..." />
+              </div>
+            </div>
+            <div class="field">
+              <label for="cf-email">Email (optional)</label>
+              <input id="cf-email" name="email" type="email" autocomplete="email" />
+            </div>
+            <div class="field">
+              <label for="cf-message">Comment or Message *</label>
+              <textarea id="cf-message" name="message" rows="4" required></textarea>
+            </div>
+            <button class="btn" type="submit">Submit</button>
+            <p class="msg" id="cf-msg" hidden></p>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="foot-inner">
+    <a class="logo" href="/" aria-label="Beluchis home"><img src="/home/logo.png" alt="Beluchi's logo" /></a>
+    <nav class="foot-nav" aria-label="Footer">
+      <a href="/">HOME</a>
+      <a href="/order">MENU</a>
+      <a href="/portal" target="_blank" rel="noopener">MY ORDERS</a>
+      <a href="#contact">CONTACT US</a>
+    </nav>
+    <p class="foot-meta">72 High Street, Q-Square, Worcester &middot; Tel: <a href="tel:+27233475447">023 347 5447</a> &middot; <a href="mailto:info@beluchis.co.za">info@beluchis.co.za</a></p>
+    <div class="foot-social">
+      <a href="https://www.facebook.com/beluchisworcesterpizza" target="_blank" rel="noopener" aria-label="Beluchi's on Facebook"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.5 21v-8h2.7l.4-3.2h-3.1V7.6c0-.9.3-1.6 1.6-1.6h1.7V3.1c-.3 0-1.3-.1-2.5-.1-2.5 0-4.2 1.5-4.2 4.3v2.5H7.4V13h2.7v8h3.4z"/></svg></a>
+      <a href="https://www.instagram.com/explore/locations/1701907266739408/beluchis-woodfired-artisan-pizzas/" target="_blank" rel="noopener" aria-label="Beluchi's on Instagram"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 4.3c2.7 0 3 0 4.1.1 1 0 1.6.2 1.9.4.5.2.8.4 1.2.8.4.4.6.7.8 1.2.2.3.3.9.4 1.9.1 1.1.1 1.4.1 4.1s0 3-.1 4.1c0 1-.2 1.6-.4 1.9-.2.5-.4.8-.8 1.2-.4.4-.7.6-1.2.8-.3.2-.9.3-1.9.4-1.1.1-1.4.1-4.1.1s-3 0-4.1-.1c-1 0-1.6-.2-1.9-.4-.5-.2-.8-.4-1.2-.8-.4-.4-.6-.7-.8-1.2-.2-.3-.3-.9-.4-1.9C4.3 15 4.3 14.7 4.3 12s0-3 .1-4.1c0-1 .2-1.6.4-1.9.2-.5.4-.8.8-1.2.4-.4.7-.6 1.2-.8.3-.2.9-.3 1.9-.4 1.1-.1 1.4-.1 4.1-.1zm0-1.9c-2.8 0-3.1 0-4.2.1-1.1.1-1.9.2-2.5.5-.7.3-1.2.6-1.8 1.2-.6.6-.9 1.1-1.2 1.8-.3.7-.5 1.4-.5 2.5C1.8 10.9 1.8 11.2 1.8 14s0 3.1.1 4.2c.1 1.1.2 1.9.5 2.5.3.7.6 1.2 1.2 1.8.6.6 1.1.9 1.8 1.2.7.3 1.4.5 2.5.5 1.1.1 1.4.1 4.2.1s3.1 0 4.2-.1c1.1-.1 1.9-.2 2.5-.5.7-.3 1.2-.6 1.8-1.2.6-.6.9-1.1 1.2-1.8.3-.7.5-1.4.5-2.5.1-1.1.1-1.4.1-4.2s0-3.1-.1-4.2c-.1-1.1-.2-1.9-.5-2.5-.3-.7-.6-1.2-1.2-1.8-.6-.6-1.1-.9-1.8-1.2-.7-.3-1.4-.5-2.5-.5H12zm0 4.6a5.1 5.1 0 1 0 0 10.2 5.1 5.1 0 0 0 0-10.2zm0 8.4a3.3 3.3 0 1 1 0-6.6 3.3 3.3 0 0 1 0 6.6zm6.6-8.6a1.2 1.2 0 1 1-2.4 0 1.2 1.2 0 0 1 2.4 0z"/></svg></a>
+    </div>
+    <p class="foot-copy">&copy; 2026 &mdash; Beluchis | All rights reserved</p>
+  </div>
+</footer>
+
+<div class="social-float">
+  <a class="soc-fb" href="https://www.facebook.com/beluchisworcesterpizza" target="_blank" rel="noopener" aria-label="Follow Beluchi's on Facebook">
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.5 21v-8h2.7l.4-3.2h-3.1V7.6c0-.9.3-1.6 1.6-1.6h1.7V3.1c-.3 0-1.3-.1-2.5-.1-2.5 0-4.2 1.5-4.2 4.3v2.5H7.4V13h2.7v8h3.4z"/></svg>
+  </a>
+  <a class="soc-ig" href="https://www.instagram.com/explore/locations/1701907266739408/beluchis-woodfired-artisan-pizzas/" target="_blank" rel="noopener" aria-label="Beluchi's on Instagram">
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 4.3c2.7 0 3 0 4.1.1 1 0 1.6.2 1.9.4.5.2.8.4 1.2.8.4.4.6.7.8 1.2.2.3.3.9.4 1.9.1 1.1.1 1.4.1 4.1s0 3-.1 4.1c0 1-.2 1.6-.4 1.9-.2.5-.4.8-.8 1.2-.4.4-.7.6-1.2.8-.3.2-.9.3-1.9.4-1.1.1-1.4.1-4.1.1s-3 0-4.1-.1c-1 0-1.6-.2-1.9-.4-.5-.2-.8-.4-1.2-.8-.4-.4-.6-.7-.8-1.2-.2-.3-.3-.9-.4-1.9C4.3 15 4.3 14.7 4.3 12s0-3 .1-4.1c0-1 .2-1.6.4-1.9.2-.5.4-.8.8-1.2.4-.4.7-.6 1.2-.8.3-.2.9-.3 1.9-.4 1.1-.1 1.4-.1 4.1-.1zm0-1.9c-2.8 0-3.1 0-4.2.1-1.1.1-1.9.2-2.5.5-.7.3-1.2.6-1.8 1.2-.6.6-.9 1.1-1.2 1.8-.3.7-.5 1.4-.5 2.5C1.8 10.9 1.8 11.2 1.8 14s0 3.1.1 4.2c.1 1.1.2 1.9.5 2.5.3.7.6 1.2 1.2 1.8.6.6 1.1.9 1.8 1.2.7.3 1.4.5 2.5.5 1.1.1 1.4.1 4.2.1s3.1 0 4.2-.1c1.1-.1 1.9-.2 2.5-.5.7-.3 1.2-.6 1.8-1.2.6-.6.9-1.1 1.2-1.8.3-.7.5-1.4.5-2.5.1-1.1.1-1.4.1-4.2s0-3.1-.1-4.2c-.1-1.1-.2-1.9-.5-2.5-.3-.7-.6-1.2-1.2-1.8-.6-.6-1.1-.9-1.8-1.2-.7-.3-1.4-.5-2.5-.5H12zm0 4.6a5.1 5.1 0 1 0 0 10.2 5.1 5.1 0 0 0 0-10.2zm0 8.4a3.3 3.3 0 1 1 0-6.6 3.3 3.3 0 0 1 0 6.6zm6.6-8.6a1.2 1.2 0 1 1-2.4 0 1.2 1.2 0 0 1 2.4 0z"/></svg>
+  </a>
+  <a class="wa" href="https://wa.me/27714617381" target="_blank" rel="noopener" aria-label="Chat with us on WhatsApp">
+  <svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M16 .8C7.6.8.8 7.6.8 16c0 2.7.7 5.3 2 7.6L.8 31.2l7.8-2c2.3 1.2 4.8 1.9 7.4 1.9 8.4 0 15.2-6.8 15.2-15.2S24.4.8 16 .8zm0 27.7c-2.4 0-4.7-.6-6.7-1.9l-.5-.3-4.6 1.2 1.2-4.4-.3-.5C3.7 20.3 3 18.1 3 15.9 3 8.8 8.8 3 16 3s13 5.8 13 13-5.8 12.5-13 12.5zm6.7-9.4c-.4-.2-2.2-1.1-2.5-1.2-.3-.1-.6-.2-.8.2-.2.4-.8 1.2-1 1.5-.2.2-.4.3-.7.1-.4-.2-1.5-.6-2.9-1.8-1.1-1-1.8-2.2-2-2.5-.2-.4-.1-.6.1-.8.2-.2.4-.4.5-.6.2-.2.2-.4.4-.6.1-.2 0-.4 0-.6l-1.1-2.6c-.3-.7-.6-.6-.8-.6h-.7c-.2 0-.6.1-.9.4-.3.3-1.2 1.2-1.2 2.9s1.2 3.4 1.4 3.6c.2.2 2.4 3.7 5.8 5.2.8.3 1.4.5 1.9.7.8.2 1.5.2 2 .1.6-.1 2.2-.9 2.5-1.8.3-.9.3-1.6.2-1.8-.1-.1-.3-.2-.7-.4z"/></svg>
+  </a>
+</div>
+<button class="totop" id="totop" aria-label="Scroll to top">&#8593;</button>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+
+const toggle = $(".menu-toggle");
+const navLinks = $(".nav-links");
+toggle.addEventListener("click", () => {
+  const open = navLinks.classList.toggle("open");
+  toggle.setAttribute("aria-expanded", open ? "true" : "false");
+});
+for (const a of document.querySelectorAll(".nav-links a")) {
+  a.addEventListener("click", () => {
+    navLinks.classList.remove("open");
+    toggle.setAttribute("aria-expanded", "false");
+  });
+}
+
+const totop = $("#totop");
+window.addEventListener("scroll", () => totop.classList.toggle("show", window.scrollY > 500), { passive: true });
+totop.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+
+$("#contact-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const payload = {
+    name: String(f.get("name") || "").trim(),
+    cellphone: String(f.get("cellphone") || "").trim() || null,
+    email: String(f.get("email") || "").trim() || null,
+    message: String(f.get("message") || "").trim(),
+  };
+  const msg = $("#cf-msg");
+  const btn = e.target.querySelector("button[type=submit]");
+  msg.hidden = true;
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/contact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Something went wrong");
+    msg.hidden = false;
+    msg.className = "msg ok";
+    msg.textContent = "Thanks, " + payload.name + "! We\u2019ll get back to you soon.";
+    e.target.reset();
+  } catch (err) {
+    msg.hidden = false;
+    msg.className = "msg err";
+    msg.textContent = err.message || "Please try again.";
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

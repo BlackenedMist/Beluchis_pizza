@@ -1,0 +1,256 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Category {
+  id          Int     @id @default(autoincrement())
+  name        String
+  slug        String  @unique
+  description String?
+  dealText    String?
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+  items       Item[]
+}
+
+model Item {
+  id          Int        @id @default(autoincrement())
+  name        String
+  slug        String     @unique
+  description String?
+  itemType    String     @default("menuitem")
+  categoryId  Int?
+  category    Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  imageUrl    String?
+  isActive    Boolean    @default(true)
+  isFeatured  Boolean    @default(false)
+  sortOrder   Int        @default(0)
+  sizes       ItemSize[]
+  toppings    ItemTopping[]
+  bases       ItemBase[]
+  orderItems  OrderItem[]
+  specialItems SpecialItem[]
+}
+
+model Special {
+  id          Int           @id @default(autoincrement())
+  name        String
+  description String?
+  price       Int
+  isActive    Boolean       @default(true)
+  sortOrder   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  items       SpecialItem[]
+}
+
+model SpecialItem {
+  id        Int     @id @default(autoincrement())
+  specialId Int
+  special   Special @relation(fields: [specialId], references: [id], onDelete: Cascade)
+  itemId    Int
+  item      Item    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  quantity  Int     @default(1)
+
+  @@unique([specialId, itemId])
+}
+
+model Customer {
+  id           Int      @id @default(autoincrement())
+  firstName    String
+  lastName     String
+  email        String?  @unique
+  cellphone    String?  @unique
+  username     String   @unique
+  passwordHash String
+  claimedAt    DateTime?
+  lat          Float?
+  lng          Float?
+  addressLabel String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  orders       Order[]
+  coupons      Coupon[]
+}
+
+model Order {
+  id              Int         @id @default(autoincrement())
+  customerId      Int
+  customer        Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  status          String      @default("placed")
+  paymentMethod   String      @default("cod_cash") // "cod_cash" | "cod_card" | "paygate"
+  paymentStatus   String      @default("pending") // "pending" | "paid" | "failed"
+  payRef          String?
+  payRequestId    String?
+  txnId           String?
+  resultCode      String?
+  resultDesc      String?
+  total           Int
+  discountCode    String?
+  discountLabel   String?
+  discountAmount  Int          @default(0)
+  grandTotal      Int?
+  deliveryLat     Float?
+  deliveryLng     Float?
+  deliveryAddress String?
+  deliveryDistance Float?
+  deliveryFee      Int          @default(0)
+  deliveryStatus   String?
+  notes           String?
+  createdAt       DateTime     @default(now())
+  items           OrderItem[]
+  events          OrderStatusEvent[]
+
+  @@index([customerId, createdAt])
+}
+
+model OrderStatusEvent {
+  id        Int      @id @default(autoincrement())
+  orderId   Int
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    String
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+}
+
+model Coupon {
+  id          Int         @id @default(autoincrement())
+  code        String      @unique
+  kind        String      @default("percent") // "percent" | "rand"
+  value       Int
+  label       String
+  minSpend    Int?
+  expiresAt   DateTime?
+  note        String?
+  customerId  Int?
+  customer    Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  isActive    Boolean     @default(true)
+  usageCount  Int         @default(0)
+  usageLimit  Int?
+  usedAt      DateTime?
+  usedOrderId Int?
+  createdAt   DateTime    @default(now())
+}
+
+model OrderItem {
+  id        Int    @id @default(autoincrement())
+  orderId   Int
+  order     Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  itemId    Int?
+  item      Item?  @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  itemName  String
+  sizeLabel String?
+  unitPrice Int
+  quantity  Int    @default(1)
+  extras    String?
+  total     Int
+}
+
+model ItemSize {
+  id        Int    @id @default(autoincrement())
+  itemId    Int
+  item      Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  sizeLabel String
+  price     Int
+  isActive  Boolean @default(true)
+
+  @@unique([itemId, sizeLabel])
+}
+
+model Topping {
+  id        Int            @id @default(autoincrement())
+  name      String
+  slug      String         @unique
+  tier      Int            @default(0)
+  sortOrder Int            @default(0)
+  isActive  Boolean        @default(true)
+  prices    ToppingPrice[]
+  items     ItemTopping[]
+}
+
+model ToppingPrice {
+  id        Int     @id @default(autoincrement())
+  toppingId Int
+  topping   Topping @relation(fields: [toppingId], references: [id], onDelete: Cascade)
+  sizeLabel String
+  price     Int
+
+  @@unique([toppingId, sizeLabel])
+}
+
+model Base {
+  id          Int        @id @default(autoincrement())
+  name        String
+  slug        String     @unique
+  description String?
+  sortOrder   Int        @default(0)
+  isActive    Boolean    @default(true)
+  prices      BasePrice[]
+  items       ItemBase[]
+}
+
+model BasePrice {
+  id        Int    @id @default(autoincrement())
+  baseId    Int
+  base      Base   @relation(fields: [baseId], references: [id], onDelete: Cascade)
+  sizeLabel String
+  price     Int
+
+  @@unique([baseId, sizeLabel])
+}
+
+model ItemTopping {
+  id        Int     @id @default(autoincrement())
+  itemId    Int
+  item      Item    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  toppingId Int
+  topping   Topping @relation(fields: [toppingId], references: [id], onDelete: Cascade)
+  sortOrder Int     @default(0)
+
+  @@unique([itemId, toppingId])
+}
+
+model ItemBase {
+  id     Int  @id @default(autoincrement())
+  itemId Int
+  item   Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  baseId Int
+  base   Base @relation(fields: [baseId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, baseId])
+}
+
+model StaffUser {
+  id          Int       @id @default(autoincrement())
+  name        String
+  username    String    @unique
+  pinHash     String
+  role        String    @default("orders")
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model ContactMessage {
+  id         Int      @id @default(autoincrement())
+  name       String
+  email      String?
+  cellphone  String?
+  message    String
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+// Key/value store for small store-wide configurations (e.g. delivery radius).
+model Setting {
+  key   String @id
+  value String
+}

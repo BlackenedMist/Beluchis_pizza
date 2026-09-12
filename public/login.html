@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sign in · Beluchis</title>
+<link rel="stylesheet" href="theme.css" />
+<style>
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card {
+    width: 100%;
+    max-width: 360px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 28px 26px;
+    box-shadow: var(--shadow);
+  }
+  .card h1 {
+    font-size: 18px;
+    margin: 0 0 4px;
+  }
+  .card .sub {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-bottom: 20px;
+  }
+  .field {
+    margin-bottom: 13px;
+  }
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .field input {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 14.5px;
+    background: #fff;
+    color: var(--ink);
+  }
+  .field input:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 0;
+    border-color: transparent;
+  }
+  .hint {
+    font-size: 11.5px;
+    color: var(--muted);
+    margin: -4px 0 0;
+  }
+  button {
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    border: 0;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14.5px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 14px;
+  }
+  button:hover {
+    background: var(--accent-dark);
+  }
+  button:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+  }
+  .error {
+    display: none;
+    background: var(--warn-bg);
+    color: var(--warn-ink);
+    border: 1px solid #ead9ae;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12.5px;
+    margin-bottom: 12px;
+  }
+  .error.show {
+    display: block;
+  }
+  footer {
+    margin-top: 18px;
+    text-align: center;
+    font-size: 11.5px;
+  }
+  footer a {
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+  <form class="card" id="form" autocomplete="on">
+    <h1>Beluchis Admin</h1>
+    <p class="sub">Sign in with your username and PIN.</p>
+    <div class="error" id="error"></div>
+    <div class="field">
+      <label for="username">Username</label>
+      <input id="username" name="username" inputmode="text" autocomplete="username" />
+      <p class="hint">Admin PIN login: leave blank, or enter <code>admin</code> (uses the server <code>ADMIN_PIN</code>).</p>
+    </div>
+    <div class="field">
+      <label for="pin">PIN</label>
+      <input id="pin" name="pin" type="password" inputmode="numeric" autocomplete="current-password" required />
+    </div>
+    <button type="submit" id="go">Sign in</button>
+    <footer>
+      <a href="/">← Back to menu</a>
+    </footer>
+  </form>
+
+<script>
+  const form = document.getElementById("form");
+  const error = document.getElementById("error");
+  const go = document.getElementById("go");
+
+  function showErr(msg) {
+    error.textContent = msg;
+    error.classList.add("show");
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    error.classList.remove("show");
+    const pin = document.getElementById("pin").value;
+    if (!pin) return showErr("Enter your PIN.");
+    go.disabled = true;
+    go.textContent = "Signing in…";
+    try {
+      const username = document.getElementById("username").value.trim();
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username || null, pin }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Sign in failed");
+      location.href = "/admin";
+      return;
+    } catch (err) {
+      showErr(err.message);
+    } finally {
+      go.disabled = false;
+      go.textContent = "Sign in";
+    }
+  });
+</script>
+</body>
+</html>
