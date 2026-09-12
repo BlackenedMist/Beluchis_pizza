@@ -1,0 +1,834 @@
+[
+  {
+    "name": "Chilli",
+    "slug": "chilli",
+    "tier": 1,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 10
+      },
+      {
+        "sizeLabel": "M",
+        "price": 12
+      },
+      {
+        "sizeLabel": "L",
+        "price": 14
+      }
+    ],
+    "sortOrder": 0,
+    "isActive": true
+  },
+  {
+    "name": "garlic",
+    "slug": "garlic",
+    "tier": 1,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 10
+      },
+      {
+        "sizeLabel": "M",
+        "price": 12
+      },
+      {
+        "sizeLabel": "L",
+        "price": 14
+      }
+    ],
+    "sortOrder": 1,
+    "isActive": true
+  },
+  {
+    "name": "onion",
+    "slug": "onion",
+    "tier": 1,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 10
+      },
+      {
+        "sizeLabel": "M",
+        "price": 12
+      },
+      {
+        "sizeLabel": "L",
+        "price": 14
+      }
+    ],
+    "sortOrder": 2,
+    "isActive": true
+  },
+  {
+    "name": "rocket",
+    "slug": "rocket",
+    "tier": 1,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 10
+      },
+      {
+        "sizeLabel": "M",
+        "price": 12
+      },
+      {
+        "sizeLabel": "L",
+        "price": 14
+      }
+    ],
+    "sortOrder": 3,
+    "isActive": true
+  },
+  {
+    "name": "Honey",
+    "slug": "honey",
+    "tier": 2,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 12
+      },
+      {
+        "sizeLabel": "M",
+        "price": 14
+      },
+      {
+        "sizeLabel": "L",
+        "price": 16
+      }
+    ],
+    "sortOrder": 4,
+    "isActive": true
+  },
+  {
+    "name": "Banana",
+    "slug": "banana",
+    "tier": 2,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 12
+      },
+      {
+        "sizeLabel": "M",
+        "price": 14
+      },
+      {
+        "sizeLabel": "L",
+        "price": 16
+      }
+    ],
+    "sortOrder": 5,
+    "isActive": true
+  },
+  {
+    "name": "caramelised onion",
+    "slug": "caramelised-onion",
+    "tier": 2,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 12
+      },
+      {
+        "sizeLabel": "M",
+        "price": 14
+      },
+      {
+        "sizeLabel": "L",
+        "price": 16
+      }
+    ],
+    "sortOrder": 6,
+    "isActive": true
+  },
+  {
+    "name": "cherry tomatoes",
+    "slug": "cherry-tomatoes",
+    "tier": 2,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 12
+      },
+      {
+        "sizeLabel": "M",
+        "price": 14
+      },
+      {
+        "sizeLabel": "L",
+        "price": 16
+      }
+    ],
+    "sortOrder": 7,
+    "isActive": true
+  },
+  {
+    "name": "crispy onion",
+    "slug": "crispy-onion",
+    "tier": 2,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 12
+      },
+      {
+        "sizeLabel": "M",
+        "price": 14
+      },
+      {
+        "sizeLabel": "L",
+        "price": 16
+      }
+    ],
+    "sortOrder": 8,
+    "isActive": true
+  },
+  {
+    "name": "jalapeno",
+    "slug": "jalapeno",
+    "tier": 2,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 12
+      },
+      {
+        "sizeLabel": "M",
+        "price": 14
+      },
+      {
+        "sizeLabel": "L",
+        "price": 16
+      }
+    ],
+    "sortOrder": 9,
+    "isActive": true
+  },
+  {
+    "name": "mixed peppers",
+    "slug": "mixed-peppers",
+    "tier": 2,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 12
+      },
+      {
+        "sizeLabel": "M",
+        "price": 14
+      },
+      {
+        "sizeLabel": "L",
+        "price": 16
+      }
+    ],
+    "sortOrder": 10,
+    "isActive": true
+  },
+  {
+    "name": "mushrooms",
+    "slug": "mushrooms",
+    "tier": 2,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 12
+      },
+      {
+        "sizeLabel": "M",
+        "price": 14
+      },
+      {
+        "sizeLabel": "L",
+        "price": 16
+      }
+    ],
+    "sortOrder": 11,
+    "isActive": true
+  },
+  {
+    "name": "olives",
+    "slug": "olives",
+    "tier": 2,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 12
+      },
+      {
+        "sizeLabel": "M",
+        "price": 14
+      },
+      {
+        "sizeLabel": "L",
+        "price": 16
+      }
+    ],
+    "sortOrder": 12,
+    "isActive": true
+  },
+  {
+    "name": "piquanté peppers",
+    "slug": "piquant-peppers",
+    "tier": 2,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 12
+      },
+      {
+        "sizeLabel": "M",
+        "price": 14
+      },
+      {
+        "sizeLabel": "L",
+        "price": 16
+      }
+    ],
+    "sortOrder": 13,
+    "isActive": true
+  },
+  {
+    "name": "spinach",
+    "slug": "spinach",
+    "tier": 2,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 12
+      },
+      {
+        "sizeLabel": "M",
+        "price": 14
+      },
+      {
+        "sizeLabel": "L",
+        "price": 16
+      }
+    ],
+    "sortOrder": 14,
+    "isActive": true
+  },
+  {
+    "name": "sun-dried tomatoes",
+    "slug": "sun-dried-tomatoes",
+    "tier": 2,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 12
+      },
+      {
+        "sizeLabel": "M",
+        "price": 14
+      },
+      {
+        "sizeLabel": "L",
+        "price": 16
+      }
+    ],
+    "sortOrder": 15,
+    "isActive": true
+  },
+  {
+    "name": "line fish",
+    "slug": "line-fish",
+    "tier": 2,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 12
+      },
+      {
+        "sizeLabel": "M",
+        "price": 14
+      },
+      {
+        "sizeLabel": "L",
+        "price": 16
+      }
+    ],
+    "sortOrder": 16,
+    "isActive": true
+  },
+  {
+    "name": "Bacon",
+    "slug": "bacon",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 17,
+    "isActive": true
+  },
+  {
+    "name": "beef mince",
+    "slug": "beef-mince",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 18,
+    "isActive": true
+  },
+  {
+    "name": "calamari",
+    "slug": "calamari",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 19,
+    "isActive": true
+  },
+  {
+    "name": "cheddar",
+    "slug": "cheddar",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 20,
+    "isActive": true
+  },
+  {
+    "name": "chicken",
+    "slug": "chicken",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 21,
+    "isActive": true
+  },
+  {
+    "name": "cream cheese",
+    "slug": "cream-cheese",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 22,
+    "isActive": true
+  },
+  {
+    "name": "feta",
+    "slug": "feta",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 23,
+    "isActive": true
+  },
+  {
+    "name": "ham",
+    "slug": "ham",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 24,
+    "isActive": true
+  },
+  {
+    "name": "mozzarella",
+    "slug": "mozzarella",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 25,
+    "isActive": true
+  },
+  {
+    "name": "mussels",
+    "slug": "mussels",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 26,
+    "isActive": true
+  },
+  {
+    "name": "parmesan",
+    "slug": "parmesan",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 27,
+    "isActive": true
+  },
+  {
+    "name": "pineapple",
+    "slug": "pineapple",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 28,
+    "isActive": true
+  },
+  {
+    "name": "prawns",
+    "slug": "prawns",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 29,
+    "isActive": true
+  },
+  {
+    "name": "pepperoni",
+    "slug": "pepperoni",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 30,
+    "isActive": true
+  },
+  {
+    "name": "salami",
+    "slug": "salami",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 31,
+    "isActive": true
+  },
+  {
+    "name": "tuna",
+    "slug": "tuna",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 32,
+    "isActive": true
+  },
+  {
+    "name": "green fig preserve",
+    "slug": "green-fig-preserve",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 33,
+    "isActive": true
+  },
+  {
+    "name": "EVO oil",
+    "slug": "evo-oil",
+    "tier": 3,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 25
+      },
+      {
+        "sizeLabel": "L",
+        "price": 30
+      }
+    ],
+    "sortOrder": 34,
+    "isActive": true
+  },
+  {
+    "name": "Sirloin steak strips (beef)",
+    "slug": "sirloin-steak-strips-beef",
+    "tier": 4,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 25
+      },
+      {
+        "sizeLabel": "M",
+        "price": 30
+      },
+      {
+        "sizeLabel": "L",
+        "price": 35
+      }
+    ],
+    "sortOrder": 35,
+    "isActive": true
+  },
+  {
+    "name": "rib meat strips (pork)",
+    "slug": "rib-meat-strips-pork",
+    "tier": 4,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 25
+      },
+      {
+        "sizeLabel": "M",
+        "price": 30
+      },
+      {
+        "sizeLabel": "L",
+        "price": 35
+      }
+    ],
+    "sortOrder": 36,
+    "isActive": true
+  },
+  {
+    "name": "masala steak strips",
+    "slug": "masala-steak-strips",
+    "tier": 4,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 25
+      },
+      {
+        "sizeLabel": "M",
+        "price": 30
+      },
+      {
+        "sizeLabel": "L",
+        "price": 35
+      }
+    ],
+    "sortOrder": 37,
+    "isActive": true
+  },
+  {
+    "name": "anchovies",
+    "slug": "anchovies",
+    "tier": 4,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 25
+      },
+      {
+        "sizeLabel": "M",
+        "price": 30
+      },
+      {
+        "sizeLabel": "L",
+        "price": 35
+      }
+    ],
+    "sortOrder": 38,
+    "isActive": true
+  },
+  {
+    "name": "Avocado* (only available in large)",
+    "slug": "avocado-only-available-in-large",
+    "tier": 5,
+    "prices": [
+      {
+        "sizeLabel": "L",
+        "price": 35
+      }
+    ],
+    "sortOrder": 39,
+    "isActive": true
+  }
+]

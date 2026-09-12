@@ -1,0 +1,11 @@
+.git
+node_modules
+.env
+dev.db
+dev.db-journal
+dev.db-wal
+dev.db-shm
+beluchis-preview-2026-09-08.zip
+pluginData.txt
+PLAN_MODE.md
+server/.dev-time

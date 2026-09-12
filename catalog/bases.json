@@ -1,0 +1,99 @@
+[
+  {
+    "name": "Thin",
+    "slug": "thin",
+    "description": "Standard thin base",
+    "sortOrder": 0,
+    "isActive": true,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 0
+      },
+      {
+        "sizeLabel": "M",
+        "price": 0
+      },
+      {
+        "sizeLabel": "L",
+        "price": 0
+      }
+    ]
+  },
+  {
+    "name": "Super Thin",
+    "slug": "super-thin",
+    "description": "Extra thin base",
+    "sortOrder": 1,
+    "isActive": true,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 0
+      },
+      {
+        "sizeLabel": "M",
+        "price": 0
+      },
+      {
+        "sizeLabel": "L",
+        "price": 0
+      }
+    ]
+  },
+  {
+    "name": "Thick",
+    "slug": "thick",
+    "description": "Thick base",
+    "sortOrder": 2,
+    "isActive": true,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 0
+      },
+      {
+        "sizeLabel": "M",
+        "price": 0
+      },
+      {
+        "sizeLabel": "L",
+        "price": 0
+      }
+    ]
+  },
+  {
+    "name": "Gluten Free",
+    "slug": "gluten-free",
+    "description": "Gluten free base (Large only)",
+    "sortOrder": 3,
+    "isActive": true,
+    "prices": [
+      {
+        "sizeLabel": "L",
+        "price": 35
+      }
+    ]
+  },
+  {
+    "name": "Napoletana",
+    "slug": "napoletana",
+    "description": "Napoletana dough base",
+    "sortOrder": 4,
+    "isActive": true,
+    "prices": [
+      {
+        "sizeLabel": "S",
+        "price": 20
+      },
+      {
+        "sizeLabel": "M",
+        "price": 20
+      },
+      {
+        "sizeLabel": "L",
+        "price": 20
+      }
+    ]
+  }
+]

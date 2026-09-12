@@ -1,0 +1,1447 @@
+[
+  {
+    "name": "MARGHERITA",
+    "slug": "margherita",
+    "description": "mozzarella & tasty tomato base",
+    "itemType": "special",
+    "category": "Traditional Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 40
+      },
+      {
+        "sizeLabel": "M",
+        "price": 60
+      },
+      {
+        "sizeLabel": "L",
+        "price": 90
+      }
+    ],
+    "sortOrder": 0,
+    "isActive": true
+  },
+  {
+    "name": "HOT CHICKEN",
+    "slug": "hot-chicken",
+    "description": "chicken breast blocks, chilli & Chillinaise sauce",
+    "itemType": "special",
+    "category": "Traditional Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 68
+      },
+      {
+        "sizeLabel": "M",
+        "price": 88
+      },
+      {
+        "sizeLabel": "L",
+        "price": 120
+      }
+    ],
+    "sortOrder": 1,
+    "isActive": true
+  },
+  {
+    "name": "CARIBBEAN",
+    "slug": "caribbean",
+    "description": "mozzarella, bacon, banana & garlic",
+    "itemType": "special",
+    "category": "Traditional Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 68
+      },
+      {
+        "sizeLabel": "M",
+        "price": 88
+      },
+      {
+        "sizeLabel": "L",
+        "price": 120
+      }
+    ],
+    "sortOrder": 2,
+    "isActive": true
+  },
+  {
+    "name": "BBQ CHICKEN",
+    "slug": "bbq-chicken",
+    "description": "chicken, onion, mixed peppers & bbq sauce",
+    "itemType": "special",
+    "category": "Traditional Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 68
+      },
+      {
+        "sizeLabel": "M",
+        "price": 88
+      },
+      {
+        "sizeLabel": "L",
+        "price": 120
+      }
+    ],
+    "sortOrder": 3,
+    "isActive": true
+  },
+  {
+    "name": "BBQ BACON",
+    "slug": "bbq-bacon",
+    "description": "bacon, onion, mixed peppers & bbq sauce",
+    "itemType": "special",
+    "category": "Traditional Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 68
+      },
+      {
+        "sizeLabel": "M",
+        "price": 88
+      },
+      {
+        "sizeLabel": "L",
+        "price": 120
+      }
+    ],
+    "sortOrder": 4,
+    "isActive": true
+  },
+  {
+    "name": "REGINA",
+    "slug": "regina",
+    "description": "ham, mushroom & mozzarella",
+    "itemType": "special",
+    "category": "Traditional Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 68
+      },
+      {
+        "sizeLabel": "M",
+        "price": 88
+      },
+      {
+        "sizeLabel": "L",
+        "price": 120
+      }
+    ],
+    "sortOrder": 5,
+    "isActive": true
+  },
+  {
+    "name": "HAWAIAN",
+    "slug": "hawaian",
+    "description": "ham, pineapple & mozzarella",
+    "itemType": "special",
+    "category": "Traditional Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 68
+      },
+      {
+        "sizeLabel": "M",
+        "price": 85
+      },
+      {
+        "sizeLabel": "L",
+        "price": 120
+      }
+    ],
+    "sortOrder": 6,
+    "isActive": true
+  },
+  {
+    "name": "SPICY PEPPERONI",
+    "slug": "spicy-pepperoni",
+    "description": "with mixed peppers & onion",
+    "itemType": "special",
+    "category": "Traditional Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 68
+      },
+      {
+        "sizeLabel": "M",
+        "price": 85
+      },
+      {
+        "sizeLabel": "L",
+        "price": 120
+      }
+    ],
+    "sortOrder": 7,
+    "isActive": true
+  },
+  {
+    "name": "HANALOLU HAWAIAN",
+    "slug": "hanalolu-hawaian",
+    "description": "ham, bacon, pineapple, fresh mixed peppers & mozzarella cheese",
+    "itemType": "special",
+    "category": "Deluxe Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 80
+      },
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 8,
+    "isActive": true
+  },
+  {
+    "name": "SPICY CHICKEN & BACON",
+    "slug": "spicy-chicken-and-bacon",
+    "description": "chicken breast blocks, bacon, creamy Beluchi’s sauce, jalapenos & mozzarela",
+    "itemType": "special",
+    "category": "Deluxe Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 80
+      },
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 9,
+    "isActive": true
+  },
+  {
+    "name": "PARTY PIZZA",
+    "slug": "party-pizza",
+    "description": "savoury pepperoni, bacon, fresh green peppers, mushrooms, mozzarella & parmesan with crispy onion",
+    "itemType": "special",
+    "category": "Deluxe Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 80
+      },
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 10,
+    "isActive": true
+  },
+  {
+    "name": "BACON SUPREME",
+    "slug": "bacon-supreme",
+    "description": "double bacon & extra cheese",
+    "itemType": "special",
+    "category": "Deluxe Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 80
+      },
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 11,
+    "isActive": true
+  },
+  {
+    "name": "CHEESE BURGER",
+    "slug": "cheese-burger",
+    "description": "BBQ sauce base, beef mince, bacon, onion, cheddar cheese with Burger Sauce",
+    "itemType": "special",
+    "category": "Deluxe Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 80
+      },
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 12,
+    "isActive": true
+  },
+  {
+    "name": "DELUXE CHICKEN & MUSHROOM",
+    "slug": "deluxe-chicken-and-mushroom",
+    "description": "DELUXE CHICKEN & MUSHROOM BBQ chicken, mushrooms & Beluchi’s creamy sauce",
+    "itemType": "special",
+    "category": "Deluxe Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 80
+      },
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 13,
+    "isActive": true
+  },
+  {
+    "name": "PEPPERONI SUPREME",
+    "slug": "pepperoni-supreme",
+    "description": "PEPPERONI SUPREME double pepperoni & extra cheese",
+    "itemType": "special",
+    "category": "Deluxe Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 80
+      },
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 14,
+    "isActive": true
+  },
+  {
+    "name": "ROCK ‘N ROLL",
+    "slug": "rock-n-roll",
+    "description": "bacon OR chicken, feta & avo*",
+    "itemType": "special",
+    "category": "Deluxe Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 80
+      },
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 15,
+    "isActive": true
+  },
+  {
+    "name": "SALAMI SUPREME",
+    "slug": "salami-supreme",
+    "description": "SALAMI SUPREME double salami & extra cheese",
+    "itemType": "special",
+    "category": "Deluxe Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 80
+      },
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 16,
+    "isActive": true
+  },
+  {
+    "name": "ULTIMATE PEPPERONI",
+    "slug": "ultimate-pepperoni",
+    "description": "Pepperoni pepperoni, mozzarella, pineapple OR mushrooms with crispy onion",
+    "itemType": "special",
+    "category": "Deluxe Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 80
+      },
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 17,
+    "isActive": true
+  },
+  {
+    "name": "CASALINGA",
+    "slug": "casalinga",
+    "description": "fresh mushrooms, cherry tomatoes, olives, mixed peppers, mozzarella & *fresh rocket* or basil*",
+    "itemType": "special",
+    "category": "Deluxe Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 80
+      },
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 18,
+    "isActive": true
+  },
+  {
+    "name": "CLUB",
+    "slug": "club",
+    "description": "bacon, bbq chicken, avocado*, feta, garlic & Beluchi’s creamy sauce",
+    "itemType": "special",
+    "category": "Gourmet Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 90
+      },
+      {
+        "sizeLabel": "M",
+        "price": 115
+      },
+      {
+        "sizeLabel": "L",
+        "price": 170
+      }
+    ],
+    "sortOrder": 19,
+    "isActive": true
+  },
+  {
+    "name": "COSMOPOLITAN",
+    "slug": "cosmopolitan",
+    "description": "cream cheese base, chicken, mozzarella, cheddar, bacon, piquanté peppers & sweet chilli sauce",
+    "itemType": "special",
+    "category": "Gourmet Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 90
+      },
+      {
+        "sizeLabel": "M",
+        "price": 115
+      },
+      {
+        "sizeLabel": "L",
+        "price": 170
+      }
+    ],
+    "sortOrder": 20,
+    "isActive": true
+  },
+  {
+    "name": "CHEDDAR STEAK MELT",
+    "slug": "cheddar-steak-melt",
+    "description": "delicious steak strips, fresh onion & bbq sauce, mozzarella & topped with melted cheddar cheese",
+    "itemType": "special",
+    "category": "Gourmet Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 95
+      },
+      {
+        "sizeLabel": "M",
+        "price": 120
+      },
+      {
+        "sizeLabel": "L",
+        "price": 180
+      }
+    ],
+    "sortOrder": 21,
+    "isActive": true
+  },
+  {
+    "name": "FOUR SEASONS",
+    "slug": "four-seasons",
+    "description": "salami, avocado*, mushroom, mixed peppers, olives & cherry tomatoes",
+    "itemType": "special",
+    "category": "Gourmet Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 90
+      },
+      {
+        "sizeLabel": "M",
+        "price": 115
+      },
+      {
+        "sizeLabel": "L",
+        "price": 170
+      }
+    ],
+    "sortOrder": 22,
+    "isActive": true
+  },
+  {
+    "name": "KANSAS",
+    "slug": "kansas",
+    "description": "cream cheese, mushroom, smoked chicken, mozzarella, cheddar, mixed peppers & Beluchi’s sauce",
+    "itemType": "special",
+    "category": "Gourmet Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 90
+      },
+      {
+        "sizeLabel": "M",
+        "price": 115
+      },
+      {
+        "sizeLabel": "L",
+        "price": 170
+      }
+    ],
+    "sortOrder": 23,
+    "isActive": true
+  },
+  {
+    "name": "MEATY DELUXE",
+    "slug": "meaty-deluxe",
+    "description": "ham, salami, bacon, beef mince & bbq sauce",
+    "itemType": "special",
+    "category": "Gourmet Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 90
+      },
+      {
+        "sizeLabel": "M",
+        "price": 115
+      },
+      {
+        "sizeLabel": "L",
+        "price": 170
+      }
+    ],
+    "sortOrder": 24,
+    "isActive": true
+  },
+  {
+    "name": "RIB DELIGHT",
+    "slug": "rib-delight",
+    "description": "rib meat strips, mushrooms OR pineapple onion, & bbq sauce",
+    "itemType": "special",
+    "category": "Gourmet Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 90
+      },
+      {
+        "sizeLabel": "M",
+        "price": 115
+      },
+      {
+        "sizeLabel": "L",
+        "price": 170
+      }
+    ],
+    "sortOrder": 25,
+    "isActive": true
+  },
+  {
+    "name": "SEAFOOD",
+    "slug": "seafood",
+    "description": "tomato base, cheese, calamari, tuna, prawns, mussels & line fish",
+    "itemType": "special",
+    "category": "Gourmet Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 90
+      },
+      {
+        "sizeLabel": "M",
+        "price": 115
+      },
+      {
+        "sizeLabel": "L",
+        "price": 170
+      }
+    ],
+    "sortOrder": 26,
+    "isActive": true
+  },
+  {
+    "name": "SICILIANA",
+    "slug": "siciliana",
+    "description": "anchovies*, olives, capers & feta",
+    "itemType": "special",
+    "category": "Gourmet Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 90
+      },
+      {
+        "sizeLabel": "M",
+        "price": 115
+      },
+      {
+        "sizeLabel": "L",
+        "price": 170
+      }
+    ],
+    "sortOrder": 27,
+    "isActive": true
+  },
+  {
+    "name": "TWO GUN CHARLIE",
+    "slug": "two-gun-charlie",
+    "description": "mushrooms, delicious steak strips, jalapenos,extra mozzarella & Chillinaise sauce & crispy onion",
+    "itemType": "special",
+    "category": "Gourmet Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 95
+      },
+      {
+        "sizeLabel": "M",
+        "price": 120
+      },
+      {
+        "sizeLabel": "L",
+        "price": 180
+      }
+    ],
+    "sortOrder": 28,
+    "isActive": true
+  },
+  {
+    "name": "HIGH STREET 4 CHEESE",
+    "slug": "high-street-4-cheese",
+    "description": "delicious tomato base, extra mozzarella, feta, cheddar & pecorino",
+    "itemType": "special",
+    "category": "Gourmet Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "S",
+        "price": 95
+      },
+      {
+        "sizeLabel": "M",
+        "price": 115
+      },
+      {
+        "sizeLabel": "L",
+        "price": 170
+      }
+    ],
+    "sortOrder": 29,
+    "isActive": true
+  },
+  {
+    "name": "JUST BILTONG",
+    "slug": "just-biltong",
+    "description": "beefy biltong cream cheese base, extra mozzarella cheese, cheddar cheese with large portion of sliced beef biltong & topped with crispy fried onion",
+    "itemType": "menuitem",
+    "category": "Signature Pizza (Large Only)",
+    "sizes": [
+      {
+        "sizeLabel": "L",
+        "price": 200
+      }
+    ],
+    "sortOrder": 30,
+    "isActive": true
+  },
+  {
+    "name": "MORE MEAT",
+    "slug": "more-meat",
+    "description": "ham, salami, bacon, beef mince, pepperoni, steak strips, rib meat strips & bbq sauce",
+    "itemType": "menuitem",
+    "category": "Signature Pizza (Large Only)",
+    "sizes": [
+      {
+        "sizeLabel": "L",
+        "price": 230
+      }
+    ],
+    "sortOrder": 31,
+    "isActive": true
+  },
+  {
+    "name": "WORKING CLASS HERO",
+    "slug": "working-class-hero",
+    "description": "pepperoni, bacon, ham, onion, mushroom & Beluchi’s Sauce",
+    "itemType": "menuitem",
+    "category": "Signature Pizza (Large Only)",
+    "sizes": [
+      {
+        "sizeLabel": "L",
+        "price": 190
+      }
+    ],
+    "sortOrder": 32,
+    "isActive": true
+  },
+  {
+    "name": "ROMAGNOLA",
+    "slug": "romagnola",
+    "description": "ROMAGNOLA chicken, mozzarella, feta & *basil or *rocket",
+    "itemType": "menuitem",
+    "category": "Napoletana Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 33,
+    "isActive": true
+  },
+  {
+    "name": "ALBERO",
+    "slug": "albero",
+    "description": "ALBERO mozzarella,*avocado, cream cheese blobs & *basil or *rocket",
+    "itemType": "menuitem",
+    "category": "Napoletana Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 34,
+    "isActive": true
+  },
+  {
+    "name": "CAPRICCIOSA",
+    "slug": "capricciosa",
+    "description": "mozzarella, ham, mushrooms, olives & cherry tomatoes & *basil or *rocket",
+    "itemType": "menuitem",
+    "category": "Napoletana Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 35,
+    "isActive": true
+  },
+  {
+    "name": "PPIZZA PINATA (Medium Only) Double layer of crust with surprise filling inside of extra cheese, chicken, bacon, Beluchi’s sauce & mixed peppers FREE garlic OR, chilli OR crispy onion",
+    "slug": "ppizza-pinata-medium-only-double-layer-of-crust-with-surprise-filling-inside-of-extra-cheese-chicken-bacon-beluchi-s-sauce-and-mixed-peppers-free-garlic-or-chilli-or-crispy-onion",
+    "description": null,
+    "itemType": "menuitem",
+    "category": "Napoletana Pizzas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 120
+      }
+    ],
+    "sortOrder": 36,
+    "isActive": true
+  },
+  {
+    "name": "ROSEMARY FOCACCIA EVO",
+    "slug": "rosemary-focaccia-evo",
+    "description": "oil, garlic, rock salt & dried rosemary",
+    "itemType": "menuitem",
+    "category": "Foccaccia (made with Napoletana dough)",
+    "sizes": [
+      {
+        "sizeLabel": "L",
+        "price": 75
+      }
+    ],
+    "sortOrder": 37,
+    "isActive": true
+  },
+  {
+    "name": "MEDITERANEAN FOCACIA EVO",
+    "slug": "mediteranean-focacia-evo",
+    "description": "oil, olives, sundried tomatoes, feta, mixed peppers, rock salt, dried oregano",
+    "itemType": "menuitem",
+    "category": "Foccaccia (made with Napoletana dough)",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 75
+      }
+    ],
+    "sortOrder": 38,
+    "isActive": true
+  },
+  {
+    "name": "GARLIC PITA",
+    "slug": "garlic-pita",
+    "description": "pita rubbed with EVO oil & sprinkle with garlic – no cheese",
+    "itemType": "menuitem",
+    "category": "Chitas",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 60
+      }
+    ],
+    "sortOrder": 39,
+    "isActive": true
+  },
+  {
+    "name": "CHITA",
+    "slug": "chita",
+    "description": "CHITA garlic pita sprinkled with half portion mozzarella & parmesan cheese",
+    "itemType": "menuitem",
+    "category": "Chitas",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 75
+      }
+    ],
+    "sortOrder": 40,
+    "isActive": true
+  },
+  {
+    "name": "AL CAPONE VEGAN",
+    "slug": "al-capone-vegan",
+    "description": "spicy Italian marinara sauce, garlic, double fresh mushrooms, olives, sundried tomatoes, spring onion & olive oil drizzled over",
+    "itemType": "menuitem",
+    "category": "Pastas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 110
+      },
+      {
+        "sizeLabel": "L",
+        "price": 160
+      }
+    ],
+    "sortOrder": 46,
+    "isActive": true
+  },
+  {
+    "name": "BEEF LASAGNE",
+    "slug": "beef-lasagne",
+    "description": "baked layers of pasta, béchamel & tomato meat sauce AL FORNO",
+    "itemType": "menuitem",
+    "category": "Pastas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 120
+      },
+      {
+        "sizeLabel": "L",
+        "price": 180
+      }
+    ],
+    "sortOrder": 47,
+    "isActive": true
+  },
+  {
+    "name": "BOLOGNAISE",
+    "slug": "bolognaise",
+    "description": "a rich meat sauce with tomato",
+    "itemType": "menuitem",
+    "category": "Pastas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 95
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 48,
+    "isActive": true
+  },
+  {
+    "name": "BUTTER CHICKEN CURRY",
+    "slug": "butter-chicken-curry",
+    "description": "(new and improved recipe) béchamel, coconut cream, bbq chicken, butter chicken sauce, onion & cherry tomatoes AL FORNO",
+    "itemType": "menuitem",
+    "category": "Pastas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 120
+      },
+      {
+        "sizeLabel": "L",
+        "price": 170
+      }
+    ],
+    "sortOrder": 49,
+    "isActive": true
+  },
+  {
+    "name": "CARBONARA",
+    "slug": "carbonara",
+    "description": "ham, bacon, salami & creamy mushroom sauce",
+    "itemType": "menuitem",
+    "category": "Pastas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 95
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 50,
+    "isActive": true
+  },
+  {
+    "name": "CHICKEN & MUSHROOM",
+    "slug": "chicken-and-mushroom",
+    "description": "chicken in creamy mushroom sauce",
+    "itemType": "menuitem",
+    "category": "Pastas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 95
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 51,
+    "isActive": true
+  },
+  {
+    "name": "CREAMY CHICKEN & BACON",
+    "slug": "creamy-chicken-and-bacon",
+    "description": "chicken, bacon, onion & creamy béchamel",
+    "itemType": "menuitem",
+    "category": "Pastas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 95
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 52,
+    "isActive": true
+  },
+  {
+    "name": "MACARONI & CHEESE",
+    "slug": "macaroni-and-cheese",
+    "description": "penne with cheese sauce AL FORNO",
+    "itemType": "menuitem",
+    "category": "Pastas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 100
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 53,
+    "isActive": true
+  },
+  {
+    "name": "CREAMY PEPPER STEAK",
+    "slug": "creamy-pepper-steak",
+    "description": "steak strips, onion, ground black pepper & a creamy mushroom sauce AL FORNO",
+    "itemType": "menuitem",
+    "category": "Pastas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 120
+      },
+      {
+        "sizeLabel": "L",
+        "price": 180
+      }
+    ],
+    "sortOrder": 54,
+    "isActive": true
+  },
+  {
+    "name": "SEAFOOD",
+    "slug": "seafood-2",
+    "description": "with prawns, mussels, calamari, line fish in a garlicky creamy béchamel AL FORNO",
+    "itemType": "menuitem",
+    "category": "Pastas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 120
+      },
+      {
+        "sizeLabel": "L",
+        "price": 170
+      }
+    ],
+    "sortOrder": 55,
+    "isActive": true
+  },
+  {
+    "name": "VODKA PASTA",
+    "slug": "vodka-pasta",
+    "description": "sauted garlic, onion and chilli flakes, a creamy tomato sauce, parmesan & of course a portion of Vodka to add depth and complexity to this delicious pasta",
+    "itemType": "menuitem",
+    "category": "Pastas",
+    "sizes": [
+      {
+        "sizeLabel": "M",
+        "price": 95
+      },
+      {
+        "sizeLabel": "L",
+        "price": 140
+      }
+    ],
+    "sortOrder": 56,
+    "isActive": true
+  },
+  {
+    "name": "CHICKEN POPS",
+    "slug": "chicken-pops",
+    "description": "portion of chicken pops (with dip sauce of choice)",
+    "itemType": "menuitem",
+    "category": "Sides & Salads",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 50
+      }
+    ],
+    "sortOrder": 57,
+    "isActive": true
+  },
+  {
+    "name": "PARMESAN or GARLIC NAPOLETANA BREAD NUGGETS",
+    "slug": "parmesan-or-garlic-napoletana-bread-nuggets",
+    "description": "with dipping sauce",
+    "itemType": "menuitem",
+    "category": "Sides & Salads",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 30
+      }
+    ],
+    "sortOrder": 58,
+    "isActive": true
+  },
+  {
+    "name": "CLASSIC GREEK SALAD",
+    "slug": "classic-greek-salad",
+    "description": "mixed salad leaves, celery, cucumber, cherry tomatoes, sweet mixed pepper, onion, olives, & feta, croutons & FREE salad dressing",
+    "itemType": "menuitem",
+    "category": "Sides & Salads",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 75
+      }
+    ],
+    "sortOrder": 59,
+    "isActive": true
+  },
+  {
+    "name": "CHICKEN STRIPS",
+    "slug": "chicken-strips",
+    "description": "5 crispy fried chicken strips (with dip of your choice)",
+    "itemType": "menuitem",
+    "category": "Sides & Salads",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 50
+      }
+    ],
+    "sortOrder": 60,
+    "isActive": true
+  },
+  {
+    "name": "CHEESE GRILLERS",
+    "slug": "cheese-grillers",
+    "description": "portion of 10 cheese grillers",
+    "itemType": "menuitem",
+    "category": "Sides & Salads",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 50
+      }
+    ],
+    "sortOrder": 61,
+    "isActive": true
+  },
+  {
+    "name": "CAPE MALVA PUDDING",
+    "slug": "cape-malva-pudding",
+    "description": "made the traditional way",
+    "itemType": "menuitem",
+    "category": "Desserts",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 55
+      }
+    ],
+    "sortOrder": 62,
+    "isActive": true
+  },
+  {
+    "name": "BOSTON STYLE BROWNIE",
+    "slug": "boston-style-brownie",
+    "description": "gooey, fudge like brownie with nuts, topped with chocolate ganache",
+    "itemType": "menuitem",
+    "category": "Desserts",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 55
+      }
+    ],
+    "sortOrder": 63,
+    "isActive": true
+  },
+  {
+    "name": "PEPPERMINT CRISP DESSERT",
+    "slug": "peppermint-crisp-dessert",
+    "description": "layers of caramel, peppermint crisp chocolate, biscuit & cream",
+    "itemType": "menuitem",
+    "category": "Desserts",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 55
+      }
+    ],
+    "sortOrder": 64,
+    "isActive": true
+  },
+  {
+    "name": "ROSEMARY FOCACCIA",
+    "slug": "rosemary-focaccia",
+    "description": "EVO oil, garlic, rock salt & dried rosemaryADD Mozzarella +35",
+    "itemType": "menuitem",
+    "category": "Foccacias (Napoletana Dough)",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 75
+      }
+    ],
+    "sortOrder": 65,
+    "isActive": true
+  },
+  {
+    "name": "MEDITERANEAN FOCACIA",
+    "slug": "mediteranean-focacia",
+    "description": "EVO oil, olives, sundried tomatoes, feta, mixed peppers ADD Mozzarella +35",
+    "itemType": "menuitem",
+    "category": "Foccacias (Napoletana Dough)",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 75
+      }
+    ],
+    "sortOrder": 66,
+    "isActive": true
+  },
+  {
+    "name": "CHEESY ONION",
+    "slug": "cheesy-onion",
+    "description": "delicious mozzarella & crispy onion",
+    "itemType": "menuitem",
+    "category": "Pizza-Rola (Napoletana Dough)",
+    "sizes": [
+      {
+        "sizeLabel": "JNR ROLLA",
+        "price": 40
+      },
+      {
+        "sizeLabel": "BIG BOY ROLLA",
+        "price": 60
+      }
+    ],
+    "sortOrder": 67,
+    "isActive": true
+  },
+  {
+    "name": "BACON or HAM or CHICKEN",
+    "slug": "bacon-or-ham-or-chicken",
+    "description": "mozzarella, mushroom & Beluchi’s OR Prego Sauce OR Burger Sauce",
+    "itemType": "menuitem",
+    "category": "Pizza-Rola (Napoletana Dough)",
+    "sizes": [
+      {
+        "sizeLabel": "JNR ROLLA",
+        "price": 50
+      },
+      {
+        "sizeLabel": "BIG BOY ROLLA",
+        "price": 80
+      }
+    ],
+    "sortOrder": 68,
+    "isActive": true
+  },
+  {
+    "name": "CHEESE BURGER",
+    "slug": "cheese-burger-2",
+    "description": "bbq sauce base, beef mince, bacon, onion, cheddar cheese with Burger Sauce",
+    "itemType": "menuitem",
+    "category": "Pizza-Rola (Napoletana Dough)",
+    "sizes": [
+      {
+        "sizeLabel": "JNR ROLLA",
+        "price": 70
+      },
+      {
+        "sizeLabel": "BIG BOY ROLLA",
+        "price": 100
+      }
+    ],
+    "sortOrder": 69,
+    "isActive": true
+  },
+  {
+    "name": "CHICKEN MAYO",
+    "slug": "chicken-mayo",
+    "description": "CHICKEN MAYO mozzarella, chicken & mayonnaise",
+    "itemType": "menuitem",
+    "category": "Pizza-Rola (Napoletana Dough)",
+    "sizes": [
+      {
+        "sizeLabel": "JNR ROLLA",
+        "price": 50
+      },
+      {
+        "sizeLabel": "BIG BOY ROLLA",
+        "price": 80
+      }
+    ],
+    "sortOrder": 70,
+    "isActive": true
+  },
+  {
+    "name": "CHICKEN & BACON",
+    "slug": "chicken-and-bacon",
+    "description": "with mozzarella & caramelized onion",
+    "itemType": "menuitem",
+    "category": "Pizza-Rola (Napoletana Dough)",
+    "sizes": [
+      {
+        "sizeLabel": "JNR ROLLA",
+        "price": 60
+      },
+      {
+        "sizeLabel": "BIG BOY ROLLA",
+        "price": 90
+      }
+    ],
+    "sortOrder": 71,
+    "isActive": true
+  },
+  {
+    "name": "RIB MEAT & BBQ SAUCE",
+    "slug": "rib-meat-and-bbq-sauce",
+    "description": "with sautéed mushroom & mozzarella",
+    "itemType": "menuitem",
+    "category": "Pizza-Rola (Napoletana Dough)",
+    "sizes": [
+      {
+        "sizeLabel": "JNR ROLLA",
+        "price": 60
+      },
+      {
+        "sizeLabel": "BIG BOY ROLLA",
+        "price": 90
+      }
+    ],
+    "sortOrder": 72,
+    "isActive": true
+  },
+  {
+    "name": "CHICKEN & BACON",
+    "slug": "chicken-and-bacon-2",
+    "description": "mozzarella, mushrooms & Beluchis Sauce",
+    "itemType": "menuitem",
+    "category": "Calzones (Pizza Pies)",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 45
+      }
+    ],
+    "sortOrder": 73,
+    "isActive": true
+  },
+  {
+    "name": "CHICKEN MAYO",
+    "slug": "chicken-mayo-2",
+    "description": "chicken, mayonnaise, snippets of piquanté peppers & cheese",
+    "itemType": "menuitem",
+    "category": "Calzones (Pizza Pies)",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 35
+      }
+    ],
+    "sortOrder": 74,
+    "isActive": true
+  },
+  {
+    "name": "HAM & PINEPAPPLE",
+    "slug": "ham-and-pinepapple",
+    "description": "flaked ham, pineapple and mozzarella cheese",
+    "itemType": "menuitem",
+    "category": "Calzones (Pizza Pies)",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 35
+      }
+    ],
+    "sortOrder": 75,
+    "isActive": true
+  },
+  {
+    "name": "BUTTER CHICKEN & CHERRY TOMATOES",
+    "slug": "butter-chicken-and-cherry-tomatoes",
+    "description": "butter chicken sauce, onion, cherry tomatoes and mozzarella cheese",
+    "itemType": "menuitem",
+    "category": "Calzones (Pizza Pies)",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 40
+      }
+    ],
+    "sortOrder": 76,
+    "isActive": true
+  },
+  {
+    "name": "HOT CHICKEN",
+    "slug": "hot-chicken-2",
+    "description": "BBQ chicken pieces, chilli & Chillinaise sauce",
+    "itemType": "menuitem",
+    "category": "Calzones (Pizza Pies)",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 35
+      }
+    ],
+    "sortOrder": 77,
+    "isActive": true
+  },
+  {
+    "name": "PEPPERONI & CHRISPY ONION",
+    "slug": "pepperoni-and-chrispy-onion",
+    "description": null,
+    "itemType": "menuitem",
+    "category": "Calzones (Pizza Pies)",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 35
+      }
+    ],
+    "sortOrder": 78,
+    "isActive": true
+  },
+  {
+    "name": "BACON & CRISPY ONION",
+    "slug": "bacon-and-crispy-onion",
+    "description": null,
+    "itemType": "menuitem",
+    "category": "Calzones (Pizza Pies)",
+    "sizes": [
+      {
+        "sizeLabel": "ONE",
+        "price": 35
+      }
+    ],
+    "sortOrder": 79,
+    "isActive": true
+  }
+]

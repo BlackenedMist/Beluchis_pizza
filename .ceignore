@@ -1,9 +1,6 @@
-node_modules/
+.git
+node_modules
 beluchis-preview-2026-09-08.zip
 pluginData.txt
-dev.db
-dev.db-journal
-dev.db-wal
-dev.db-shm
-.env
+PLAN_MODE.md
 server/.dev-time

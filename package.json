@@ -13,7 +13,7 @@
     "postinstall": "prisma generate",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "start": "node --env-file=.env server/index.mjs"
+    "start": "node --env-file-if-exists=.env server/index.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

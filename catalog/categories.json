@@ -1,0 +1,114 @@
+[
+  {
+    "name": "Traditional Pizzas",
+    "slug": "traditional-pizzas",
+    "description": null,
+    "dealText": "2 LARGE R200 (2 MEDIUM R150)",
+    "sortOrder": 0,
+    "isActive": true
+  },
+  {
+    "name": "Deluxe Pizzas",
+    "slug": "deluxe-pizzas",
+    "description": null,
+    "dealText": "2 LARGE R250 (2 MEDIUM R180)",
+    "sortOrder": 1,
+    "isActive": true
+  },
+  {
+    "name": "Gourmet Pizzas",
+    "slug": "gourmet-pizzas",
+    "description": null,
+    "dealText": "2 LARGE for R300 (2 MEDIUM for R200)",
+    "sortOrder": 2,
+    "isActive": true
+  },
+  {
+    "name": "Signature Pizza (Large Only)",
+    "slug": "signature-pizza-large-only",
+    "description": null,
+    "dealText": null,
+    "sortOrder": 3,
+    "isActive": true
+  },
+  {
+    "name": "Napoletana Pizzas",
+    "slug": "napoletana-pizzas",
+    "description": null,
+    "dealText": null,
+    "sortOrder": 4,
+    "isActive": true
+  },
+  {
+    "name": "Foccaccia (made with Napoletana dough)",
+    "slug": "foccaccia-made-with-napoletana-dough",
+    "description": null,
+    "dealText": null,
+    "sortOrder": 5,
+    "isActive": true
+  },
+  {
+    "name": "Chitas",
+    "slug": "chitas",
+    "description": "Delicious addition to your meal. Not available with extra toppings.",
+    "dealText": null,
+    "sortOrder": 6,
+    "isActive": true
+  },
+  {
+    "name": "EXTRA TOPPINGS",
+    "slug": "extra-toppings",
+    "description": "Treat Yourself – build your own pizza",
+    "dealText": null,
+    "sortOrder": 7,
+    "isActive": true
+  },
+  {
+    "name": "Pastas",
+    "slug": "pastas",
+    "description": null,
+    "dealText": null,
+    "sortOrder": 8,
+    "isActive": true
+  },
+  {
+    "name": "Sides & Salads",
+    "slug": "sides-and-salads",
+    "description": null,
+    "dealText": null,
+    "sortOrder": 9,
+    "isActive": true
+  },
+  {
+    "name": "Desserts",
+    "slug": "desserts",
+    "description": null,
+    "dealText": null,
+    "sortOrder": 10,
+    "isActive": true
+  },
+  {
+    "name": "Foccacias (Napoletana Dough)",
+    "slug": "foccacias-napoletana-dough",
+    "description": null,
+    "dealText": null,
+    "sortOrder": 11,
+    "isActive": true
+  },
+  {
+    "name": "Pizza-Rola (Napoletana Dough)",
+    "slug": "pizza-rola-napoletana-dough",
+    "description": null,
+    "dealText": null,
+    "sortOrder": 12,
+    "isActive": true
+  },
+  {
+    "name": "Calzones (Pizza Pies)",
+    "slug": "calzones-pizza-pies",
+    "description": null,
+    "dealText": null,
+    "sortOrder": 13,
+    "isActive": true
+  }
+]
