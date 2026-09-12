@@ -33,6 +33,11 @@ The server prints its URLs on boot:
 
 - **Admin**: leave username blank **or** type `admin`, and enter the PIN from
   `.env` (`ADMIN_PIN`, default `1234`). This is the env-PIN login.
+- **Live Code Engine preview**: the deployed preview uses a generated
+  `ADMIN_PIN`, **not** the `1234` default. The current pin lives on the deploy
+  machine at `/mnt/hybrid-apps/configs/ibm/preview-pin.txt` (mode 600) — read
+  that file for the live pin, and change it with
+  `ibmcloud ce app update --name beluchis-preview --env ADMIN_PIN=…`.
 - **Staff**: any username + PIN created under the **Users** tab in the admin
   console (roles: `admin`, `orders`, `kitchen`).
 - **Customer**: open `/portal` (or "My orders" in the storefront header). First
@@ -239,6 +244,8 @@ edits on re-seed).
 - Customer & staff sessions are in-memory and reset on restart. Existing staff
   users keep working; customer passwords (`Customer.passwordHash`) persist in
   the DB across restarts.
+- The live Code Engine preview uses a generated `ADMIN_PIN`, not the `1234`
+  default — see **Logging in** for where to find it.
 - Cellphone login/set-password matches the **exact** phone string the customer
   used at checkout (the same trim that `POST /api/orders` stores), so use the
   exact same format (e.g. `081 234 5678` vs `+27 81 234 5678` must match).
