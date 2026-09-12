@@ -25,6 +25,8 @@ The server prints its URLs on boot:
 - **Storefront (Menu & Order)**: http://localhost:3100/order
 - **Customer portal (My Orders)**: http://localhost:3100/portal
 - **Admin console**: http://localhost:3100/admin
+- **Preview — storefront in a phone/tablet/desktop simulator**: http://localhost:3100/preview/mobile
+- **Preview — customer portal (signs in as the seeded demo customer)**: http://localhost:3100/preview/portal
 - **Log**: `tail -f /tmp/beluchis.log`
 
 ### Logging in
@@ -40,6 +42,11 @@ The server prints its URLs on boot:
   issued to you ("Offers for you"). Never re-enter a password if it was set
   before. Guest checkout accounts are auto-created; claiming attaches past and
   future orders to your login.
+
+A seeded demo customer exists for portal demos — **Zanele Khumalo**
+(`+27 60 555 0000` / `beluchis123`), with order history (incl. a status-event
+timeline) and a `BELU-ZANELE` offer. The customer-portal preview page
+(`/preview/portal`) signs in as her automatically when nobody else is logged in.
 
 ### From source (this repo)
 
@@ -100,6 +107,8 @@ npm run seed         # load the demo catalog (idempotent)
 | `public/home.html` | Marketing homepage. Served at `/`. Hero + signature-dish gallery (each tile deep-links into the order page), Napoletana banner, contact form (`POST /api/contact`). No external credit text. |
 | `public/menu.html` | Customer storefront — menu by category, specials, pizza customization (bases/toppings by size), quantity steppers on items/specials/in the customize dialog, cart (reconciled against the live menu on load so stale item/special ids are pruned), checkout & place order (optional coupon-code field + payment method: cash or card on delivery, or online PayGate when enabled; PayGate orders auto-redirect to the secure portal). Served at `/order`. Supports deep links: `?item=<slug>` (flashes the item + opens its customize dialog) and `?cat=<slug>` (scrolls to the category). After an order it stores `beluchis-recent-order` in localStorage and links to `/portal`. |
 | `public/customer.html` | Customer portal — logged-out login / "First time? Set your password" forms; logged-in dashboard with order history (expandable rows showing items + a full status timeline from `OrderStatusEvent`s) and "Offers for you" coupon cards (Copy code). Served at `/portal`, authed by the `beluchis_customer` cookie. |
+| `public/preview-mobile.html` | Storefront documentation page served at `/preview/mobile` — a live same-origin iframe of `/order` inside a device frame (small phone / standard phone / tablet / desktop selector). Geolocation is blocked in iframes, so the delivery hint runs in address-only mode. |
+| `public/preview-portal.html` | Customer-portal documentation page served at `/preview/portal` — a live iframe of `/portal` with a device selector and an automatic sign-in as the seeded demo customer Zanele (when nobody is logged in), so it opens showing real order history + an offer. |
 | `public/login.html` | Staff login (username + PIN). Served at `/login`. |
 | `public/admin.html` | Admin console. Served at `/admin`. Tabs: **Orders** (live board), **Inbox** (contact form messages, admin/orders), **Items**, **Specials**, **Toppings**, **Bases**, **Categories**, **Users**, **Loyalty** (admin-only). |
 | `public/theme.css` | Shared design tokens (colors, type, spacing). |

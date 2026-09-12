@@ -30,6 +30,9 @@ Every HTTP endpoint served by the Express backend in `server/index.mjs`.
 | GET | `/menu` | 301 → `/order` |
 | GET | `/login` | Staff login (`public/login.html`) |
 | GET | `/portal` | Customer portal (`public/customer.html`) |
+| GET | `/preview` | 302 → `/preview/mobile` |
+| GET | `/preview/mobile` | Storefront live simulator — iframe of `/order` in a phone/tablet/desktop device frame (`public/preview-mobile.html`) |
+| GET | `/preview/portal` | Customer portal live preview — iframe of `/portal` that auto-signs-in as the seeded demo customer (`public/preview-portal.html`) |
 | GET | `/admin` | Admin console (`public/admin.html`) |
 | GET | `/home/*` | Homepage static assets |
 

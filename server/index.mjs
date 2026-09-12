@@ -33,6 +33,9 @@ app.get("/order", (_req, res) => res.sendFile(path.join(__dirname, "..", "public
 app.get("/menu", (_req, res) => res.redirect(301, "/order"));
 app.get("/login", (_req, res) => res.sendFile(path.join(__dirname, "..", "public", "login.html")));
 app.get("/portal", (_req, res) => res.sendFile(path.join(__dirname, "..", "public", "customer.html")));
+app.get("/preview", (_req, res) => res.redirect(302, "/preview/mobile"));
+app.get("/preview/mobile", (_req, res) => res.sendFile(path.join(__dirname, "..", "public", "preview-mobile.html")));
+app.get("/preview/portal", (_req, res) => res.sendFile(path.join(__dirname, "..", "public", "preview-portal.html")));
 app.get("/admin", (req, res) => {
   if (!getSession(req)) return res.redirect("/login");
   res.sendFile(path.join(__dirname, "..", "public", "admin.html"));

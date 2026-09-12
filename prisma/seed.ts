@@ -28,6 +28,8 @@ async function main() {
     await tx.orderItem.deleteMany();
     await tx.order.deleteMany();
     await tx.customer.deleteMany();
+    // Remove only the demo coupon (by code) so admin-issued coupons survive reseeds.
+    await tx.coupon.deleteMany({ where: { code: "BELU-ZANELE" } });
     await tx.itemTopping.deleteMany();
     await tx.itemBase.deleteMany();
     await tx.itemSize.deleteMany();
@@ -111,10 +113,11 @@ async function main() {
       { firstName: "Nomsa", lastName: "Dlamini", email: "nomsa@example.com", cellphone: null, username: "nomsa", lat: -26.2041, lng: 28.0473, addressLabel: "Sandton" },
       { firstName: "Thabo", lastName: "Mokoena", email: null, cellphone: "+27 82 555 0123", username: "thabo", lat: -26.1076, lng: 28.0567, addressLabel: "Rosebank" },
       { firstName: "Priya", lastName: "Naidoo", email: "priya@example.com", cellphone: "+27 71 555 0456", username: "priya", lat: -26.1292, lng: 28.2181, addressLabel: "Benoni" },
+      { firstName: "Zanele", lastName: "Khumalo", email: "zanele@example.com", cellphone: "+27 60 555 0000", username: "zanele", lat: -33.6424, lng: 19.4501, addressLabel: "Worcester East" },
     ];
     const createdCustomers = [];
     for (const c of demoCustomers) {
-      createdCustomers.push(await tx.customer.create({ data: { ...c, passwordHash } }));
+      createdCustomers.push(await tx.customer.create({ data: { ...c, passwordHash, claimedAt: new Date() } }));
     }
 
     const sizedItems = await tx.item.findMany({ where: { sizes: { some: {} } }, include: { sizes: true }, take: 4 });
@@ -125,26 +128,75 @@ async function main() {
       });
     const mkOrder = async (customer, items, opts = {}) => {
       const rows = toOrderItems(items);
-      await tx.order.create({
+      const saved = await tx.order.create({
         data: {
-          customerId: customer.id,
+          customer: { connect: { id: customer.id } },
           status: opts.status ?? "delivered",
           total: rows.reduce((sum, r) => sum + r.total, 0),
           deliveryLat: opts.deliveryLat ?? customer.lat,
           deliveryLng: opts.deliveryLng ?? customer.lng,
           deliveryAddress: opts.deliveryAddress ?? customer.addressLabel,
+          deliveryDistance: opts.deliveryDistance ?? null,
+          deliveryFee: opts.deliveryFee ?? 0,
+          deliveryStatus: opts.deliveryStatus ?? null,
+          createdAt: opts.createdAt ?? undefined,
           notes: opts.notes ?? null,
           items: { create: rows },
         },
       });
+      if (opts.events?.length) {
+        await tx.orderStatusEvent.createMany({
+          data: opts.events.map(([status, minsAgo]) => ({
+            orderId: saved.id,
+            status,
+            createdAt: new Date(Date.now() - minsAgo * 60_000),
+          })),
+        });
+      }
+      return saved;
     };
 
-    const [nomsa, thabo, priya] = createdCustomers;
+    const [nomsa, thabo, priya, zanele] = createdCustomers;
     if (sizedItems.length >= 3) {
       await mkOrder(nomsa, [sizedItems[0], sizedItems[1]], { status: "placed" });
       await mkOrder(nomsa, [sizedItems[2]], { notes: "Extra spicy" });
       await mkOrder(thabo, [sizedItems[1], sizedItems[2]], { status: "delivered" });
       await mkOrder(priya, [sizedItems[0], sizedItems[3]], { status: "preparing", notes: "Call on arrival" });
+    }
+
+    // Local demo client for the customer-portal preview page. Worcester-based
+    // so the delivery radius reads sensibly; includes a status-event timeline
+    // and an offer coupon so the portal shows a realistic logged-in view.
+    const D = 24 * 60;
+    if (sizedItems.length >= 2) {
+      await mkOrder(zanele, [sizedItems[0]], {
+        status: "delivered",
+        deliveryLat: -33.6356, deliveryLng: 19.4316,
+        deliveryAddress: "23 Church St, Worcester",
+        deliveryDistance: 1.9, deliveryFee: 0, deliveryStatus: "free",
+        createdAt: new Date(Date.now() - 3 * D * 60_000),
+        events: [["placed", 3 * D], ["preparing", 3 * D - 60], ["out_for_delivery", 3 * D - 90], ["delivered", 3 * D - 120]],
+      });
+      await mkOrder(zanele, [sizedItems[1]], {
+        status: "preparing",
+        deliveryLat: -33.6741, deliveryLng: 19.4892,
+        deliveryAddress: "8 Fairbairn Rd, Worcester",
+        deliveryDistance: 4.6, deliveryFee: 30, deliveryStatus: "fee",
+        createdAt: new Date(Date.now() - 35 * 60_000),
+        events: [["placed", 35], ["preparing", 12]],
+      });
+      await tx.coupon.create({
+        data: {
+          code: "BELU-ZANELE",
+          kind: "percent",
+          value: 10,
+          label: "Thank you",
+          minSpend: 199,
+          expiresAt: new Date(Date.now() + 90 * D * 60_000),
+          customerId: zanele.id,
+          isActive: true,
+        },
+      });
     }
 
     // -------------------------------------------------------- Demo specials
