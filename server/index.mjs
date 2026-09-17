@@ -1,6 +1,7 @@
 import express from "express";
 import path from "node:path";
 import crypto from "node:crypto";
+import fsp from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
@@ -23,7 +24,7 @@ const PUBLIC_ORIGIN = PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const PAYMENT_METHODS = new Set(["cod_cash", "cod_card", "paygate"]);
 const PAYMENT_STATUSES = new Set(["pending", "paid", "failed"]);
 
-app.use(express.json());
+app.use(express.json({ limit: "8mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "..", "public")));
 
@@ -39,6 +40,11 @@ app.get("/preview/portal", (_req, res) => res.sendFile(path.join(__dirname, ".."
 app.get("/admin", (req, res) => {
   if (!getSession(req)) return res.redirect("/login");
   res.sendFile(path.join(__dirname, "..", "public", "admin.html"));
+});
+
+app.get("/cashier", (req, res) => {
+  if (!getSession(req)) return res.redirect("/login");
+  res.sendFile(path.join(__dirname, "..", "public", "cashier.html"));
 });
 
 const slugify = (s) =>
@@ -88,6 +94,10 @@ const DEFAULT_SETTINGS = {
   "delivery.maxRadiusKm": "10",
   "delivery.feeAmount": "30",
   "delivery.enabled": "true",
+  "shop.openTime": "10:00",
+  "shop.closeTime": "21:00",
+  "shop.onlineEnabled": "true",
+  "shop.forceOpen": "false",
 };
 
 const getSetting = async (key, fallback = null) => {
@@ -126,6 +136,43 @@ const shopDistanceKm = async (lat, lng) => {
   const cfg = await getDeliveryConfig();
   if (!cfg.enabled || cfg.shop.lat == null || cfg.shop.lng == null) return null;
   return distanceKm(cfg.shop.lat, cfg.shop.lng, lat, lng);
+};
+
+// Shop opening hours (single daily window, shop-local time). South Africa is
+// UTC+2 year-round (no DST), so a fixed offset is exact.
+const SHOP_TZ_OFFSET_MIN = 120;
+const HHMM_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const parseHHMM = (v) => {
+  const m = HHMM_RE.exec(String(v || "").trim());
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+const shopLocalMinutes = (now = new Date()) =>
+  (now.getUTCHours() * 60 + now.getUTCMinutes() + SHOP_TZ_OFFSET_MIN) % 1440;
+
+// Owner-controlled storefront hours: a single daily open/close window plus a
+// "forceOpen" override for busy nights, and a master online-ordering switch.
+const getShopConfig = async () => {
+  const openTime = await getSetting("shop.openTime", "10:00");
+  const closeTime = await getSetting("shop.closeTime", "21:00");
+  const onlineEnabled = (await getSetting("shop.onlineEnabled", "true")).toLowerCase() === "true";
+  const forceOpen = (await getSetting("shop.forceOpen", "false")).toLowerCase() === "true";
+  return { openTime, closeTime, onlineEnabled, forceOpen };
+};
+
+// Live open/closed status. A window that crosses midnight (close < open) is
+// supported. Missing/unparseable times and an equal pair are treated as open.
+const getShopStatus = async (now = new Date()) => {
+  const cfg = await getShopConfig();
+  const minutes = shopLocalMinutes(now);
+  const openM = parseHHMM(cfg.openTime);
+  const closeM = parseHHMM(cfg.closeTime);
+  let open;
+  if (!cfg.onlineEnabled) open = false;
+  else if (cfg.forceOpen) open = true;
+  else if (openM == null || closeM == null || openM === closeM) open = true;
+  else if (closeM > openM) open = minutes >= openM && minutes < closeM;
+  else open = minutes >= openM || minutes < closeM;
+  return { ...cfg, open };
 };
 
 // Decide how a delivery request should be handled. Returns:
@@ -171,19 +218,25 @@ const badRequest = (msg) => {
 const normalizeSettingsPayload = (raw) => {
   const out = {};
   const s = raw && typeof raw.settings === "object" ? raw.settings : raw && typeof raw === "object" ? raw : {};
-  const keys = [
+  const boolKeys = ["delivery.enabled", "shop.onlineEnabled", "shop.forceOpen"];
+  const timeKeys = ["shop.openTime", "shop.closeTime"];
+  const numKeys = [
     "shop.lat",
     "shop.lng",
     "delivery.freeRadiusKm",
     "delivery.maxRadiusKm",
     "delivery.feeAmount",
-    "delivery.enabled",
   ];
-  for (const key of keys) {
+  for (const key of [...numKeys, ...boolKeys, ...timeKeys]) {
     if (!(key in s)) continue;
     const v = String(s[key]).trim();
-    if (key === "delivery.enabled") {
-      if (!["true", "false"].includes(v)) throw badRequest("delivery.enabled must be true or false");
+    if (boolKeys.includes(key)) {
+      if (!["true", "false"].includes(v)) throw badRequest(`${key} must be true or false`);
+      out[key] = v;
+      continue;
+    }
+    if (timeKeys.includes(key)) {
+      if (!HHMM_RE.test(v)) throw badRequest(`${key} must be a time like 10:00`);
       out[key] = v;
       continue;
     }
@@ -203,8 +256,9 @@ const normalizeSettingsPayload = (raw) => {
 };
 
 // ------------------------------------------------------------------- Auth
-const ADMIN_ROLES = new Set(["admin", "orders", "kitchen"]);
+const ADMIN_ROLES = new Set(["admin", "orders", "kitchen", "cashier"]);
 const ORDER_ROLES = new Set(["admin", "orders"]);
+const CASHIER_STATUSES = new Set(["out_for_delivery"]);
 const KITCHEN_STATUSES = new Set(["preparing", "out_for_delivery", "delivered"]);
 const ALLOWED_STATUSES = ["placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
 
@@ -604,11 +658,25 @@ app.delete(
 
 // ----------------------------------------------------------------- Specials
 const specialIncludes = {
+  category: true,
   items: {
     include: {
       item: { include: { sizes: true } },
     },
   },
+};
+
+const normalizeSpecialKind = (v) => (String(v || "flat").toLowerCase() === "bogo" ? "bogo" : "flat");
+
+// BOGO config guard: needs a category, a size >= 2 and an even count (pay for
+// half - the customer picks `count` pizzas and pays for the higher half).
+const validateBogo = async (categoryId, sizeLabel, count) => {
+  const cat = await prisma.category.findUnique({ where: { id: Number(categoryId) } });
+  if (!cat) throw badRequest("categoryId does not match a category");
+  const n = Number(count);
+  if (!Number.isInteger(n) || n < 2 || n % 2 !== 0)
+    throw badRequest("count must be an even number of 2 or more");
+  return { categoryId: cat.id, sizeLabel: sizeLabel?.trim() || null, count: n };
 };
 
 app.get(
@@ -626,28 +694,63 @@ app.post(
   "/api/specials",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    const { name, description = null, price, isActive = true, sortOrder = 0, items = [] } = req.body || {};
+    const {
+      name,
+      description = null,
+      price = 0,
+      kind = "flat",
+      categoryId = null,
+      sizeLabel = null,
+      count = 2,
+      imageUrl = null,
+      showOnHome = false,
+      isActive = true,
+      sortOrder = 0,
+      items = [],
+    } = req.body || {};
     if (!name?.trim()) return res.status(400).json({ error: "name is required" });
-    if (price == null || Number(price) < 0) return res.status(400).json({ error: "price is required" });
-    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "at least one item is required" });
+    const kindNorm = normalizeSpecialKind(kind);
 
-    const itemIds = [...new Set(items.map((i) => Number(i.itemId)))];
-    const found = await prisma.item.findMany({ where: { id: { in: itemIds } }, select: { id: true } });
-    if (found.length !== itemIds.length) {
-      const missing = itemIds.filter((id) => !found.some((f) => f.id === id));
-      return res.status(400).json({ error: `item(s) not found: ${missing.join(", ")}` });
+    let bogo = null;
+    if (kindNorm === "bogo") {
+      try {
+        bogo = await validateBogo(categoryId, sizeLabel, count);
+      } catch (e) {
+        return res.status(e.status || 400).json({ error: e.message });
+      }
+    } else {
+      if (price == null || Number(price) < 0) return res.status(400).json({ error: "price is required" });
+      if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "at least one item is required" });
+    }
+
+    const itemIds = [...new Set((items || []).map((i) => Number(i.itemId)))];
+    if (itemIds.length) {
+      const found = await prisma.item.findMany({ where: { id: { in: itemIds } }, select: { id: true } });
+      if (found.length !== itemIds.length) {
+        const missing = itemIds.filter((id) => !found.some((f) => f.id === id));
+        return res.status(400).json({ error: `item(s) not found: ${missing.join(", ")}` });
+      }
     }
 
     const row = await prisma.special.create({
       data: {
         name: name.trim(),
         description,
-        price: Number(price),
+        price: kindNorm === "bogo" ? 0 : Number(price),
+        kind: kindNorm,
+        categoryId: bogo ? bogo.categoryId : null,
+        sizeLabel: bogo ? bogo.sizeLabel : null,
+        count: bogo ? bogo.count : 2,
+        imageUrl: imageUrl?.trim() || null,
+        showOnHome: Boolean(showOnHome),
         isActive,
         sortOrder: Number(sortOrder) || 0,
-        items: {
-          create: items.map((i) => ({ itemId: Number(i.itemId), quantity: Math.max(1, Number(i.quantity) || 1) })),
-        },
+        items:
+          kindNorm === "flat"
+            ? {
+                create: items.map((i) => ({ itemId: Number(i.itemId), quantity: Math.max(1, Number(i.quantity) || 1) })),
+              }
+            : undefined,
       },
     });
 
@@ -661,11 +764,24 @@ app.put(
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const { name, description, price, isActive, sortOrder, items } = req.body || {};
+    const { name, description, price, kind, categoryId, sizeLabel, count, imageUrl, showOnHome, isActive, sortOrder, items } = req.body || {};
     const existing = await prisma.special.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ error: "special not found" });
 
-    if (Array.isArray(items)) {
+    const kindNorm = kind !== undefined ? normalizeSpecialKind(kind) : existing.kind;
+
+    let bogo = null;
+    if (kindNorm === "bogo") {
+      try {
+        bogo = await validateBogo(
+          categoryId !== undefined ? categoryId : existing.categoryId,
+          sizeLabel !== undefined ? sizeLabel : existing.sizeLabel,
+          count !== undefined ? count : existing.count
+        );
+      } catch (e) {
+        return res.status(e.status || 400).json({ error: e.message });
+      }
+    } else if (Array.isArray(items)) {
       if (items.length === 0) return res.status(400).json({ error: "at least one item is required" });
       const itemIds = [...new Set(items.map((i) => Number(i.itemId)))];
       const found = await prisma.item.findMany({ where: { id: { in: itemIds } }, select: { id: true } });
@@ -681,12 +797,18 @@ app.put(
         data: {
           ...(name !== undefined ? { name: String(name).trim() } : {}),
           ...(description !== undefined ? { description } : {}),
-          ...(price !== undefined ? { price: Number(price) } : {}),
+          ...(price !== undefined ? { price: kindNorm === "bogo" ? 0 : Number(price) } : {}),
+          ...(kind !== undefined ? { kind: kindNorm } : {}),
+          ...(bogo ? { categoryId: bogo.categoryId, sizeLabel: bogo.sizeLabel, count: bogo.count } : {}),
+          ...(imageUrl !== undefined ? { imageUrl: imageUrl?.trim() || null } : {}),
+          ...(showOnHome !== undefined ? { showOnHome: Boolean(showOnHome) } : {}),
           ...(isActive !== undefined ? { isActive } : {}),
           ...(sortOrder !== undefined ? { sortOrder: Number(sortOrder) } : {}),
         },
       });
-      if (Array.isArray(items)) {
+      if (kindNorm === "bogo") {
+        await tx.specialItem.deleteMany({ where: { specialId: id } });
+      } else if (Array.isArray(items)) {
         await tx.specialItem.deleteMany({ where: { specialId: id } });
         await tx.specialItem.createMany({
           data: items.map((i) => ({ specialId: id, itemId: Number(i.itemId), quantity: Math.max(1, Number(i.quantity) || 1) })),
@@ -834,6 +956,17 @@ app.get(
   })
 );
 
+// Public shop-hours status for the storefront/home page. Callers can also pass
+// ?at=ISO to preview a given moment (used by the admin form).
+app.get(
+  "/api/shop/config",
+  asyncHandler(async (req, res) => {
+    const at = req.query?.at ? new Date(String(req.query.at)) : new Date();
+    const now = Number.isNaN(at.getTime()) ? new Date() : at;
+    res.json(await getShopStatus(now));
+  })
+);
+
 app.get("/api/settings", requireRole("admin"), asyncHandler(async (_req, res) => {
   const rows = await prisma.setting.findMany();
   res.json({ settings: Object.fromEntries(rows.map((r) => [r.key, r.value])) });
@@ -854,7 +987,7 @@ app.put("/api/settings", requireRole("admin"), asyncHandler(async (req, res) => 
     freeRadiusKm: cfg.freeRadiusKm,
     maxRadiusKm: cfg.maxRadiusKm,
     feeAmount: cfg.feeAmount,
-  }});
+  }, shop: await getShopStatus() });
 }));
 
 // ------------------------------------------------------------------- Orders
@@ -975,7 +1108,7 @@ const renderPaygateResult = (res, { approved, resultCode, resultDesc, orderId, a
 app.get(
   "/api/orders",
   requireAuth,
-  requireRole("admin", "orders", "kitchen"),
+  requireRole("admin", "orders", "kitchen", "cashier"),
   asyncHandler(async (_req, res) => {
     const rows = await prisma.order.findMany({
       orderBy: { createdAt: "desc" },
@@ -988,7 +1121,7 @@ app.get(
 app.get(
   "/api/orders/:id",
   requireAuth,
-  requireRole("admin", "orders", "kitchen"),
+  requireRole("admin", "orders", "kitchen", "cashier"),
   asyncHandler(async (req, res) => {
     const row = await prisma.order.findUnique({
       where: { id: Number(req.params.id) },
@@ -1002,7 +1135,7 @@ app.get(
 app.get(
   "/api/customers/:id/orders",
   requireAuth,
-  requireRole("admin", "orders", "kitchen"),
+  requireRole("admin", "orders", "kitchen", "cashier"),
   asyncHandler(async (req, res) => {
     const rows = await prisma.order.findMany({
       where: { customerId: Number(req.params.id) },
@@ -1043,6 +1176,20 @@ app.post(
     if (!allowedStatuses.includes(status)) return res.status(400).json({ error: `status must be one of ${allowedStatuses.join(", ")}` });
     if (!PAYMENT_METHODS.has(paymentMethod))
       return res.status(400).json({ error: `paymentMethod must be one of ${[...PAYMENT_METHODS].join(", ")}` });
+
+    // Storefront hours: online ordering pauses outside the owner-set window,
+    // unless the owner has forced "still open". Staff orders bypass the check.
+    if (!getSession(req)) {
+      const shop = await getShopStatus();
+      if (!shop.open) {
+        return res.status(403).json({
+          error: `Sorry, we're closed for online orders right now. Our hours are ${shop.openTime}-${shop.closeTime}.`,
+          code: "shop_closed",
+          openTime: shop.openTime,
+          closeTime: shop.closeTime,
+        });
+      }
+    }
 
     // Delivery radius check: our policy is a free circle, a fee band up to a
     // hard max radius, and "unverified" (treated as collection) when no GPS was
@@ -1090,11 +1237,72 @@ customer = await prisma.customer.findUnique({ where: lookup });
 
     const rows = [];
     for (const line of items) {
-      // Bundle/special line — validated active, flat price.
+      // Bundle/special line — validated active.
       if (line.specialId != null) {
         const special = await prisma.special.findUnique({ where: { id: Number(line.specialId) } });
         if (!special) return res.status(400).json({ error: `special ${line.specialId} not found` });
         if (!special.isActive) return res.status(400).json({ error: `special ${special.id} is not active` });
+
+        // BOGO: the customer picks `count` pizzas from the special's category
+        // (optionally a fixed size). They pay for the higher half of the base
+        // prices; extras are always charged in full. Priced server-side.
+        if (special.kind === "bogo") {
+          const picks = Array.isArray(line.pizzas) ? line.pizzas : [];
+          if (picks.length !== special.count)
+            return res.status(400).json({ error: `${special.name} needs exactly ${special.count} pizzas` });
+
+          const resolved = [];
+          for (const pick of picks) {
+            if (pick.itemId == null) return res.status(400).json({ error: `each ${special.name} pizza needs an itemId` });
+            const item = await prisma.item.findUnique({ where: { id: Number(pick.itemId) }, include: { sizes: true } });
+            if (!item) return res.status(400).json({ error: `item ${pick.itemId} not found` });
+            if (!item.isActive) return res.status(400).json({ error: `item ${item.id} is not active` });
+            if (special.categoryId != null && item.categoryId !== special.categoryId)
+              return res.status(400).json({ error: `${item.name} is not part of ${special.name}` });
+
+            let sizeLabel = pick.sizeLabel ?? null;
+            let base = 0;
+            if (item.sizes.length) {
+              if (!sizeLabel) {
+                if (item.sizes.length !== 1) return res.status(400).json({ error: `sizeLabel is required for item ${item.id}` });
+                sizeLabel = item.sizes[0].sizeLabel;
+              }
+              const size = item.sizes.find((s) => s.sizeLabel === sizeLabel);
+              if (!size) return res.status(400).json({ error: `size "${sizeLabel}" not found for item ${item.id}` });
+              sizeLabel = size.sizeLabel;
+              base = size.price;
+            }
+            if (special.sizeLabel && item.sizes.length && sizeLabel !== special.sizeLabel)
+              return res.status(400).json({ error: `${special.name} is only available in ${special.sizeLabel}` });
+
+            const extras = Array.isArray(pick.extras)
+              ? pick.extras.map((x) => ({ name: String(x.name ?? ""), price: Number(x.price) || 0 }))
+              : [];
+            resolved.push({ item, sizeLabel, base, extras, extrasTotal: extras.reduce((sum, x) => sum + x.price, 0) });
+          }
+
+          // Discount the cheaper half of the bases; extras stay payable.
+          const cheapest = resolved
+            .map((r, i) => ({ i, base: r.base }))
+            .sort((a, b) => a.base - b.base)
+            .slice(0, special.count / 2)
+            .map((o) => o.i);
+          const free = new Set(cheapest);
+          resolved.forEach((r, i) => {
+            const pricedBase = free.has(i) ? 0 : r.base;
+            rows.push({
+              itemId: r.item.id,
+              itemName: r.item.name,
+              sizeLabel: r.sizeLabel,
+              unitPrice: pricedBase,
+              quantity: 1,
+              extras: r.extras.length ? JSON.stringify(r.extras) : null,
+              total: pricedBase + r.extrasTotal,
+            });
+          });
+          continue;
+        }
+
         const quantity = Math.max(1, Number(line.quantity) || 1);
         rows.push({
           itemId: null,
@@ -1249,6 +1457,8 @@ app.put(
     const role = req.session.role;
     if (role === "kitchen") {
       if (!KITCHEN_STATUSES.has(status)) return res.status(403).json({ error: "kitchen cannot set this status" });
+    } else if (role === "cashier") {
+      if (!CASHIER_STATUSES.has(status)) return res.status(403).json({ error: "cashier can only mark orders out for delivery" });
     } else if (!ORDER_ROLES.has(role)) {
       return res.status(403).json({ error: "insufficient permissions" });
     }
@@ -1311,6 +1521,102 @@ app.get(
       orderBy: { createdAt: "desc" },
     });
     res.json(rows);
+  })
+);
+
+// ------------------------------------------------- Customer favorites (portal)
+const favoriteIncludes = {
+  item: { include: { sizes: true, category: true } },
+  special: { include: { category: true } },
+};
+
+app.get(
+  "/api/customer/favorites",
+  requireCustomerSession,
+  asyncHandler(async (req, res) => {
+    const rows = await prisma.favorite.findMany({
+      where: { customerId: req.customerSession.customerId },
+      orderBy: { createdAt: "desc" },
+      include: favoriteIncludes,
+    });
+    res.json(rows);
+  })
+);
+
+// Toggle a favorite. Send exactly one of itemId / specialId; the response says
+// whether it is now saved ("liked") so the heart button can render state.
+app.post(
+  "/api/customer/favorites",
+  requireCustomerSession,
+  asyncHandler(async (req, res) => {
+    const customerId = req.customerSession.customerId;
+    const { itemId = null, specialId = null } = req.body || {};
+    if ((itemId == null) === (specialId == null))
+      return res.status(400).json({ error: "send exactly one of itemId or specialId" });
+
+    if (itemId != null) {
+      const item = await prisma.item.findUnique({ where: { id: Number(itemId) }, select: { id: true } });
+      if (!item) return res.status(400).json({ error: `item ${itemId} not found` });
+      const existing = await prisma.favorite.findUnique({
+        where: { customerId_itemId: { customerId, itemId: Number(itemId) } },
+      });
+      if (existing) {
+        await prisma.favorite.delete({ where: { id: existing.id } });
+        return res.json({ ok: true, liked: false });
+      }
+      const row = await prisma.favorite.create({ data: { customerId, itemId: Number(itemId) } });
+      return res.json({ ok: true, liked: true, favorite: row });
+    }
+
+    const special = await prisma.special.findUnique({ where: { id: Number(specialId) }, select: { id: true } });
+    if (!special) return res.status(400).json({ error: `special ${specialId} not found` });
+    const existing = await prisma.favorite.findUnique({
+      where: { customerId_specialId: { customerId, specialId: Number(specialId) } },
+    });
+    if (existing) {
+      await prisma.favorite.delete({ where: { id: existing.id } });
+      return res.json({ ok: true, liked: false });
+    }
+    const row = await prisma.favorite.create({ data: { customerId, specialId: Number(specialId) } });
+    res.json({ ok: true, liked: true, favorite: row });
+  })
+);
+
+app.delete(
+  "/api/customer/favorites/:id",
+  requireCustomerSession,
+  asyncHandler(async (req, res) => {
+    const row = await prisma.favorite.findUnique({ where: { id: Number(req.params.id) } });
+    if (!row || row.customerId !== req.customerSession.customerId)
+      return res.status(404).json({ error: "favorite not found" });
+    await prisma.favorite.delete({ where: { id: row.id } });
+    res.json({ ok: true });
+  })
+);
+
+// ---------------------------------------------------------------- Uploads
+// Pictures arrive as a JSON data URL (no multipart dependency) and are written
+// under public/uploads/, which express.static already serves at /uploads/*.
+const UPLOAD_DIR = path.join(__dirname, "..", "public", "uploads");
+const UPLOAD_MAX_BYTES = 6 * 1024 * 1024;
+const DATA_URL_RE = /^data:image\/(png|jpe?g|gif|webp);base64,([A-Za-z0-9+/=]+)$/i;
+const EXT_BY_MIME = { png: "png", jpg: "jpg", jpeg: "jpg", gif: "gif", webp: "webp" };
+
+app.post(
+  "/api/upload",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    const { dataUrl } = req.body || {};
+    const m = DATA_URL_RE.exec(String(dataUrl || "").trim());
+    if (!m) return res.status(400).json({ error: "dataUrl must be a base64 image (png, jpg, gif or webp)" });
+    const ext = EXT_BY_MIME[m[1].toLowerCase()];
+    const buf = Buffer.from(m[2], "base64");
+    if (!buf.length) return res.status(400).json({ error: "image is empty" });
+    if (buf.length > UPLOAD_MAX_BYTES) return res.status(400).json({ error: "image must be 6MB or smaller" });
+    await fsp.mkdir(UPLOAD_DIR, { recursive: true });
+    const name = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${ext}`;
+    await fsp.writeFile(path.join(UPLOAD_DIR, name), buf);
+    res.status(201).json({ ok: true, url: `/uploads/${name}` });
   })
 );
 
@@ -1559,7 +1865,7 @@ app.post(
   "/api/items",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    const { name, description = null, itemType = "menuitem", categoryId = null, sizes = [], toppingIds = [], baseIds = [], sortOrder = 0 } = req.body || {};
+    const { name, description = null, itemType = "menuitem", categoryId = null, imageUrl = null, showOnHome = false, sizes = [], toppingIds = [], baseIds = [], sortOrder = 0 } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     const row = await prisma.$transaction(async (tx) => {
@@ -1570,6 +1876,8 @@ app.post(
           description,
           itemType,
           categoryId: categoryId ? Number(categoryId) : null,
+          imageUrl: imageUrl?.trim() || null,
+          showOnHome: Boolean(showOnHome),
           sortOrder: Number(sortOrder) || 0,
         },
       });
@@ -1599,7 +1907,7 @@ app.put(
   "/api/items/:id",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    const { name, description, itemType, categoryId, sizes, toppingIds, baseIds, sortOrder, isActive } = req.body || {};
+    const { name, description, itemType, categoryId, imageUrl, showOnHome, sizes, toppingIds, baseIds, sortOrder, isActive } = req.body || {};
     const id = Number(req.params.id);
     const row = await prisma.$transaction(async (tx) => {
       const item = await tx.item.update({
@@ -1609,6 +1917,8 @@ app.put(
           ...(description !== undefined ? { description } : {}),
           ...(itemType !== undefined ? { itemType } : {}),
           ...(categoryId !== undefined ? { categoryId: categoryId ? Number(categoryId) : null } : {}),
+          ...(imageUrl !== undefined ? { imageUrl: imageUrl?.trim() || null } : {}),
+          ...(showOnHome !== undefined ? { showOnHome: Boolean(showOnHome) } : {}),
           ...(sortOrder !== undefined ? { sortOrder: Number(sortOrder) } : {}),
           ...(isActive !== undefined ? { isActive } : {}),
         },
@@ -1670,13 +1980,14 @@ app.post(
   "/api/toppings",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    const { name, tier = 0, prices = [], sortOrder = 0 } = req.body || {};
+    const { name, tier = 0, isInSeason = true, prices = [], sortOrder = 0 } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
     const row = await prisma.topping.create({
       data: {
         name,
         slug: slugify(name),
         tier: Number(tier) || 0,
+        isInSeason: Boolean(isInSeason),
         sortOrder: Number(sortOrder) || 0,
         prices: prices.length
           ? { create: prices.map((p) => ({ sizeLabel: p.sizeLabel, price: Number(p.price) })) }
@@ -1693,7 +2004,7 @@ app.put(
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const { name, tier, prices, sortOrder, isActive } = req.body || {};
+    const { name, tier, prices, sortOrder, isActive, isInSeason } = req.body || {};
     const row = await prisma.$transaction(async (tx) => {
       const topping = await tx.topping.update({
         where: { id },
@@ -1702,6 +2013,7 @@ app.put(
           ...(tier !== undefined ? { tier: Number(tier) } : {}),
           ...(sortOrder !== undefined ? { sortOrder: Number(sortOrder) } : {}),
           ...(isActive !== undefined ? { isActive } : {}),
+          ...(isInSeason !== undefined ? { isInSeason: Boolean(isInSeason) } : {}),
         },
       });
       if (Array.isArray(prices)) {

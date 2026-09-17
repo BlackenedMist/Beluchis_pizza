@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Beluchis · Cashier</title>
+<link rel="stylesheet" href="theme.css" />
+<style>
+  header {
+    background: var(--ink);
+    color: #fff;
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+  header h1 { font-size: 20px; margin: 0; letter-spacing: .3px; }
+  header .stats { font-size: 13px; color: #c9c0b4; }
+  header .header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  header .header-right a { color: #e8d9c7; font-size: 13px; text-decoration: none; }
+  header .header-right a:hover { color: #fff; }
+  .role-badge {
+    background: var(--accent); color: #fff; border-radius: 20px;
+    padding: 4px 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
+  }
+  .logout {
+    background: none; border: 1px solid rgba(255,255,255,.35); color: #fff;
+    border-radius: 7px; padding: 6px 12px; font-size: 12.5px; cursor: pointer;
+  }
+  .logout:hover { border-color: #fff; }
+  main { padding: 20px 28px 60px; }
+
+  /* New-order alert banner */
+  #alert {
+    display: none;
+    background: var(--warn-bg);
+    color: var(--warn-ink);
+    border: 1px solid #ead9ae;
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-weight: 600;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  #alert.show { display: flex; }
+  #alert .alert-actions { margin-left: auto; display: flex; gap: 8px; }
+  #alert button {
+    border: 1px solid #e0c989; background: #fff; color: var(--warn-ink);
+    border-radius: 7px; padding: 6px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  }
+  #alert button:hover { background: #fff7e6; }
+
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 10px; flex-wrap: wrap; }
+  .toolbar h2 { margin: 0; font-size: 17px; }
+  button.primary {
+    background: var(--accent); color: #fff; border: 0;
+    padding: 8px 14px; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  button.primary:hover { background: var(--accent-dark); }
+  button.sound {
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+    border-radius: 7px; padding: 8px 12px; font-size: 13px; cursor: pointer;
+  }
+  button.sound.active { border-color: var(--accent); color: var(--accent); }
+
+  .status-tally { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .status-tally button {
+    border: 1px solid var(--line); background: #fff; border-radius: 20px;
+    padding: 5px 12px; font-size: 12px; cursor: pointer;
+  }
+  .status-tally button.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+  .dot.placed            { background: #ef6c00; }
+  .dot.preparing         { background: #1976d2; }
+  .dot.out_for_delivery  { background: #6a1b9a; }
+  .dot.delivered         { background: #2e7d32; }
+  .dot.cancelled         { background: #616161; }
+
+  /* Orders board */
+  .order-list { display: flex; flex-direction: column; gap: 14px; }
+  .order-card {
+    border: 1px solid var(--line); border-radius: 10px; background: #fff;
+    padding: 14px 16px;
+  }
+  .order-card.is-new { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+  .order-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .order-id { font-weight: 700; font-size: 16px; }
+  .order-time { font-size: 12px; color: var(--muted); }
+  .order-total { font-weight: 700; font-size: 17px; }
+  .pay-chip {
+    display: inline-block; border-radius: 20px; padding: 3px 10px;
+    font-size: 11px; font-weight: 600; letter-spacing: .2px;
+    background: var(--line); color: #333; white-space: nowrap;
+  }
+  .pay-chip.plaid { background: #e5f6ea; color: #1c7c3e; }
+  .pay-chip.pfailed { background: #fdeaea; color: var(--bad); }
+  .pay-chip.ppending { background: #fff6e0; color: #9a6700; }
+  .status-badge {
+    display: inline-block; border-radius: 20px; padding: 3px 10px;
+    font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; color: #fff;
+  }
+  .s-placed            { background: #ef6c00; }
+  .s-preparing         { background: #1976d2; }
+  .s-out_for_delivery  { background: #6a1b9a; }
+  .s-delivered         { background: #2e7d32; }
+  .s-cancelled         { background: #616161; }
+  .order-cust { margin-top: 10px; font-size: 13.5px; }
+  .order-dest { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+  .order-notes {
+    margin-top: 8px; font-size: 12.5px; color: var(--accent-dark);
+    background: #fbf3ec; border: 1px dashed var(--line); border-radius: 7px; padding: 6px 9px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+  .order-items { margin-top: 10px; font-size: 12.5px; }
+  .order-items .extras { font-size: 11.5px; color: var(--muted); }
+  .order-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .order-actions button {
+    border: 1px solid var(--line); border-radius: 7px; background: #f5f0e6;
+    padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--ink);
+  }
+  .order-actions button:hover { border-color: var(--accent); color: var(--accent); }
+  .order-actions button.ok { background: var(--good); border-color: var(--good); color: #fff; }
+  .order-actions button.ok:hover { opacity: .9; color: #fff; }
+  .order-actions button:disabled { opacity: .45; cursor: not-allowed; }
+  .empty { color: var(--muted); padding: 24px 0; text-align: center; }
+
+  #toast {
+    position: fixed; bottom: 22px; right: 22px; background: var(--ink); color: #fff;
+    padding: 11px 18px; border-radius: 9px; font-size: 13.5px; opacity: 0;
+    transition: opacity .25s; z-index: 20; max-width: 360px;
+  }
+  #toast.show { opacity: 1; }
+  #toast.err { background: var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Beluchis · Cashier</h1>
+  <div class="stats" id="stats"></div>
+  <div class="header-right">
+    <span id="me-name" class="muted" style="color:#c9c0b4;font-size:13px"></span>
+    <span id="me-role" class="role-badge"></span>
+    <a href="/order" target="_blank" rel="noopener">New order</a>
+    <button class="logout" onclick="logout()">Log out</button>
+  </div>
+</header>
+
+<div id="alert" class="">
+  <span id="alert-text">NEW ORDER</span>
+  <div class="alert-actions">
+    <button onclick="dismissAlert()">Dismiss</button>
+  </div>
+</div>
+
+<main>
+  <div class="toolbar">
+    <h2>Order board <span class="muted" style="font-size:12px;font-weight:400" id="updated"></span></h2>
+    <div style="display:flex;gap:8px">
+      <button class="sound" id="sound" title="Alert sound">🔔 On</button>
+      <button class="primary" onclick="loadOrders()">Refresh</button>
+    </div>
+  </div>
+  <div class="status-tally" id="tally"></div>
+  <div class="order-list" id="list"></div>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+const state = {
+  orders: [], me: null,
+  filter: "",
+  known: new Set(),
+  soundOn: true,
+  showed: [],
+};
+
+const STATUSES = ["placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
+const STATUS_NAMES = {
+  placed: "Placed",
+  preparing: "Preparing",
+  out_for_delivery: "Out for delivery",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+};
+
+async function api(url, opts = {}) {
+  const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...opts });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  return body;
+}
+
+function toast(msg, isErr = false) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.className = isErr ? "show err" : "show";
+  setTimeout(() => (t.className = ""), 2600);
+}
+
+function orderTime(iso) {
+  const d = new Date(iso);
+  const today = new Date().toDateString() === d.toDateString();
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return today ? time : `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
+}
+
+function orderLine(line) {
+  let extras = "";
+  if (line.extras) {
+    try {
+      const list = JSON.parse(line.extras);
+      if (list.length) extras = `<div class="extras">+ ${list.map((x) => esc(x.name)).join(", ")}</div>`;
+    } catch {}
+  }
+  const size = line.sizeLabel ? `<td>${esc(line.sizeLabel)}</td>` : "<td></td>";
+  return `<tr>
+    <td><b>${esc(line.itemName)}</b>${extras}</td>
+    ${size}
+    <td>${line.quantity}</td>
+    <td>R${line.unitPrice}</td>
+    <td><b>R${line.total}</b></td>
+  </tr>`;
+}
+
+function orderHead(o) {
+  const payLabels = { cod_cash: "Cash on delivery", cod_card: "Card on delivery", paygate: "Online (PayGate)" };
+  const payChip = o.paymentMethod === "paygate"
+    ? `<span class="pay-chip p${o.paymentStatus}">${payLabels[o.paymentMethod] || o.paymentMethod} · ${o.paymentStatus}</span>`
+    : `<span class="pay-chip">${payLabels[o.paymentMethod] || o.paymentMethod}</span>`;
+  return `
+    <div class="order-head">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span class="order-id">#${o.id}</span>
+        <span class="status-badge s-${o.status}">${STATUS_NAMES[o.status]}</span>
+        <span class="order-time">${orderTime(o.createdAt)}</span>
+        ${payChip}
+      </div>
+      <div class="order-total">R${o.discountAmount ? (o.grandTotal ?? o.total) : o.total}</div>
+    </div>`;
+}
+
+function orderContact(o) {
+  const c = o.customer || {};
+  const bits = [`${esc(c.firstName || "?")} ${esc(c.lastName || "")}`.trim()];
+  if (c.cellphone) bits.push(`<a href="tel:${esc(c.cellphone)}" style="color:var(--accent)">${esc(c.cellphone)}</a>`);
+  if (c.email) bits.push(`<a href="mailto:${esc(c.email)}" style="color:var(--accent)">${esc(c.email)}</a>`);
+  return bits.join(" · ");
+}
+
+function orderDest(o) {
+  if (!o.deliveryAddress) return `<span class="dot" style="background:#616161"></span>Collection <span class="muted">(call to collect)</span>`;
+  return `<span class="dot" style="background:#ef6c00"></span>Delivery: ${esc(o.deliveryAddress)}`;
+}
+
+window.setOrderStatus = async (id, status) => {
+  try {
+    const updated = await api(`/api/orders/${id}`, { method: "PUT", body: JSON.stringify({ status }) });
+    toast(`#${updated.id} → ${STATUS_NAMES[updated.status]}`);
+    await loadOrders();
+  } catch (e) { toast(e.message, true); }
+};
+
+function orderActions(o) {
+  if (o.status === "placed" || o.status === "preparing") {
+    return `<button class="ok" onclick="setOrderStatus(${o.id}, 'out_for_delivery')">Mark out for delivery</button>`;
+  }
+  return "";
+}
+
+function render() {
+  const tallyEl = $("#tally");
+  const listEl = $("#list");
+  const tally = (s) => state.orders.filter((o) => o.status === s).length;
+
+  tallyEl.innerHTML = `
+    <button class="${state.filter === "" ? "active" : ""}" onclick="state.filter='';render()">All (${state.orders.length})</button>
+    ${STATUSES.map((s) => `<button class="${state.filter === s ? "active" : ""}" onclick="state.filter='${s}';render()">
+      <span class="dot ${s}"></span>${STATUS_NAMES[s]} (${tally(s)})</button>`).join("")}`;
+
+  const filtered = state.filter ? state.orders.filter((o) => o.status === state.filter) : state.orders;
+  listEl.innerHTML = filtered.length ? filtered.map((o) => `
+    <div class="order-card ${!state.known.has(o.id) ? "is-new" : ""}">
+      ${orderHead(o)}
+      <div class="order-cust">${orderContact(o)}</div>
+      <div class="order-dest">${orderDest(o)}</div>
+      ${o.notes ? `<div class="order-notes">Notes: ${esc(o.notes)}</div>` : ""}
+      <table class="order-items">
+        <thead><tr><th>Item</th><th>Size</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead>
+        <tbody>${o.items.map(orderLine).join("")}</tbody>
+      </table>
+      <div class="order-actions">${orderActions(o)}</div>
+    </div>`).join("")
+    : `<div class="empty">${state.filter ? "No orders in this status" : "No orders yet"}</div>`;
+
+  $("#stats").textContent =
+    `${state.orders.filter((o) => o.status === "placed").length} new · ` +
+    `${state.orders.filter((o) => o.status === "preparing").length} preparing · ` +
+    `${state.orders.filter((o) => o.status === "out_for_delivery").length} out for delivery`;
+  $("#updated").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function checkNewOrders(orders) {
+  const nowSeen = new Set(orders.map((o) => o.id));
+  const fresh = orders.filter((o) => o.status === "placed" && !state.known.has(o.id) && !state.showed.includes(o.id));
+  for (const o of fresh) state.showed.push(o.id);
+  if (fresh.length) {
+    const names = fresh.map((o) => `#${o.id}`).join(", ");
+    $("#alert-text").textContent = `New order${fresh.length > 1 ? "s" : ""}: ${names}`;
+    $("#alert").classList.add("show");
+    beep();
+  }
+  state.known = nowSeen;
+}
+
+window.dismissAlert = () => $("#alert").classList.remove("show");
+
+async function loadOrders() {
+  try {
+    const orders = await api("/api/orders");
+    checkNewOrders(orders);
+    state.orders = orders;
+    render();
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+// ---- Alert sound (Web Audio; unlocked on first user gesture) ----
+let audioCtx = null;
+$("#sound").addEventListener("click", () => {
+  state.soundOn = !state.soundOn;
+  $("#sound").textContent = state.soundOn ? "🔔 On" : "🔕 Off";
+  $("#sound").classList.toggle("active", state.soundOn);
+  if (state.soundOn) unlockAudio();
+});
+document.body.addEventListener("click", unlockAudio, { once: true });
+
+function unlockAudio() {
+  try {
+    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch {}
+}
+
+function beep() {
+  if (!state.soundOn) return;
+  try {
+    if (!audioCtx) return; // not unlocked yet; sound needs one click on the page
+    const now = audioCtx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.001, now + i * 0.35);
+      gain.gain.exponentialRampToValueAtTime(0.25, now + i * 0.35 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.35 + 0.3);
+      osc.start(now + i * 0.35);
+      osc.stop(now + i * 0.35 + 0.32);
+    }
+  } catch {}
+}
+
+window.logout = async () => {
+  try { await api("/api/auth/logout", { method: "POST" }); } catch {}
+  location.href = "/login";
+};
+
+// --------------------------------------------------------------------- Boot
+async function boot() {
+  try {
+    state.me = await api("/api/auth/me");
+  } catch {
+    location.href = "/login";
+    return;
+  }
+  document.title = `Beluchis · Cashier (${state.me.name})`;
+  $("#me-name").textContent = state.me.name;
+  $("#me-role").textContent = state.me.role;
+  await loadOrders();
+  setInterval(() => { if (!document.hidden) loadOrders(); }, 10000);
+}
+
+boot().catch((e) => toast("Failed to load: " + e.message, true));
+</script>
+</body>
+</html>
