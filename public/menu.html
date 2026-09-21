@@ -101,6 +101,15 @@
   .item-info h3 { margin: 0 0 2px; font-size: 15.5px; }
   .item-info .desc { font-size: 12.5px; color: var(--muted); margin: 0; }
   .item-info .cat-hint { font-size: 11px; color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+  .item-title { display: flex; align-items: center; gap: 7px; }
+  .item-title h3 { margin: 0 0 2px; font-size: 15.5px; }
+  .fav-btn {
+    border: 0; background: transparent; cursor: pointer; padding: 0 2px;
+    font-size: 17px; line-height: 1; color: #cdc3b2; transition: color .15s, transform .15s;
+  }
+  .fav-btn:hover { color: var(--accent); transform: scale(1.12); }
+  .fav-btn.on { color: var(--accent); }
+  .fav-btn:disabled { opacity: .5; }
   .sizes { display: flex; gap: 7px; flex-wrap: wrap; align-items: flex-start; }
   .sizes button {
     border: 1px solid var(--line); background: #fff; color: var(--ink);
@@ -261,6 +270,10 @@
   <div class="modal" id="customize-modal"></div>
 </div>
 
+<div class="overlay" id="bogo-overlay" hidden>
+  <div class="modal" id="bogo-modal"></div>
+</div>
+
 <div class="drawer" id="cart-drawer">
   <div class="drawer-head">
     <h3>Your Order</h3>
@@ -319,16 +332,11 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="/shop.js"></script>
 <script>
 "use strict";
-const $ = (s, root) => (root || document).querySelector(s);
-const $$ = (s, root) => [...(root || document).querySelectorAll(s)];
-const money = (n) => "R" + (Number.isInteger(n) ? n : Number(n).toFixed(2));
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-
-const CART_KEY = "beluchis-cart-v1";
-const loadCart = () => { try { const v = JSON.parse(localStorage.getItem(CART_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } };
-const saveCart = () => localStorage.setItem(CART_KEY, JSON.stringify(CART));
+const $ = Shop.$, $$ = Shop.$$, money = Shop.money, esc = Shop.esc, toast = Shop.toast;
+const CART_KEY = Shop.CART_KEY;
 
 const distanceKm = (lat1, lng1, lat2, lng2) => {
   if (![lat1, lng1, lat2, lng2].every((v) => Number.isFinite(Number(v)))) return null;
@@ -399,114 +407,29 @@ function refreshDeliveryHint() {
 
 let CATS = [], ITEMS = [], SPECIALS = [], TOPPINGS_BY_ID = {};
 let DUPE_NAMES = new Set();
-let CART = loadCart();
 let itemById = new Map();
 let activeItems = [];
 let cardQty = new Map();
 let specQty = new Map();
 let geo = { lat: null, lng: null };
 let deliveryCfg = null;
+let shopCfg = null;
 let geoStatus = null; // "free" | "fee" | "out" | "unverified" | null
 
-const toast = (msg) => {
-  const el = $("#toast");
-  el.textContent = msg;
-  el.classList.add("show");
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.remove("show"), 2200);
-};
-
-const lineKey = (l) =>
-  l.kind === "special"
-    ? "s" + l.specialId
-    : "i" + l.itemId + "|" + l.sizeLabel + "|" + (l.extras || []).map((e) => e.name + ":" + e.price).join(",");
-
-const refreshCartUI = () => {
-  const badge = $("#cart-badge");
-  const count = CART.reduce((s, l) => s + l.qty, 0);
-  badge.textContent = count;
-  const total = CART.reduce((s, l) => s + (l.unitPrice + (l.extras || []).reduce((a, e) => a + e.price, 0)) * l.qty, 0);
-  $("#cart-grand").textContent = money(total);
-  const inCart = new Set();
-  for (const l of CART) if (l.kind === "item") inCart.add(l.itemId + "|" + l.sizeLabel);
-  for (const b of $$(".sizes button[data-size]")) {
-    const key = b.dataset.itemId + "|" + b.dataset.size;
-    b.classList.toggle("in-cart", inCart.has(key));
-  }
-};
-
-const reconcileCart = () => {
-  if (!CART.length) return;
-  const specialsById = new Map(SPECIALS.filter((s) => s.isActive !== false).map((s) => [s.id, s]));
-  const keep = [];
-  const dropped = [];
-  for (const l of CART) {
-    if (l.kind === "special" && l.specialId != null) {
-      const s = specialsById.get(l.specialId);
-      if (!s) { dropped.push(l.name || "special"); continue; }
-      l.price = l.unitPrice = s.price;
-      keep.push(l);
-      continue;
-    }
-    if (l.kind === "item" && l.itemId != null) {
-      const item = itemById.get(l.itemId);
-      if (!item) { dropped.push(l.name || "item"); continue; }
-      const activeSizes = (item.sizes || []).filter((x) => x.isActive !== false);
-      if (activeSizes.length) {
-        let sl = l.sizeLabel;
-        let sz = activeSizes.find((x) => x.sizeLabel === sl);
-        if (!sz) {
-          if (activeSizes.length === 1) { sz = activeSizes[0]; sl = sz.sizeLabel; }
-          else { dropped.push(l.name || "item"); continue; }
-        }
-        l.sizeLabel = sl;
-        l.unitPrice = sz.price;
-      }
-      keep.push(l);
-      continue;
-    }
-    keep.push(l);
-  }
-  if (keep.length !== CART.length) {
-    CART = keep;
-    saveCart();
-    if (dropped.length) toast("Removed from cart (no longer available): " + dropped.join(", "));
-    renderCart();
-    refreshCartUI();
-  }
-};
-
-const addLine = (line) => {
-  const k = lineKey(line);
-  const existing = CART.find((l) => lineKey(l) === k);
-  if (existing) existing.qty = Math.min(99, existing.qty + line.qty);
-  else CART.push({ ...line, qty: Math.max(1, line.qty || 1) });
-  saveCart();
-  refreshCartUI();
-};
-
-const changeQty = (idx, delta) => {
-  const l = CART[idx];
-  l.qty += delta;
-  if (l.qty <= 0) CART.splice(idx, 1);
-  saveCart();
-  renderCart();
-  refreshCartUI();
-};
-
-const removeLine = (idx) => {
-  CART.splice(idx, 1);
-  saveCart();
-  renderCart();
-  refreshCartUI();
-};
-
-const sizeRowOf = (item, label) => item.sizes.find((s) => s.sizeLabel === label && s.isActive !== false);
-const basePriceOf = (b, size) => (b.base.prices.find((p) => p.sizeLabel === size) || {}).price ?? null;
-const topPriceOf = (t, size) => (t.topping.prices.find((p) => p.sizeLabel === size) || {}).price ?? null;
-const availBases = (item, size) => item.bases.filter((b) => basePriceOf(b, size) !== null);
-const availToppings = (item, size) => item.toppings.filter((t) => t.topping.isActive !== false && topPriceOf(t, size) !== null);
-const hasCustom = (item) => (item.bases && item.bases.length) || (item.toppings && item.toppings.length);
+const CART = Shop.cart;
+const lineKey = Shop.lineKey;
+const refreshCartUI = Shop.syncUI;
+const renderCart = Shop.renderCart;
+const reconcileCart = Shop.reconcile;
+const addLine = Shop.addLine;
+const changeQty = Shop.changeQty;
+const removeLine = Shop.removeLine;
+const sizeRowOf = Shop.sizeRowOf;
+const basePriceOf = Shop.basePriceOf;
+const topPriceOf = Shop.topPriceOf;
+const availBases = Shop.availBases;
+const availToppings = Shop.availToppings;
+const hasCustom = Shop.hasCustom;
 
 const customUnitTotal = () => {
   const item = customModal.item, size = customModal.size;
@@ -529,61 +452,43 @@ const customDisplay = (el) => {
   el.textContent = qty > 1 ? money(unit) + " \u00d7 " + qty + " = " + money(unit * qty) : money(unit);
 };
 
-function renderSpecial(extra) {
-  return (
-    '<div class="cart-line">' +
-    '<div class="top"><span class="name">' + esc(extra.name) + '</span><span class="line-total">' + money(extra.unitPrice * extra.qty) + '</span></div>' +
-    '<div class="meta">Combo | R' + extra.unitPrice + " each</div>" +
-    '<div class="foot"><span class="qty"><button data-q="-1" data-idx="' + extra.idx + '">&minus;</button><span class="n">' + extra.qty + '</span><button data-q="1" data-idx="' + extra.idx + '">+</button></span>' +
-    '<button class="remove" data-remove-idx="' + extra.idx + '">Remove</button></div>' +
-    "</div>"
-  );
-}
-
-function renderCart() {
-  const el = $("#cart-lines");
-  if (!CART.length) {
-    el.innerHTML = '<div class="empty">Your cart is empty.<br />Head back to the menu to add items.</div>';
-    return;
-  }
-  el.innerHTML = CART.map((l, idx) => {
-    if (l.kind === "special") return renderSpecial({ ...l, idx });
-    const extrasLine = (l.extras || []).length ? '<div class="extras">' + l.extras.map((e) => esc(e.name) + (e.price ? " +" + money(e.price) : "")).join(" &middot; ") + "</div>" : "";
-    return (
-      '<div class="cart-line">' +
-      '<div class="top"><span class="name">' + esc(l.name) + "<br /><span class=\"meta\">" + esc(l.sizeLabel || "") + (l.catHint ? " &middot; " + esc(l.catHint) : "") + "</span></span>" +
-      '<span class="line-total">' + money((l.unitPrice + (l.extras || []).reduce((a, e) => a + e.price, 0)) * l.qty) + "</span></div>" +
-      extrasLine +
-      '<div class="foot"><span class="qty"><button data-q="-1" data-idx="' + idx + '">&minus;</button><span class="n">' + l.qty + '</span><button data-q="1" data-idx="' + idx + '">+</button></span>' +
-      '<button class="remove" data-remove-idx="' + idx + '">Remove</button></div>' +
-      "</div>"
-    );
-  }).join("");
-  refreshCartUI();
-}
-
 function renderMenu() {
   const app = $("#app");
   const parts = [];
 
+  if (shopCfg && !shopCfg.open) {
+    parts.push(
+      '<div class="hint" style="background:#fff4e5;border:1px solid #f0c48a;color:#8a4b00;padding:12px 14px;border-radius:10px;margin:0 0 14px;font-weight:600">' +
+      "\u23f0 We\u2019re closed right now &mdash; online checkout opens " + esc(shopCfg.openTime) + " to " + esc(shopCfg.closeTime) +
+      ". You can still browse the menu and build your cart.</div>"
+    );
+  }
+
   if (SPECIALS.length) {
     parts.push('<h2 style="margin:0 0 10px;font-size:18px;">Specials</h2>');
     parts.push('<div class="specials">' + SPECIALS.map((s) => {
-      const partsHtml = (s.items || []).map((si) =>
-        '<span class="part">' + (si.quantity > 1 ? si.quantity + "&times; " : "") + esc(si.item.name) + "</span>"
-      ).join("");
+      const bogo = s.kind === "bogo";
+      const action = bogo
+        ? '<button class="add-special" data-bogo-id="' + s.id + '">Build your deal</button>'
+        : '<span class="stepper" role="group" aria-label="Quantity for ' + esc(s.name) + '">' +
+          '<button type="button" data-qdec-special="' + s.id + '" aria-label="Decrease">&minus;</button>' +
+          '<span class="n" data-qty-special="' + s.id + '">' + (specQty.get(s.id) || 1) + "</span>" +
+          '<button type="button" data-qinc-special="' + s.id + '" aria-label="Increase">+</button></span>' +
+          '<button class="add-special" data-special-id="' + s.id + '">Add to Order</button>';
+      const detail = bogo
+        ? '<div class="special-parts">' +
+            (s.category ? '<span class="part">Pick any ' + esc(s.category.name) + "</span>" : "") +
+            (s.sizeLabel ? '<span class="part">' + esc(s.sizeLabel) + " only</span>" : "") +
+            '<span class="part">Choose ' + s.count + " &middot; pay for " + s.count / 2 + "</span>" +
+          "</div>"
+        : (s.items || []).map((si) => '<span class="part">' + (si.quantity > 1 ? si.quantity + "&times; " : "") + esc(si.item.name) + "</span>").join("");
+      const partsHtml = bogo ? detail : (detail ? '<div class="special-parts">' + detail + "</div>" : "");
       return (
         '<div class="special-card">' +
-        '<div class="special-top"><h3>' + esc(s.name) + '</h3><span class="price">' + money(s.price) + "</span></div>" +
+        '<div class="special-top"><h3>' + esc(s.name) + '</h3><span class="price">' + (bogo ? "Pick " + s.count + ", pay " + s.count / 2 : money(s.price)) + "</span>" + favButton("special", s.id) + "</div>" +
         (s.description ? '<div class="special-desc">' + esc(s.description) + "</div>" : "") +
-        (partsHtml ? '<div class="special-parts">' + partsHtml + "</div>" : "") +
-        '<div class="special-actions">' +
-        '<span class="stepper" role="group" aria-label="Quantity for ' + esc(s.name) + '">' +
-        '<button type="button" data-qdec-special="' + s.id + '" aria-label="Decrease">&minus;</button>' +
-        '<span class="n" data-qty-special="' + s.id + '">' + (specQty.get(s.id) || 1) + "</span>" +
-        '<button type="button" data-qinc-special="' + s.id + '" aria-label="Increase">+</button></span>' +
-        '<button class="add-special" data-special-id="' + s.id + '">Add to Order</button>' +
-        "</div></div>"
+        partsHtml +
+        '<div class="special-actions">' + action + "</div></div>"
       );
     }).join("") + "</div>");
   }
@@ -610,7 +515,9 @@ function renderMenu() {
           '<button type="button" data-qinc-item="' + item.id + '" aria-label="Increase">+</button></span>';
         return (
           '<div class="item" data-item-id="' + item.id + '" data-item-slug="' + esc(item.slug || "") + '">' +
-          '<div class="item-info">' + catHint + "<h3>" + esc(item.name) + "</h3>" + desc + "</div>" +
+          '<div class="item-info">' + catHint +
+          '<div class="item-title"><h3>' + esc(item.name) + "</h3>" + favButton("item", item.id) + "</div>" +
+          desc + "</div>" +
           '<div class="sizes">' + sizeBtns + qtyStepper + "</div>" +
           "</div>"
         );
@@ -621,6 +528,65 @@ function renderMenu() {
 
   app.innerHTML = parts.join("");
   refreshCartUI();
+}
+
+/* -------------------------------------------------------- favourites (guest+) */
+const FAVS = { items: new Set(), specials: new Set(), ready: false, loggedIn: false };
+
+const favButton = (kind, id) => {
+  const on = kind === "item" ? FAVS.items.has(id) : FAVS.specials.has(id);
+  const attr = kind === "item" ? "data-fav-item" : "data-fav-special";
+  return (
+    '<button class="fav-btn' + (on ? " on" : "") + '" type="button" ' + attr + '="' + id + '"' +
+    ' aria-pressed="' + on + '" aria-label="' + (on ? "Remove from favourites" : "Save to favourites") + '"' +
+    ' title="' + (FAVS.loggedIn ? "Save to your favourites" : "Log in to save favourites") + '">' +
+    (on ? "\u2665" : "\u2661") + "</button>"
+  );
+};
+
+async function loadFavorites() {
+  try {
+    const me = await fetch("/api/customer/auth/me");
+    if (!me.ok) return;
+    FAVS.loggedIn = true;
+    const res = await fetch("/api/customer/favorites");
+    if (!res.ok) return;
+    const rows = await res.json();
+    FAVS.items = new Set(rows.filter((f) => f.itemId).map((f) => f.itemId));
+    FAVS.specials = new Set(rows.filter((f) => f.specialId).map((f) => f.specialId));
+    FAVS.ready = true;
+  } catch {}
+}
+
+async function toggleFav(btn) {
+  const itemId = btn.dataset.favItem ? Number(btn.dataset.favItem) : null;
+  const specialId = btn.dataset.favSpecial ? Number(btn.dataset.favSpecial) : null;
+  if (!FAVS.ready) {
+    toast("Log in to save favourites");
+    setTimeout(() => (location.href = "/login"), 700);
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/customer/favorites", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(itemId ? { itemId } : { specialId }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || "Could not save that right now");
+    const id = itemId || specialId;
+    (itemId ? FAVS.items : FAVS.specials)[body.liked ? "add" : "delete"](id);
+    btn.classList.toggle("on", Boolean(body.liked));
+    btn.setAttribute("aria-pressed", String(Boolean(body.liked)));
+    btn.setAttribute("aria-label", body.liked ? "Remove from favourites" : "Save to favourites");
+    btn.textContent = body.liked ? "\u2665" : "\u2661";
+    toast(body.liked ? "Saved to your favourites \u2014 see them in My Orders" : "Removed from favourites");
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 const customizeSizes = () => {
@@ -655,21 +621,41 @@ function renderCustomize() {
     ? '<div class="field"><label>Extra toppings</label><div class="opt-list">' +
       tops.map((t) => {
         const p = topPriceOf(t, size);
-        const checked = (customModal.tops || []).includes(t.topping.id) ? " checked" : "";
+        const oos = t.topping.isInSeason === false;
+        const checked = !oos && (customModal.tops || []).includes(t.topping.id) ? " checked" : "";
         return (
-          '<label class="opt"><input type="checkbox" data-top-id="' + t.topping.id + '"' + checked + " />" +
-          "<span>" + esc(t.topping.name) + "</span><span class=\"cost\">+" + money(p) + "</span></label>"
+          '<label class="opt"' + (oos ? ' style="opacity:.55"' : "") + '><input type="checkbox" data-top-id="' + t.topping.id + '"' + checked + (oos ? " disabled" : "") + " />" +
+          "<span>" + esc(t.topping.name) + (oos ? " (out of season)" : "") + "</span><span class=\"cost\">+" + money(p) + "</span></label>"
         );
       }).join("") +
       "</div></div>"
     : "";
+
+  // Seasonal swap: if a topping on this item is out of season, let the guest
+  // trade it for an in-season topping of the same value (free), or drop it.
+  const oos = Shop.outOfSeasonToppings(item, size);
+  let swapHtml = "";
+  if (oos.length) {
+    const target = oos[0];
+    const swaps = Shop.affordableSwaps(item, size, target);
+    customModal.swapFor = target.topping.id;
+    swapHtml =
+      '<div class="field"><label>' + esc(target.topping.name) + " is out of season</label>" +
+      '<select id="pick-swap">' +
+      '<option value="0">Remove ' + esc(target.topping.name) + "</option>" +
+      swaps.map((t) => '<option value="' + t.topping.id + '"' + (Number(customModal.swapPick) === t.topping.id ? " selected" : "") + ">Swap for " + esc(t.topping.name) + " (free)</option>").join("") +
+      "</select>" +
+      '<div class="hint">It\u2019s out of season, so it comes off. You can swap it for any in-season topping of the same value at no extra charge.</div></div>';
+  } else {
+    customModal.swapFor = null;
+  }
   const note = !bases.length && !tops.length ? '<p class="hint">Includes base and standard toppings. Not available with extra toppings.</p>' : "";
 
   $("#customize-modal").innerHTML =
     "<h3>" + esc(item.name) + "</h3>" +
     '<p class="sub">' + esc(size) + " &middot; " + money(sizeRowOf(item, size).price) + (item.description ? " &middot; " + esc(item.description) : "") + "</p>" +
     '<div class="size-pick">' + customizeSizes() + "</div>" +
-    baseOpts + topList + note +
+    baseOpts + topList + swapHtml + note +
     '<div class="modal-actions">' +
     '<span class="total" id="custom-total"></span>' +
     '<span class="stepper" role="group" aria-label="Quantity">' +
@@ -684,6 +670,10 @@ function renderCustomize() {
 }
 
 $("#customize-modal").addEventListener("change", (e) => {
+  if (e.target.matches("#pick-swap")) {
+    customModal.swapPick = Number(e.target.value);
+    return;
+  }
   if (e.target.matches("#pick-base") || e.target.matches("input[data-top-id]")) {
     const totalEl = $("#custom-total");
     if (totalEl && customModal.item) customDisplay(totalEl);
@@ -695,6 +685,7 @@ $("#customize-modal").addEventListener("click", (e) => {
   if (sz) {
     customModal.size = sz.dataset.csize;
     customModal.baseId = null;
+    customModal.swapPick = 0;
     renderCustomize();
     return;
   }
@@ -733,6 +724,11 @@ $("#customize-modal").addEventListener("click", (e) => {
     const t = item.toppings.find((x) => x.topping.id === tid);
     if (t) extras.push({ name: t.topping.name, price: topPriceOf(t, size) || 0 });
   }
+  if (customModal.swapFor && customModal.swapPick) {
+    const swap = item.toppings.find((x) => x.topping.id === Number(customModal.swapPick));
+    const gone = item.toppings.find((x) => x.topping.id === customModal.swapFor);
+    if (swap) extras.push({ name: "Swap: " + swap.topping.name + " (for " + (gone ? gone.topping.name : "out of season item") + ")", price: 0 });
+  }
   const cat = CATS.find((c) => c.id === item.categoryId);
   const qty = customModal.qty || 1;
   addLine({
@@ -743,15 +739,116 @@ $("#customize-modal").addEventListener("click", (e) => {
   toast("Added " + (qty > 1 ? qty + " \u00d7 " : "") + item.name + " (" + size + ")");
 });
 
-let customModal = { item: null, size: null, baseId: null, tops: [], qty: 1 };
+let customModal = { item: null, size: null, baseId: null, tops: [], qty: 1, swapFor: null, swapPick: 0 };
 
 const openCustomize = (item, size) => {
-  customModal = { item, size, baseId: null, tops: [], qty: 1 };
+  customModal = { item, size, baseId: null, tops: [], qty: 1, swapFor: null, swapPick: 0 };
   $("#customize-overlay").hidden = false;
   renderCustomize();
 };
 
 const closeOverlay = (sel) => { $(sel).hidden = true; };
+
+/* ------------------------------------------------------------- BOGO deals */
+let bogoModal = { special: null, picks: [] };
+
+const bogoCategoryItems = (s) => {
+  const cat = Shop.data.catById.get(s.categoryId);
+  return ((cat && cat._items) || []).filter((i) => (i.sizes || []).some((x) => x.isActive !== false && (!s.sizeLabel || x.sizeLabel === s.sizeLabel)));
+};
+
+function newBogoPick(s) {
+  const items = bogoCategoryItems(s);
+  const item = items[0];
+  const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && (!s.sizeLabel || x.sizeLabel === s.sizeLabel)) : [];
+  return { itemId: item ? item.id : null, sizeLabel: sizes[0] ? sizes[0].sizeLabel : null, extras: [] };
+}
+
+function bogoTotalText() {
+  const base = Shop.bogoBaseTotal(bogoModal.picks);
+  const ex = Shop.extrasTotal(bogoModal.picks);
+  return money(base + ex) + (ex ? " (incl. " + money(ex) + " extras)" : "");
+}
+
+function renderBogo() {
+  const s = bogoModal.special;
+  const items = bogoCategoryItems(s);
+  if (!items.length) { toast("That deal has no available pizzas right now"); closeOverlay("#bogo-overlay"); return; }
+  const rows = bogoModal.picks.map((p, i) => {
+    const item = Shop.data.byId.get(Number(p.itemId));
+    const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && (!s.sizeLabel || x.sizeLabel === s.sizeLabel)) : [];
+    const tops = item ? Shop.availToppings(item, p.sizeLabel) : [];
+    return (
+      '<div class="field"><label>Pizza ' + (i + 1) + "</label>" +
+      '<select data-bogo-item="' + i + '">' + items.map((it) =>
+        '<option value="' + it.id + '"' + (it.id === Number(p.itemId) ? " selected" : "") + ">" + esc(it.name) + "</option>").join("") + "</select>" +
+      '<select data-bogo-size="' + i + '" style="margin-top:6px">' + sizes.map((sz) =>
+        '<option value="' + esc(sz.sizeLabel) + '"' + (sz.sizeLabel === p.sizeLabel ? " selected" : "") + ">" + esc(sz.sizeLabel) + " &middot; " + money(sz.price) + "</option>").join("") + "</select>" +
+      (tops.length ? '<div class="opt-list">' + tops.map((t) => {
+        const price = topPriceOf(t, p.sizeLabel) || 0;
+        const on = (p.extras || []).some((e) => e.name === t.topping.name);
+        return '<label class="opt"><input type="checkbox" data-bogo-top="' + i + '" data-top-name="' + esc(t.topping.name) + '" data-top-price="' + price + '"' + (on ? " checked" : "") + " /><span>" + esc(t.topping.name) + '</span><span class="cost">+' + money(price) + "</span></label>";
+      }).join("") + "</div>" : "") +
+      "</div>"
+    );
+  }).join("");
+
+  $("#bogo-modal").innerHTML =
+    "<h3>" + esc(s.name) + "</h3>" +
+    '<p class="sub">Choose ' + s.count + " pizzas &middot; you pay for the " + s.count / 2 + " most expensive" + (s.sizeLabel ? " &middot; " + esc(s.sizeLabel) + " only" : "") + "</p>" +
+    rows +
+    '<div class="modal-actions">' +
+    '<span class="total" id="bogo-total">' + bogoTotalText() + "</span>" +
+    '<button class="ghost" data-action="close-bogo">Cancel</button>' +
+    '<button class="primary" data-action="confirm-bogo">Add to Order</button>' +
+    "</div>";
+}
+
+const openBogo = (s) => {
+  bogoModal = { special: s, picks: Array.from({ length: s.count }, () => newBogoPick(s)) };
+  $("#bogo-overlay").hidden = false;
+  renderBogo();
+};
+
+$("#bogo-modal").addEventListener("change", (e) => {
+  const s = bogoModal.special;
+  const it = e.target.closest("select[data-bogo-item]");
+  if (it) {
+    const i = Number(it.dataset.bogoItem);
+    const item = Shop.data.byId.get(Number(it.value));
+    const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && (!s.sizeLabel || x.sizeLabel === s.sizeLabel)) : [];
+    bogoModal.picks[i] = { itemId: item.id, sizeLabel: sizes[0] ? sizes[0].sizeLabel : null, extras: [] };
+    renderBogo();
+    return;
+  }
+  const sz = e.target.closest("select[data-bogo-size]");
+  if (sz) { const i = Number(sz.dataset.bogoSize); bogoModal.picks[i].sizeLabel = sz.value; bogoModal.picks[i].extras = []; renderBogo(); return; }
+  const tp = e.target.closest("input[data-bogo-top]");
+  if (tp) {
+    const i = Number(tp.dataset.bogoTop);
+    const p = bogoModal.picks[i];
+    const name = tp.dataset.topName, price = Number(tp.dataset.topPrice);
+    p.extras = (p.extras || []).filter((x) => x.name !== name);
+    if (tp.checked) p.extras.push({ name, price });
+    const t = $("#bogo-total");
+    if (t) t.textContent = bogoTotalText();
+    return;
+  }
+});
+
+$("#bogo-modal").addEventListener("click", (e) => {
+  if (e.target.closest('[data-action="close-bogo"]')) { closeOverlay("#bogo-overlay"); return; }
+  if (!e.target.closest('[data-action="confirm-bogo"]')) return;
+  const s = bogoModal.special;
+  const pizzas = bogoModal.picks
+    .filter((p) => p.itemId && p.sizeLabel)
+    .map((p) => ({ itemId: p.itemId, sizeLabel: p.sizeLabel, name: (Shop.data.byId.get(Number(p.itemId)) || {}).name, extras: (p.extras || []).map((x) => ({ name: x.name, price: x.price })) }));
+  if (pizzas.length !== s.count) { toast("Please choose " + s.count + " pizzas"); return; }
+  const unitPrice = Shop.bogoBaseTotal(pizzas) + Shop.extrasTotal(pizzas);
+  addLine({ kind: "special", specialId: s.id, name: s.name, unitPrice, pizzas, qty: 1 });
+  closeOverlay("#bogo-overlay");
+  toast("Added deal: " + s.name);
+});
 
 $("#app").addEventListener("click", (e) => {
   const bump = (id, map, dir, sel) => {
@@ -795,6 +892,17 @@ $("#app").addEventListener("click", (e) => {
     }
     return;
   }
+  const fav = e.target.closest("button[data-fav-item], button[data-fav-special]");
+  if (fav) {
+    toggleFav(fav);
+    return;
+  }
+  const bg = e.target.closest("button[data-bogo-id]");
+  if (bg) {
+    const s = SPECIALS.find((x) => x.id === Number(bg.dataset.bogoId));
+    if (s) openBogo(s);
+    return;
+  }
 });
 
 $("#checkout-modal").addEventListener("click", (e) => {
@@ -836,16 +944,6 @@ $("#checkout-modal").addEventListener("input", (e) => {
 });
 
 document.addEventListener("click", (e) => {
-  const openCart = e.target.closest('[data-action="open-cart"]');
-  if (openCart) { renderCart(); $("#cart-drawer").classList.add("open"); return; }
-  if (e.target.closest('[data-action="close-cart"]')) { $("#cart-drawer").classList.remove("open"); return; }
-  if (e.target.closest('[data-action="checkout"]')) { openCheckout(); return; }
-
-  const q = e.target.closest("button[data-q]");
-  if (q) { changeQty(Number(q.dataset.idx), Number(q.dataset.q)); return; }
-  const rm = e.target.closest("button[data-remove-idx]");
-  if (rm) { removeLine(Number(rm.dataset.removeIdx)); return; }
-
   if (e.target.closest('[data-action="close-customize"]')) closeOverlay("#customize-overlay");
   if (e.target.closest('[data-action="cancel-checkout"]')) closeOverlay("#checkout-overlay");
 });
@@ -853,12 +951,17 @@ document.addEventListener("click", (e) => {
 $("#customize-overlay").addEventListener("click", (e) => {
   if (e.target === $("#customize-overlay")) closeOverlay("#customize-overlay");
 });
+$("#bogo-overlay").addEventListener("click", (e) => {
+  if (e.target === $("#bogo-overlay")) closeOverlay("#bogo-overlay");
+});
 $("#checkout-overlay").addEventListener("click", (e) => {
   if (e.target === $("#checkout-overlay")) closeOverlay("#checkout-overlay");
 });
 
 function openCheckout() {
   if (!CART.length) { toast("Your cart is empty"); return; }
+  if (shopCfg && shopCfg.onlineEnabled === false) { toast("Online ordering is paused right now \u2014 please call us."); return; }
+  if (shopCfg && !shopCfg.open) { toast("We\u2019re closed \u2014 checkout opens " + shopCfg.openTime + " to " + shopCfg.closeTime + "."); return; }
   $("#cart-drawer").classList.remove("open");
   const total = CART.reduce((s, l) => s + (l.unitPrice + (l.extras || []).reduce((a, e) => a + e.price, 0)) * l.qty, 0);
   const count = CART.reduce((s, l) => s + l.qty, 0);
@@ -923,12 +1026,13 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
       body: JSON.stringify(payload),
     });
     const data = await res.json();
+    if (res.status === 403 && data.code === "shop_closed") {
+      shopCfg = Object.assign({}, shopCfg, { open: false });
+      renderMenu();
+    }
     if (!res.ok) throw new Error(data.error || "Something went wrong");
-    CART = [];
-    saveCart();
+    Shop.clear();
     localStorage.setItem("beluchis-recent-order", JSON.stringify({ id: data.id, phone: payload.cellphone }));
-    renderCart();
-    refreshCartUI();
     closeOverlay("#checkout-overlay");
     $("#cart-drawer").classList.remove("open");
     const pay = data.grandTotal != null ? data.grandTotal : data.total;
@@ -981,48 +1085,22 @@ $("#checkout-modal").addEventListener("click", (e) => {
 
 async function load() {
   try {
-    const [catsRes, itemsRes, specialsRes, toppingsRes] = await Promise.all([
-      fetch("/api/categories"), fetch("/api/items"), fetch("/api/specials"), fetch("/api/toppings"),
-    ]);
-    if (!catsRes.ok || !itemsRes.ok || !specialsRes.ok || !toppingsRes.ok) throw new Error("Failed to load menu (API error)");
-    CATS = await catsRes.json();
-    ITEMS = await itemsRes.json();
-    SPECIALS = await specialsRes.json();
-    const toppings = await toppingsRes.json();
-
-    // Live delivery policy (radius, fee) - optional; fall back to static hint.
+    const data = await Shop.load();
+    CATS = data.cats;
+    ITEMS = data.items;
+    SPECIALS = data.specials;
+    deliveryCfg = data.delivery;
     try {
-      const cfgRes = await fetch("/api/delivery/config");
-      if (cfgRes.ok) deliveryCfg = await cfgRes.json();
-    } catch { deliveryCfg = null; }
+      const sr = await fetch("/api/shop/config");
+      if (sr.ok) shopCfg = await sr.json();
+    } catch { shopCfg = null; }
+    TOPPINGS_BY_ID = Object.fromEntries(data.toppings.map((t) => [t.id, t]));
+    activeItems = data.items;
+    itemById = data.byId;
+    DUPE_NAMES = data.dupeNames;
     refreshDeliveryHint();
 
-    TOPPINGS_BY_ID = Object.fromEntries(toppings.map((t) => [t.id, t]));
-
-    const activeCats = CATS.filter((c) => c.isActive);
-    activeItems = ITEMS.filter((i) => i.isActive !== false);
-    itemById = new Map(activeItems.map((i) => [i.id, i]));
-
-    const itemsByCat = new Map();
-    for (const c of activeCats) itemsByCat.set(c.id, []);
-    for (const i of activeItems) {
-      const list = itemsByCat.get(i.categoryId) || [];
-      list.push(i);
-      itemsByCat.set(i.categoryId, list);
-    }
-    for (const c of activeCats) {
-      c._items = (itemsByCat.get(c.id) || []).slice().sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
-    }
-    CATS = activeCats.sort((a, b) => a.sortOrder - b.sortOrder);
-
-    const seen = new Set();
-    const dupes = new Set();
-    for (const i of activeItems) {
-      const n = i.name.toLowerCase();
-      if (seen.has(n)) dupes.add(n); else seen.add(n);
-    }
-    DUPE_NAMES = dupes;
-
+    await loadFavorites();
     reconcileCart();
     renderMenu();
     refreshCartUI();
@@ -1036,6 +1114,12 @@ function handleDeepLink() {
   const params = new URLSearchParams(location.search);
   const itemSlug = params.get("item");
   const catSlug = params.get("cat");
+
+  if (params.get("checkout") === "1") {
+    if (CART.length) openCheckout();
+    else toast("Your cart is empty");
+    return;
+  }
 
   let found;
   if (itemSlug) {
@@ -1075,8 +1159,10 @@ function scrollIntoView(node) {
   const top = node.getBoundingClientRect().top + window.scrollY - 86;
   window.scrollTo({ top, behavior: "smooth" });
 }
+Shop.onCheckout = openCheckout;
 
 load();
+
 </script>
 </body>
 </html>

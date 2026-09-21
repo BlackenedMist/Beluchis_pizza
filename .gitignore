@@ -7,3 +7,10 @@ dev.db-wal
 dev.db-shm
 .env
 server/.dev-time
+invites.csv
+xello.info*
+.beluchis.pid
+StandAlone/data/
+StandAlone/*.log
+StandAlone/*.pid
+kitchen/*.pid

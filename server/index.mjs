@@ -5,6 +5,8 @@ import fsp from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { canonicalPhone } from "./phone.mjs";
+import { buildOrderConfirmation, fill, mailEnabled, sendMail } from "./mail.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const prisma = new PrismaClient();
@@ -220,6 +222,7 @@ const normalizeSettingsPayload = (raw) => {
   const s = raw && typeof raw.settings === "object" ? raw.settings : raw && typeof raw === "object" ? raw : {};
   const boolKeys = ["delivery.enabled", "shop.onlineEnabled", "shop.forceOpen"];
   const timeKeys = ["shop.openTime", "shop.closeTime"];
+  const textKeys = ["mail.inviteSubject", "mail.inviteBody"];
   const numKeys = [
     "shop.lat",
     "shop.lng",
@@ -227,9 +230,14 @@ const normalizeSettingsPayload = (raw) => {
     "delivery.maxRadiusKm",
     "delivery.feeAmount",
   ];
-  for (const key of [...numKeys, ...boolKeys, ...timeKeys]) {
+  for (const key of [...numKeys, ...boolKeys, ...timeKeys, ...textKeys]) {
     if (!(key in s)) continue;
     const v = String(s[key]).trim();
+    if (textKeys.includes(key)) {
+      if (v.length > 5000) throw badRequest(`${key} is too long (max 5000 characters)`);
+      out[key] = v;
+      continue;
+    }
     if (boolKeys.includes(key)) {
       if (!["true", "false"].includes(v)) throw badRequest(`${key} must be true or false`);
       out[key] = v;
@@ -441,7 +449,7 @@ app.post(
       return res.status(400).json({ error: "password must be at least 4 characters" });
     if (throttledLogin(req)) return res.status(429).json({ error: "too many attempts, try again later" });
 
-    const phone = String(cellphone).trim();
+    const phone = canonicalPhone(cellphone);
     let customer = await prisma.customer.findUnique({ where: { cellphone: phone } });
     if (!customer)
       return res.status(404).json({
@@ -476,7 +484,7 @@ app.post(
       return res.status(400).json({ error: "cellphone and password are required" });
     if (throttledLogin(req)) return res.status(429).json({ error: "too many attempts, try again later" });
 
-    const customer = await prisma.customer.findUnique({ where: { cellphone: String(cellphone).trim() } });
+    const customer = await prisma.customer.findUnique({ where: { cellphone: canonicalPhone(cellphone) } });
     if (!customer || !customer.claimedAt) return res.status(401).json({ error: "invalid cellphone or password" });
     const ok = await bcrypt.compare(String(password), customer.passwordHash);
     if (!ok) return res.status(401).json({ error: "invalid cellphone or password" });
@@ -990,6 +998,30 @@ app.put("/api/settings", requireRole("admin"), asyncHandler(async (req, res) => 
   }, shop: await getShopStatus() });
 }));
 
+// Send a claim-invite email to an arbitrary address (admin "test" button).
+// Renders with the current invite subject/body settings and the public portal URL.
+app.post("/api/mail/test-invite", requireRole("admin"), asyncHandler(async (req, res) => {
+  if (!mailEnabled()) return res.status(503).json({ ok: false, error: "SMTP is not configured on this server" });
+  const { to = null } = req.body || {};
+  if (!to || !String(to).includes("@")) return res.status(400).json({ ok: false, error: "a valid email address is required" });
+  if (req.body?.settings) {
+    await prisma.$transaction(
+      Object.entries(normalizeSettingsPayload({ settings: req.body.settings })).map(([key, value]) =>
+        prisma.setting.upsert({ where: { key }, update: { value }, create: { key, value } })
+      )
+    );
+  }
+  const subject = await getSetting("mail.inviteSubject", "Your Beluchis account is ready");
+  const body = await getSetting("mail.inviteBody", "Hi {firstName},\n\nYour Beluchis account is ready. Set your password to start ordering:\n{url}\n\n— The Beluchis team");
+  const url = `${PUBLIC_ORIGIN}/login`;
+  const res2 = await sendMail({
+    to,
+    subject: fill(subject, { firstName: "there", url }),
+    text: fill(body, { firstName: "there", url }),
+  });
+  res.status(res2.ok ? 200 : 502).json(res2);
+}));
+
 // ------------------------------------------------------------------- Orders
 const orderIncludes = {
   customer: true,
@@ -1061,7 +1093,7 @@ const applyPaygateResult = async (params) => {
   if (!validPaygateChecksum(params)) return { ok: false, reason: "checksum mismatch" };
   const ref = params.get("REFERENCE");
   if (!ref) return { ok: false, reason: "missing REFERENCE" };
-  const order = await prisma.order.findFirst({ where: { payRef: ref } });
+  const order = await prisma.order.findFirst({ where: { payRef: ref }, include: { customer: true } });
   if (!order) return { ok: false, reason: "unknown order" };
   const approved = String(params.get("TRANSACTION_STATUS")) === "1";
   await prisma.order.update({
@@ -1074,6 +1106,19 @@ const applyPaygateResult = async (params) => {
       resultDesc: params.get("RESULT_DESC") || order.resultDesc,
     },
   });
+  // Best-effort payment confirmation when the gateway approves and we have an email.
+  if (approved && order.customer?.email && mailEnabled()) {
+    const cust = order.customer;
+    const total = ((order.grandTotal ?? order.total) / 100).toFixed(2);
+    sendMail({
+      to: cust.email,
+      subject: `Payment received for Beluchis order #${order.id}`,
+      text:
+        `Hi ${cust.firstName || "there"},\n\n` +
+        `We received your payment of R${total} for order #${order.id}.\n\n` +
+        `— The Beluchis team`,
+    }).catch(() => {});
+  }
   return { ok: true, approved, order };
 };
 
@@ -1210,10 +1255,11 @@ app.post(
         return res.status(400).json({ error: "customerId or guest firstName/lastName is required" });
       if (!validContact(email, cellphone))
         return res.status(400).json({ error: "email or cellphone is required for guest checkout" });
-      const lookup = cellphone?.trim()
-        ? { cellphone: String(cellphone).trim() }
+      const lookupPhone = canonicalPhone(cellphone);
+      const lookup = lookupPhone
+        ? { cellphone: lookupPhone }
         : { email: String(email).trim() };
-customer = await prisma.customer.findUnique({ where: lookup });
+      customer = await prisma.customer.findUnique({ where: lookup });
         if (!customer) {
           const guestUser = `guest-${String(cellphone || email).replace(/[^a-z0-9]/gi, "").slice(-10) || Math.random().toString(36).slice(2, 8)}`;
           customer = await prisma.customer.create({
@@ -1221,7 +1267,7 @@ customer = await prisma.customer.findUnique({ where: lookup });
               firstName: String(firstName).trim(),
               lastName: String(lastName).trim(),
               email: email?.trim() || null,
-              cellphone: cellphone?.trim() || null,
+              cellphone: lookupPhone || null,
               username: guestUser,
               passwordHash: await bcrypt.hash(Math.random().toString(36).slice(2), 10),
               lat: lat != null ? Number(lat) : null,
@@ -1441,6 +1487,11 @@ customer = await prisma.customer.findUnique({ where: lookup });
     const full = await prisma.order.findUnique({ where: { id: order.id }, include: orderIncludes });
     const payload = publicOrder(full);
     if (payRedirect) payload.redirect = payRedirect;
+    // Best-effort order confirmation email (never blocks checkout; fire & forget).
+    if (full.customer?.email && mailEnabled()) {
+      const { subject, text, html } = buildOrderConfirmation(full);
+      sendMail({ to: full.customer.email, subject, text, html }).catch(() => {});
+    }
     res.status(201).json(payload);
   })
 );

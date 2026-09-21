@@ -256,7 +256,7 @@
   <button data-tab="categories" data-roles="admin">Categories</button>
   <button data-tab="users" data-roles="admin">Users</button>
   <button data-tab="loyalty" data-roles="admin">Loyalty</button>
-  <button data-tab="delivery" data-roles="admin">Delivery</button>
+  <button data-tab="delivery" data-roles="admin">Shop</button>
 </nav>
 <main>
   <section id="tab-orders" class="panel"></section>
@@ -295,6 +295,7 @@ const ROLES = {
   admin: "Admin",
   orders: "Orders",
   kitchen: "Main Kitchen",
+  cashier: "Cashier",
 };
 const STATUSES = ["placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
 const STATUS_NAMES = {
@@ -564,7 +565,7 @@ async function loadUsers() {
 
 function renderUsers() {
   const el = $("#tab-users");
-  const roleBadge = (r) => `<span class="tag" style="${r === "admin" ? "background:#fdecea;color:#c62828" : r === "orders" ? "background:#e3f2fd;color:#1565c0" : "background:#fff3e0;color:#e65100"}">${roleLabel(r)}</span>`;
+  const roleBadge = (r) => `<span class="tag" style="${r === "admin" ? "background:#fdecea;color:#c62828" : r === "orders" ? "background:#e3f2fd;color:#1565c0" : r === "kitchen" ? "background:#fff3e0;color:#e65100" : "background:#f3e5f5;color:#6a1b9a"}">${roleLabel(r)}</span>`;
   el.innerHTML = `
     <div class="toolbar">
       <h2>Staff &amp; Access</h2>
@@ -610,6 +611,7 @@ window.openUser = (id) => {
         <option value="admin"${u?.role==="admin"?" selected":""}>Admin</option>
         <option value="orders"${u?.role==="orders"?" selected":""}>Orders</option>
         <option value="kitchen"${u?.role==="kitchen"?" selected":""}>Main Kitchen</option>
+        <option value="cashier"${u?.role==="cashier"?" selected":""}>Cashier</option>
       </select></div>`}
       ${`<div class="field"><label>Active</label><select id="u-active">
         <option value="true"${u?.isActive !== false?" selected":""}>Active</option>
@@ -775,7 +777,12 @@ function renderItems() {
           <tbody>
             ${c.items.map((i) => `
               <tr>
-                <td><b>${esc(i.name)}</b>${i.description ? `<br><span class="muted">${esc(i.description)}</span>` : ""}</td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    ${i.imageUrl ? `<img src="${esc(i.imageUrl)}" alt="" style="width:34px;height:34px;object-fit:cover;border-radius:7px;border:1px solid #e8e0d5" />` : ""}
+                    <div><b>${esc(i.name)}</b>${i.showOnHome ? ' <span class="tag">home</span>' : ""}${i.description ? `<br><span class="muted">${esc(i.description)}</span>` : ""}</div>
+                  </div>
+                </td>
                 <td>${esc(i.itemType)}</td>
                 <td>${fmtSizes(i.sizes)}</td>
                 <td>${i.toppings.length ? i.toppings.slice(0,4).map((t) => `<span class="tag">${esc(t.topping.name)}</span>`).join("") + (i.toppings.length>4?`<span class="tag off">+${i.toppings.length-4}</span>`:"") : '<span class="muted">—</span>'}</td>
@@ -806,12 +813,13 @@ function renderToppings() {
     </div>
     ${list.length ? `
     <table>
-      <thead><tr><th>Tier</th><th>Name</th><th>Prices</th><th>On items</th><th></th></tr></thead>
+      <thead><tr><th>Tier</th><th>Name</th><th>Season</th><th>Prices</th><th>On items</th><th></th></tr></thead>
       <tbody>
         ${list.map((t) => `
           <tr>
             <td>${t.tier || "—"}</td>
             <td><b>${esc(t.name)}</b></td>
+            <td>${t.isInSeason ? "In season" : '<span class="muted">Out of season</span>'}</td>
             <td>${priceTable(t.prices)}</td>
             <td>${t._count.items}</td>
             <td class="row-actions">
@@ -914,6 +922,39 @@ const popup = (html) => openModal(html);
 
 const field = (label, inner) => `<div class="field"><label>${label}</label>${inner}</div>`;
 
+// Picture picker: reads the chosen file as a data URL and posts it to
+// /api/upload, keeping the returned /uploads/... path in a hidden input.
+const pictureField = (id, current) => `
+  <div class="field">
+    <label>Picture</label>
+    <div style="display:flex;align-items:center;gap:10px">
+      ${current ? `<img src="${esc(current)}" alt="" style="width:46px;height:46px;object-fit:cover;border-radius:8px;border:1px solid #e8e0d5" />` : ""}
+      <input type="hidden" id="${id}" value="${esc(current || "")}" />
+      <input type="file" accept="image/*" onchange="uploadPicture(this,'${id}')" />
+      <button type="button" class="ghost" onclick="$('#${id}').value=''">Clear</button>
+    </div>
+  </div>`;
+
+window.uploadPicture = async (input, targetId) => {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > 6 * 1024 * 1024) return toast("Image must be 6MB or smaller", true);
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Could not read that file"));
+    reader.readAsDataURL(file);
+  });
+  try {
+    const out = await api("/api/upload", { method: "POST", body: JSON.stringify({ dataUrl }) });
+    const el = $(`#${targetId}`);
+    if (el) el.value = out.url;
+    toast("Picture uploaded");
+  } catch (e) {
+    toast(e.message, true);
+  }
+};
+
 // Item
 window.openItem = (id) => {
   const item = id ? state.items.find((i) => i.id === id) : null;
@@ -927,12 +968,14 @@ window.openItem = (id) => {
       </select>`)}
     </div>
     ${field("Description", `<textarea id="f-desc" rows="2">${item?.description || ""}</textarea>`)}
+    ${pictureField("f-img", item?.imageUrl)}
     <div class="row">
       ${field("Category", `<select id="f-cat">
         <option value="">— none —</option>
         ${state.categories.map((c) => `<option value="${c.id}"${item?.categoryId===c.id?" selected":""}>${c.name}</option>`).join("")}
       </select>`)}
       ${field("Sort order", `<input id="f-sort" type="number" value="${item?.sortOrder ?? 0}" />`)}
+      ${field("Home page", `<label style="display:flex;align-items:center;gap:8px;font-weight:600;padding-top:6px"><input type="checkbox" id="f-home" ${item?.showOnHome ? "checked" : ""} /> Show on home</label>`)}
     </div>
     ${field("Sizes", `
       <div id="f-sizes"></div>
@@ -976,6 +1019,8 @@ window.saveItem = async (id) => {
     itemType: $("#f-type").value,
     description: $("#f-desc").value.trim() || null,
     categoryId: $("#f-cat").value ? Number($("#f-cat").value) : null,
+    imageUrl: $("#f-img").value.trim() || null,
+    showOnHome: $("#f-home").checked,
     sortOrder: Number($("#f-sort").value) || 0,
     sizes: currentSizes.map((s) => ({ sizeLabel: s.sizeLabel, price: Number(s.price) || 0 })),
     toppingIds: $$("#f-toppings input:checked").map((c) => Number(c.value)),
@@ -1007,6 +1052,8 @@ window.openTopping = (id) => {
       ${field("Tier", `<input id="t-tier" type="number" value="${t?.tier ?? 0}" />`)}
       ${field("Sort order", `<input id="t-sort" type="number" value="${t?.sortOrder ?? 0}" />`)}
     </div>
+    ${field("Availability", `<label style="display:flex;align-items:center;gap:8px;font-weight:600"><input type="checkbox" id="t-season" ${t?.isInSeason !== false ? "checked" : ""} /> In season (untick when it's off the menu)</label>`)}
+    <p class="hint" style="margin:0 0 10px">Out-of-season toppings stay on items but are hidden from customers when customising, and are offered as the free swap when an item includes them.</p>
     ${field("Prices", `<div id="t-prices"></div><button class="ghost" onclick="addTPrice()" style="margin-top:6px">+ Add size price</button>`)}
     <div class="modal-actions">
       <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
@@ -1030,6 +1077,7 @@ window.saveTopping = async (id) => {
     name: $("#t-name").value.trim(),
     tier: Number($("#t-tier").value) || 0,
     sortOrder: Number($("#t-sort").value) || 0,
+    isInSeason: $("#t-season").checked,
     prices: tPrices.map((p) => ({ sizeLabel: p.sizeLabel, price: Number(p.price) || 0 })),
   };
   if (!payload.name) return toast("Name is required", true);
@@ -1136,7 +1184,7 @@ function renderSpecials() {
   const list = state.specials.filter((s) => {
     if (!q) return true;
     const parts = s.items.map((x) => x.item.name).join(" ");
-    return s.name.toLowerCase().includes(q) || (s.description || "").toLowerCase().includes(q) || parts.toLowerCase().includes(q);
+    return s.name.toLowerCase().includes(q) || (s.description || "").toLowerCase().includes(q) || parts.toLowerCase().includes(q) || (s.category?.name || "").toLowerCase().includes(q);
   });
   const partsSum = (s) =>
     s.items.reduce((sum, x) => {
@@ -1155,16 +1203,17 @@ function renderSpecials() {
     </div>
     ${list.length ? `
     <table>
-      <thead><tr><th>Name</th><th>Price</th><th>Parts</th><th>Active</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Price</th><th>Parts</th><th>Home</th><th>Active</th><th></th></tr></thead>
       <tbody>
         ${list.map((s) => {
           const sum = partsSum(s);
           const deal = sum > 0 && s.price < sum ? Math.round((1 - s.price / sum) * 100) : null;
           return `
           <tr>
-            <td><b>${esc(s.name)}</b>${s.description ? `<br><span class="muted">${esc(s.description)}</span>` : ""}</td>
-            <td>R${s.price}${sum > 0 ? `<br><span class="muted">parts R${sum}</span>` : ""}${deal ? `<br><span class="parts-tag" style="background:#e8f5e9;color:#2e7d32">${deal}% off</span>` : ""}</td>
-            <td>${s.items.map((x) => `<span class="parts-tag">${esc(x.item.name)}${x.quantity > 1 ? ` ×${x.quantity}` : ""}</span>`).join("")}</td>
+            <td><b>${esc(s.name)}</b>${s.kind === "bogo" ? ' <span class="tag">bogo</span>' : ""}${s.imageUrl ? `<br><img src="${esc(s.imageUrl)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:7px;border:1px solid #e8e0d5;margin-top:4px" />` : ""}${s.description ? `<br><span class="muted">${esc(s.description)}</span>` : ""}</td>
+            <td>${s.kind === "bogo" ? `Pick ${s.count}, pay ${s.count / 2}${s.sizeLabel ? ` · ${esc(s.sizeLabel)}` : ""}` : `R${s.price}${sum > 0 ? `<br><span class="muted">parts R${sum}</span>` : ""}${deal ? `<br><span class="parts-tag" style="background:#e8f5e9;color:#2e7d32">${deal}% off</span>` : ""}`}</td>
+            <td>${s.kind === "bogo" ? `<span class="parts-tag">${esc(s.category?.name || "—")}</span>` : s.items.map((x) => `<span class="parts-tag">${esc(x.item.name)}${x.quantity > 1 ? ` ×${x.quantity}` : ""}</span>`).join("")}</td>
+            <td>${s.showOnHome ? "Yes" : '<span class="muted">—</span>'}</td>
             <td>${s.isActive ? "Active" : '<span class="muted">Inactive</span>'}</td>
             <td class="row-actions">
               <button onclick="openSpecial(${s.id})">Edit</button>
@@ -1178,28 +1227,57 @@ function renderSpecials() {
 
 window.openSpecial = (id) => {
   const s = id ? state.specials.find((x) => x.id === id) : null;
+  const isBogo = s?.kind === "bogo";
   openModal(`
     <h3>${s ? "Edit" : "Add"} Special</h3>
     <div class="row">
       ${field("Name *", `<input id="sp-name" value="${esc(s?.name || "")}" />`)}
-      ${field("Price (R)", `<input id="sp-price" type="number" value="${s?.price ?? ""}" oninput="renderSpecialSum()" />`)}
+      ${field("Kind", `<select id="sp-kind" onchange="renderSpecialKind()">
+        <option value="flat"${!isBogo ? " selected" : ""}>Fixed price bundle</option>
+        <option value="bogo"${isBogo ? " selected" : ""}>Buy a group, pay half (BOGO)</option>
+      </select>`)}
+    </div>
+    <div id="sp-flat"${isBogo ? " hidden" : ""}>
+      ${field("Price (R)", `<input id="sp-price" type="number" value="${s && !isBogo ? s.price : ""}" oninput="renderSpecialSum()" />`)}
+      ${field("Items", `<div id="sp-items" class="specials-grid"></div>`)}
+      <div id="sp-sum" class="muted" style="font-size:12.5px;margin-top:4px"></div>
+    </div>
+    <div id="sp-bogo"${isBogo ? "" : " hidden"}>
+      <div class="row">
+        ${field("Category *", `<select id="sp-cat">
+          <option value="">— pick a category —</option>
+          ${state.categories.map((c) => `<option value="${c.id}"${s?.categoryId===c.id?" selected":""}>${esc(c.name)}</option>`).join("")}
+        </select>`)}
+        ${field("Size (optional)", `<select id="sp-size">
+          <option value="">any size</option>
+          ${["S","M","L"].map((z) => `<option value="${z}"${s?.sizeLabel===z?" selected":""}>${z}</option>`).join("")}
+        </select>`)}
+      </div>
+      ${field("Pizzas the customer picks (even number)", `<input id="sp-count" type="number" min="2" step="2" value="${s?.count ?? 2}" />`)}
+      <p class="hint" style="margin:0 0 10px">The customer builds that many pizzas from the category (at the chosen size, if set) and pays for the higher half of the base prices &mdash; extras are always charged. Example: 2 pizzas &rarr; pay for 1; 4 pizzas &rarr; pay for 2.</p>
     </div>
     ${field("Description", `<textarea id="sp-desc" rows="2">${esc(s?.description || "")}</textarea>`)}
+    ${pictureField("sp-img", s?.imageUrl)}
     <div class="row">
       ${field("Sort order", `<input id="sp-sort" type="number" value="${s?.sortOrder ?? 0}" />`)}
       ${field("Active", `<select id="sp-active">
         <option value="true"${s?.isActive !== false ? " selected" : ""}>Active</option>
         <option value="false"${s?.isActive === false ? " selected" : ""}>Inactive</option>
       </select>`)}
+      ${field("Home page", `<label style="display:flex;align-items:center;gap:8px;font-weight:600;padding-top:6px"><input type="checkbox" id="sp-home" ${s?.showOnHome ? "checked" : ""} /> Show on home</label>`)}
     </div>
-    ${field("Items", `<div id="sp-items" class="specials-grid"></div>`)}
-    <div id="sp-sum" class="muted" style="font-size:12.5px;margin-top:4px"></div>
     <div class="modal-actions">
       <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
       <button class="primary" onclick="saveSpecial(${id ?? ""})">Save</button>
     </div>`);
 
-  window.specialPicks = s ? s.items.map((x) => ({ itemId: x.itemId, quantity: x.quantity })) : [];
+  window.renderSpecialKind = () => {
+    const bogo = $("#sp-kind").value === "bogo";
+    $("#sp-flat").hidden = bogo;
+    $("#sp-bogo").hidden = !bogo;
+  };
+
+  window.specialPicks = s && !isBogo ? s.items.map((x) => ({ itemId: x.itemId, quantity: x.quantity })) : [];
   window.renderSpecialPicks = () => {
     $("#sp-items").innerHTML = state.items.map((i) => {
       const pick = specialPicks.find((p) => p.itemId === i.id);
@@ -1240,19 +1318,40 @@ window.openSpecial = (id) => {
   };
   renderSpecialPicks();
   renderSpecialSum();
+  renderSpecialKind();
 };
 
 window.saveSpecial = async (id) => {
-  const payload = {
+  const kind = $("#sp-kind").value;
+  const base = {
     name: $("#sp-name").value.trim(),
     description: $("#sp-desc").value.trim() || null,
-    price: Number($("#sp-price").value) || 0,
-    isActive: $("#sp-active").value === "true",
     sortOrder: Number($("#sp-sort").value) || 0,
-    items: specialPicks.map((p) => ({ itemId: p.itemId, quantity: p.quantity })),
+    isActive: $("#sp-active").value === "true",
+    showOnHome: $("#sp-home").checked,
+    imageUrl: $("#sp-img").value.trim() || null,
   };
+  let payload;
+  if (kind === "bogo") {
+    payload = {
+      ...base,
+      kind: "bogo",
+      categoryId: $("#sp-cat").value ? Number($("#sp-cat").value) : null,
+      sizeLabel: $("#sp-size").value || null,
+      count: Number($("#sp-count").value) || 0,
+    };
+    if (!payload.categoryId) return toast("Pick a category for the BOGO special", true);
+    if (payload.count < 2 || payload.count % 2 !== 0) return toast("Pizzas to pick must be an even number (2, 4, 6…)", true);
+  } else {
+    payload = {
+      ...base,
+      kind: "flat",
+      price: Number($("#sp-price").value) || 0,
+      items: specialPicks.map((p) => ({ itemId: p.itemId, quantity: p.quantity })),
+    };
+    if (!payload.items.length) return toast("Pick at least one item", true);
+  }
   if (!payload.name) return toast("Name is required", true);
-  if (!payload.items.length) return toast("Pick at least one item", true);
   try {
     if (id) await api(`/api/specials/${id}`, { method: "PUT", body: JSON.stringify(payload) });
     else await api("/api/specials", { method: "POST", body: JSON.stringify(payload) });
@@ -1557,6 +1656,7 @@ async function loadSettings() {
   try {
     state.settings = (await api("/api/settings")).settings;
     state.delivery = await api("/api/delivery/config");
+    state.shop = await api("/api/shop/config");
     renderDelivery();
   } catch (e) { toast(e.message, true); }
 }
@@ -1584,12 +1684,35 @@ function renderDelivery() {
   const fee = Number(get("delivery.feeAmount", 30)) || 0;
   const enabled = state.delivery ? Boolean(state.delivery.enabled) : true;
   const batch = enabled && Number(get("shop.lat", 0)) && Number(get("shop.lng", 0));
+  const shop = state.shop || {};
+  const openTime = shop.openTime || get("shop.openTime", "10:00");
+  const closeTime = shop.closeTime || get("shop.closeTime", "21:00");
+  const onlineEnabled = shop.onlineEnabled !== false;
+  const forceOpen = Boolean(shop.forceOpen);
   el.innerHTML = `
     <div class="toolbar">
-      <h2>Delivery</h2>
+      <h2>Shop &amp; delivery</h2>
       <button class="ghost" onclick="loadSettings()">Refresh</button>
     </div>
-    <p class="hint" style="margin:4px 0 12px">Beluchis delivers inside a fixed radius around the shop. ${batch ? "Delivery is currently <b>on</b> for the storefront." : "Delivery is currently <b>paused</b>/unset &mdash; orders without an address fall back to collection."}</p>
+    <div class="row" style="align-items:flex-start;gap:20px;flex-wrap:wrap">
+      <div class="card" style="padding:16px;flex:1;min-width:300px">
+        <h3 style="margin:0 0 8px;font-size:14px">Opening hours</h3>
+        <div class="row">
+          <div class="field"><label>Opens</label><input id="f-open" type="time" value="${esc(openTime)}" /></div>
+          <div class="field"><label>Closes</label><input id="f-close" type="time" value="${esc(closeTime)}" /></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-online" ${onlineEnabled ? "checked" : ""} /> Accept online orders</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-force" ${forceOpen ? "checked" : ""} /> Force open (keep taking orders outside hours)</label>
+        <div class="hint" style="margin:8px 0 10px">Shop time is South African (UTC+2). Customers can't check out while closed unless "force open" is ticked &mdash; staff orders are always allowed.</div>
+        <div style="font-weight:700;color:${shop.open ? "#2e7d32" : "#b3351f"}">Currently ${shop.open ? "OPEN" : "CLOSED"}</div>
+      </div>
+      <div class="card" style="padding:14px;text-align:center;align-self:flex-start">
+        <h3 style="margin:0 0 6px;font-size:14px">Radius preview</h3>
+        ${ringSVG(freeKm, maxKm)}
+        <div class="muted" style="font-size:12px">Inner: free ${freeKm}km &middot; Outer: max ${maxKm}km</div>
+      </div>
+    </div>
+    <p class="hint" style="margin:14px 0 12px">Beluchis delivers inside a fixed radius around the shop. ${batch ? "Delivery is currently <b>on</b> for the storefront." : "Delivery is currently <b>paused</b>/unset &mdash; orders without an address fall back to collection."}</p>
     <div class="row" style="align-items:flex-start;gap:20px">
       <div class="card" style="padding:16px;flex:1;min-width:300px">
         <label style="display:flex;align-items:center;gap:8px;font-weight:600"><input type="checkbox" id="f-del-enabled" ${enabled ? "checked" : ""} /> Delivery enabled</label>
@@ -1605,29 +1728,56 @@ function renderDelivery() {
         <div class="hint" style="margin-bottom:10px">Within the free radius &rarr; free. Between free and max radius &rarr; flat fee above. Beyond max radius &rarr; checkout is blocked with a "choose collection" message. No GPS captured &rarr; treated as collection ("unverified"), the shop may still send a driver.</div>
         <button class="primary" onclick="saveSettings()">Save settings</button>
       </div>
-      <div class="card" style="padding:14px;text-align:center;align-self:flex-start">
-        <h3 style="margin:0 0 6px;font-size:14px">Radius preview</h3>
-        ${ringSVG(freeKm, maxKm)}
-        <div class="muted" style="font-size:12px">Inner: free ${freeKm}km &middot; Outer: max ${maxKm}km</div>
+      <div class="card" style="padding:16px;flex:1;min-width:300px">
+        <h3 style="margin:0 0 8px;font-size:14px">Claim-invite email</h3>
+        <div class="field"><label>Subject</label><input id="f-invite-subject" type="text" value="${esc(get("mail.inviteSubject", "Your Beluchis account is ready"))}" /></div>
+        <div class="field"><label>Body</label><textarea id="f-invite-body" rows="7" style="width:100%;resize:vertical">${esc(get("mail.inviteBody", "Hi {firstName},\n\nYour Beluchis account is ready. Set your password to start ordering:\n{url}\n\n— The Beluchis team"))}</textarea></div>
+        <div class="hint" style="margin-bottom:10px">Placeholders: <code>{firstName}</code> and <code>{url}</code>. Sent by <code>npm run invites:send</code> — claimed customers are skipped automatically.</div>
+        <button class="ghost" onclick="sendTestInvite()">Send the invite email to myself</button>
       </div>
     </div>`;
 }
 
+window.sendTestInvite = async () => {
+  const to = prompt("Send the invite email to this address (leave blank to skip):");
+  if (!to || !to.includes("@")) return;
+  const settings = { ...state.settings };
+  settings["mail.inviteSubject"] = $("#f-invite-subject").value.trim();
+  settings["mail.inviteBody"] = $("#f-invite-body").value;
+  const btn = event?.target;
+  if (btn) { btn.disabled = true; btn.textContent = "Sending\u2026"; }
+  try {
+    const res = await api("/api/mail/test-invite", { method: "POST", body: JSON.stringify({ to, settings }) });
+    toast(res.ok ? `Invite sent to ${to}` : `Send failed: ${res.error || "unknown error"}`, !res.ok);
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Send the invite email to myself"; }
+  }
+};
+
 window.saveSettings = async () => {
   const settings = { ...state.settings };
+  settings["shop.openTime"] = $("#f-open").value.trim();
+  settings["shop.closeTime"] = $("#f-close").value.trim();
+  settings["shop.onlineEnabled"] = $("#f-online").checked ? "true" : "false";
+  settings["shop.forceOpen"] = $("#f-force").checked ? "true" : "false";
   settings["delivery.enabled"] = $("#f-del-enabled").checked ? "true" : "false";
   settings["shop.lat"] = $("#f-shop-lat").value.trim();
   settings["shop.lng"] = $("#f-shop-lng").value.trim();
   settings["delivery.freeRadiusKm"] = $("#f-free-km").value.trim();
   settings["delivery.maxRadiusKm"] = $("#f-max-km").value.trim();
   settings["delivery.feeAmount"] = $("#f-fee").value.trim();
+  settings["mail.inviteSubject"] = $("#f-invite-subject").value.trim();
+  settings["mail.inviteBody"] = $("#f-invite-body").value;
   const btn = event?.target;
   if (btn) { btn.disabled = true; btn.textContent = "Saving\u2026"; }
   try {
     const res = await api("/api/settings", { method: "PUT", body: JSON.stringify({ settings }) });
     state.settings = res.settings;
     state.delivery = res.delivery;
-    toast("Delivery settings saved");
+    state.shop = res.shop;
+    toast("Shop settings saved");
     renderDelivery();
   } catch (e) {
     toast(e.message, true);

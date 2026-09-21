@@ -1,0 +1,6 @@
+.env
+data/
+*.log
+node_modules/
+.beluchis-kitchen.pid
+.DS_Store

@@ -124,6 +124,58 @@
   }
   .gallery a .cap small { display: block; font-size: 11.5px; font-weight: 500; color: #ffd9a0; letter-spacing: 1px; text-transform: uppercase; }
 
+  /* shoppable tiles */
+  .tile {
+    position: relative; border-radius: 12px; overflow: hidden; background: #efe7d8;
+    box-shadow: 0 10px 26px rgba(42, 37, 32, .14); aspect-ratio: 4 / 3;
+  }
+  .tile a.media { position: absolute; inset: 0; display: block; }
+  .tile a.media img { width: 100%; height: 100%; object-fit: cover; transition: transform .35s ease; }
+  .tile:hover a.media img { transform: scale(1.05); }
+  .tile .ph {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+    color: #fff; font-family: "Roboto Slab", Georgia, serif; font-size: 46px; font-weight: 800;
+  }
+  .tile .cap {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 26px 14px 12px;
+    background: linear-gradient(transparent, rgba(0, 0, 0, .72));
+    color: #fff; font-size: 15px; font-weight: 700; letter-spacing: .3px;
+    text-align: left; pointer-events: none;
+  }
+  .tile .cap small { display: block; font-size: 11.5px; font-weight: 500; color: #ffd9a0; letter-spacing: 1px; text-transform: uppercase; }
+  .tile .cap .price { display: block; margin-top: 2px; font-size: 13px; font-weight: 600; color: #ffd9a0; }
+  .tile .quick, .tile .choose {
+    position: absolute; top: 10px; right: 10px; z-index: 2;
+    border-radius: 999px; padding: 8px 15px; font-weight: 800; font-size: 13px;
+    cursor: pointer; box-shadow: 0 6px 16px rgba(0, 0, 0, .3); font-family: inherit;
+  }
+  .tile .quick { background: var(--good); color: #fff; border: 0; }
+  .tile .quick:hover { background: #1b5e20; }
+  .tile .choose { background: rgba(255, 255, 255, .95); color: var(--ink); }
+  .tile .choose:hover { background: #fff; color: var(--brand); }
+
+  /* shop open/closed pill */
+  .shop-flag { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; font-size: 13px; padding: 6px 14px; border-radius: 999px; letter-spacing: .3px; }
+  .shop-flag.open { background: #e8f5e9; color: #1b5e20; }
+  .shop-flag.closed { background: #fff4e5; color: #8a4b00; }
+  .hero-note { margin: 22px auto 0; max-width: 620px; background: rgba(255, 244, 229, .96); color: #8a4b00; border-radius: 10px; padding: 12px 16px; font-size: 14.5px; font-weight: 600; }
+
+  /* shared-cart bar */
+  #mini-cart {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 44; display: none;
+    align-items: center; gap: 12px; padding: 12px 18px;
+    background: #fff; border-top: 1px solid var(--line); box-shadow: 0 -10px 26px rgba(42, 37, 32, .14);
+  }
+  #mini-cart.show { display: flex; }
+  #mini-cart .mc-info { margin-right: auto; font-size: 14px; color: var(--muted); }
+  #mini-cart .mc-info b { color: var(--ink); }
+  #mini-cart .btn { padding: 11px 20px; font-size: 14px; border: 0; cursor: pointer; font-family: inherit; }
+  #mini-cart .btn.outline { border: 2px solid var(--brand); color: var(--brand); background: transparent; }
+  body.has-cart .social-float { bottom: 92px; }
+  body.has-cart .totop { bottom: 158px; }
+  body.has-cart footer { padding-bottom: 62px; }
+
   .center { text-align: center; }
   .btn {
     display: inline-flex; align-items: center; gap: 8px;
@@ -231,6 +283,9 @@
     .hero-inner { padding: 64px 18px 84px; }
     .form-card .row { grid-template-columns: 1fr; }
     .gallery { grid-template-columns: 1fr; }
+    #mini-cart { gap: 8px; padding: 10px 12px; }
+    #mini-cart .btn { padding: 10px 14px; font-size: 13px; }
+    #mini-cart .mc-info { font-size: 13px; }
   }
 </style>
 </head>
@@ -245,7 +300,7 @@
     <nav class="nav-links" aria-label="Main">
       <a href="/">HOME</a>
       <a href="/order">MENU</a>
-      <a href="/portal">MY ORDERS</a>
+      <a id="nav-account" href="/login">SIGN IN</a>
       <a href="#contact">CONTACT US</a>
       <a class="order-btn" href="/order">ORDER NOW!</a>
     </nav>
@@ -263,6 +318,7 @@
       <div class="btn-row">
         <a class="btn" href="/order">ORDER NOW!</a>
       </div>
+      <div class="hero-note" id="hero-note" hidden></div>
     </div>
   </section>
 
@@ -270,44 +326,7 @@
     <div class="wrap">
       <h2 class="section-title">Authentic &amp; Hand Crafted</h2>
       <p class="section-sub">Tap any dish to add it to your order.</p>
-      <div class="gallery">
-        <a href="/order?item=cheddar-steak-melt" aria-label="Order Cheddar Steak GOURMET">
-          <img src="/home/gallery/cheddar-steak.jpg" alt="Cheddar Steak GOURMET" loading="lazy" />
-          <span class="cap"><small>Gourmet</small>Cheddar Steak</span>
-        </a>
-        <a href="/order?item=regina" aria-label="Order Regina TRADITIONAL">
-          <img src="/home/gallery/regina.jpg" alt="Regina TRADITIONAL" loading="lazy" />
-          <span class="cap"><small>Traditional</small>Regina</span>
-        </a>
-        <a href="/order?item=working-class-hero" aria-label="Order Working Class Hero GOURMET">
-          <img src="/home/gallery/working-class-hero.jpg" alt="Working Class Hero GOURMET" loading="lazy" />
-          <span class="cap"><small>Signature</small>Working Class Hero</span>
-        </a>
-        <a href="/order?item=bbq-chicken" aria-label="Order BBQ Roast Chicken TRADITIONAL">
-          <img src="/home/gallery/bbq-roast-chicken.jpg" alt="BBQ Roast Chicken TRADITIONAL" loading="lazy" />
-          <span class="cap"><small>Traditional</small>BBQ Roast Chicken</span>
-        </a>
-        <a href="/order?item=rib-delight" aria-label="Order Rib Delight">
-          <img src="/home/gallery/rib-delight.jpg" alt="Rib Delight" loading="lazy" />
-          <span class="cap"><small>Deluxe</small>Rib Delight</span>
-        </a>
-        <a href="/order?item=rock-n-roll" aria-label="Order Rock 'n Roll Bacon DELUXE">
-          <img src="/home/gallery/rock-n-roll-bacon.jpg" alt="Rock 'n Roll Bacon DELUXE" loading="lazy" />
-          <span class="cap"><small>Deluxe</small>Rock 'n Roll Bacon</span>
-        </a>
-        <a href="/order?item=salami-supreme" aria-label="Order Salami Supreme DELUXE">
-          <img src="/home/gallery/salami-supreme.jpg" alt="Salami Supreme DELUXE" loading="lazy" />
-          <span class="cap"><small>Deluxe</small>Salami Supreme</span>
-        </a>
-        <a href="/order?cat=gourmet-pizzas" aria-label="Three Cheese Rocket Gourmet">
-          <img src="/home/gallery/three-cheese-rocket.jpg" alt="Three Cheese &amp; Rocket" loading="lazy" />
-          <span class="cap"><small>Gourmet</small>Three Cheese &amp; Rocket</span>
-        </a>
-        <a href="/order?cat=deluxe-pizzas" aria-label="BBF Pizza Deluxe">
-          <img src="/home/gallery/bbf-pizza.jpg" alt="BBF PIZZA" loading="lazy" />
-          <span class="cap"><small>New</small>BBF Pizza</span>
-        </a>
-      </div>
+      <div class="gallery" id="home-tiles"></div>
       <div class="center">
         <a class="btn outline" href="/order">VIEW MENU</a>
       </div>
@@ -334,16 +353,16 @@
   <section class="contact" id="contact">
     <div class="wrap">
       <h2 class="section-title">Get in Touch With Us!</h2>
-      <p class="section-sub">We are open for business every day.</p>
+      <p class="section-sub" id="contact-sub">We are open for business every day.</p>
       <div class="grid">
         <div>
           <div class="info-card">
             <h3>Visit Us</h3>
             <p>72 High Street, Q-Square, Worcester, South Africa</p>
+            <p><span class="shop-flag open" id="shop-flag">Open</span></p>
             <table class="hours">
-              <tr><td>Sun &ndash; Thu</td><td>10:00 &ndash; 21:00</td></tr>
-              <tr><td>Friday</td><td>10:00 &ndash; 22:00</td></tr>
-              <tr><td>Saturday</td><td>10:00 &ndash; 21:00</td></tr>
+              <tr><td>Open daily</td><td id="hours-line">10:00 &ndash; 21:00</td></tr>
+              <tr><td>Online orders</td><td id="online-line">Accepted</td></tr>
             </table>
           </div>
           <div class="info-card">
@@ -414,9 +433,18 @@
 </div>
 <button class="totop" id="totop" aria-label="Scroll to top">&#8593;</button>
 
+<div id="mini-cart" aria-live="polite">
+  <span class="mc-info"><b id="mini-cart-count">0</b> item(s) &middot; <b id="mini-cart-total">R0</b></span>
+  <a class="btn outline" href="/order">View full menu</a>
+  <button class="btn" type="button" data-action="checkout">Go to checkout</button>
+</div>
+
+<script src="/shop.js"></script>
 <script>
 "use strict";
 const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+const toast = Shop.toast;
 
 const toggle = $(".menu-toggle");
 const navLinks = $(".nav-links");
@@ -468,6 +496,157 @@ $("#contact-form").addEventListener("submit", async (e) => {
     btn.disabled = false;
   }
 });
+
+/* ------------------------------------------- shoppable home tiles + cart */
+const money = Shop.money, esc = Shop.esc;
+
+const GALLERY_IMG = {
+  "cheddar-steak-melt": "cheddar-steak.jpg",
+  "regina": "regina.jpg",
+  "working-class-hero": "working-class-hero.jpg",
+  "bbq-chicken": "bbq-roast-chicken.jpg",
+  "rib-delight": "rib-delight.jpg",
+  "rock-n-roll": "rock-n-roll-bacon.jpg",
+  "salami-supreme": "salami-supreme.jpg",
+};
+
+const firstSize = (item) => (item.sizes || []).find((s) => s.isActive !== false);
+
+function tileHtml(t) {
+  const { item, special } = t;
+  const isSpecial = Boolean(special);
+  const name = isSpecial ? special.name : item.name;
+  const catName = isSpecial
+    ? (special.kind === "bogo" ? "Weekly deal" : "Combo deal")
+    : (item.category ? item.category.name : "");
+  const sz = isSpecial ? null : firstSize(item);
+  const priceTxt = isSpecial
+    ? (special.kind === "bogo" ? "Pick " + special.count + ", pay " + special.count / 2 : money(special.price))
+    : (sz ? money(sz.price) : "");
+  const href = isSpecial ? "/order" : "/order?item=" + encodeURIComponent(item.slug || "");
+
+  let action = "";
+  if (isSpecial && special.kind === "bogo") action = '<a class="choose" href="/order">Build your deal</a>';
+  else if (isSpecial) action = '<button class="quick" type="button" data-add-special="' + special.id + '">+ Add</button>';
+  else if (Shop.hasCustom(item)) action = '<a class="choose" href="' + href + '">Choose</a>';
+  else if (sz) action = '<button class="quick" type="button" data-add-item="' + item.id + '" data-add-size="' + esc(sz.sizeLabel) + '">+ Add</button>';
+
+  const media = t.img
+    ? '<span class="ph">' + esc(name.charAt(0).toUpperCase()) + "</span>" +
+      '<img src="' + esc(t.img) + '" alt="' + esc(name) + '" loading="lazy" onerror="this.style.display=\'none\'" />'
+    : '<span class="ph">' + esc(name.charAt(0).toUpperCase()) + "</span>";
+
+  return (
+    '<div class="tile">' +
+    '<a class="media" href="' + href + '" aria-label="Open ' + esc(name) + '">' + media + "</a>" +
+    action +
+    '<span class="cap"><small>' + esc(catName) + "</small>" + esc(name) +
+    (priceTxt ? '<span class="price">' + priceTxt + "</span>" : "") + "</span>" +
+    "</div>"
+  );
+}
+
+function renderTiles() {
+  const tiles = [];
+  const seen = new Set();
+
+  for (const s of Shop.data.specials.filter((x) => x.isActive !== false && x.showOnHome)) {
+    tiles.push({ special: s, img: s.imageUrl || null });
+  }
+  for (const i of Shop.data.items.filter((x) => x.isActive !== false && x.showOnHome)) {
+    if (seen.has(i.id)) continue;
+    seen.add(i.id);
+    tiles.push({ item: i, img: i.imageUrl || (GALLERY_IMG[i.slug] ? "/home/gallery/" + GALLERY_IMG[i.slug] : null) });
+  }
+  for (const slug of Object.keys(GALLERY_IMG)) {
+    if (tiles.length >= 9) break;
+    const i = Shop.data.items.find((x) => x.slug === slug && x.isActive !== false);
+    if (!i || seen.has(i.id)) continue;
+    seen.add(i.id);
+    tiles.push({ item: i, img: i.imageUrl || "/home/gallery/" + GALLERY_IMG[slug] });
+  }
+  $("#home-tiles").innerHTML = tiles.map(tileHtml).join("");
+}
+
+$("#home-tiles").addEventListener("click", (e) => {
+  const add = e.target.closest("button[data-add-item]");
+  if (add) {
+    const item = Shop.data.byId.get(Number(add.dataset.addItem));
+    const sz = item && firstSize(item);
+    if (!item || !sz) { toast("Sorry, that dish is unavailable right now."); return; }
+    Shop.addLine({
+      kind: "item", itemId: item.id, name: item.name,
+      catHint: item.category ? item.category.name : "",
+      sizeLabel: sz.sizeLabel, unitPrice: sz.price, extras: [], qty: 1,
+    });
+    toast("Added " + item.name + " (" + sz.sizeLabel + ")");
+    return;
+  }
+  const sp = e.target.closest("button[data-add-special]");
+  if (sp) {
+    const s = Shop.data.specials.find((x) => x.id === Number(sp.dataset.addSpecial));
+    if (!s) return;
+    Shop.addLine({ kind: "special", specialId: s.id, name: s.name, price: s.price, unitPrice: s.price, qty: 1 });
+    toast("Added " + s.name);
+  }
+});
+
+function updateCartBar() {
+  document.body.classList.toggle("has-cart", Shop.count() > 0);
+}
+Shop.onCartChange = updateCartBar;
+
+/* -------------------------------- header account + live hours/status */
+function renderShopStatus(cfg) {
+  const flag = $("#shop-flag");
+  const hours = $("#hours-line");
+  const online = $("#online-line");
+  if (hours) hours.textContent = cfg.openTime + " \u2013 " + cfg.closeTime;
+  if (online) online.textContent = cfg.onlineEnabled ? "Accepted online" : "Paused \u2014 please call";
+  if (flag) {
+    flag.className = "shop-flag " + (cfg.open ? "open" : "closed");
+    flag.textContent = cfg.open ? "Open now" : "Closed \u2014 opens " + cfg.openTime;
+  }
+  const sub = $("#contact-sub");
+  if (sub) sub.textContent = cfg.open
+    ? "We are open now, until " + cfg.closeTime + "."
+    : "We are closed right now \u2014 open daily " + cfg.openTime + " to " + cfg.closeTime + ".";
+  const note = $("#hero-note");
+  if (note) {
+    note.hidden = cfg.open;
+    note.textContent = "We\u2019re closed right now \u2014 online checkout opens " + cfg.openTime +
+      " to " + cfg.closeTime + ". Browse and build your order in the meantime.";
+  }
+}
+
+async function loadAccount() {
+  try {
+    const res = await fetch("/api/customer/auth/me");
+    if (!res.ok) return;
+    const me = await res.json();
+    const link = $("#nav-account");
+    const name = String(me.name || "").trim().split(/\s+/)[0];
+    link.href = "/portal";
+    link.textContent = name ? "MY ORDERS \u00b7 " + name.toUpperCase() : "MY ORDERS";
+  } catch {}
+}
+
+(async () => {
+  loadAccount();
+  try {
+    const res = await fetch("/api/shop/config");
+    if (res.ok) renderShopStatus(await res.json());
+  } catch {}
+  try {
+    await Shop.load();
+    Shop.reconcile();
+    Shop.syncUI();
+    renderTiles();
+    updateCartBar();
+  } catch (err) {
+    console.error(err);
+  }
+})();
 </script>
 </body>
 </html>

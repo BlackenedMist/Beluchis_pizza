@@ -16,7 +16,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 APP_NAME="beluchis-preview"
-PROJECT_NAME="beluchis-preview-proj"
+PROJECT_NAME="beluchis-preview"
 REGION="eu-gb"
 RESOURCE_GROUP="Turbomonics"
 GITHUB_REPO="https://github.com/BlackenedMist/Beluchis_pizza.git"
@@ -25,8 +25,16 @@ API_KEY_PATH="/mnt/hybrid-apps/configs/ibm/api-key.txt"
 # Preview environment variables
 export PORT="8080"
 export DATABASE_URL="file:/data/beluchis.db"
-export ADMIN_PIN="PREVIEW_ADMIN_PIN"
+#export ADMIN_PIN="PREVIEW_ADMIN_PIN"
 export PREVIEW_RESEED="1"
+
+# Dynamically load the live pin from configuration if it exists, otherwise fall back
+PIN_FILE="/mnt/hybrid-apps/configs/ibm/preview-pin.txt"
+if [ -f "$PIN_FILE" ] && [ -r "$PIN_FILE" ]; then
+    export ADMIN_PIN=$(cat "$PIN_FILE")
+else
+    export ADMIN_PIN="PREVIEW_ADMIN_PIN"
+fi
 
 log() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -239,21 +247,27 @@ Note:
 EOF
 }
 
-# Handle command line arguments
-if [[ "$1" == "--help" ]]; then
-    show_help
-    exit 0
-elif [[ "$1" == "--check-only" ]]; then
-    check_prerequisites
-    log "Prerequisites check complete. Ready for deployment."
-    exit 0
-elif [[ "$1" == "--status" ]]; then
-    check_prerequisites
-    login_to_ibmcloud
-    select_project
-    show_app_status
-    exit 0
+
+# Handle command line arguments safely
+if [ $# -gt 0 ]; then
+    if [[ "$1" == "--help" ]]; then
+        show_help
+        exit 0
+    elif [[ "$1" == "--check-only" ]]; then
+        check_prerequisites
+        log "Prerequisites check complete. Ready for deployment."
+        exit 0
+    elif [[ "$1" == "--status" ]]; then
+        check_prerequisites
+        login_to_ibmcloud
+        select_project
+        show_app_status
+        exit 0
+    else
+        warn "Unknown option: $1. Proceeding with default deployment..."
+    fi
 fi
 
-# Run deployment
+# EXECUTE DEPLOYMENT
 deploy
+

@@ -1,0 +1,14 @@
+{
+  "name": "beluchis-kitchen-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone in-restaurant bridge: polls the Beluchis website and auto-prints new orders to a network thermal printer.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node --env-file=.env server.mjs",
+    "check": "node --check server.mjs && for f in lib/*.mjs; do node --check \"$f\" || exit 1; done"
+  }
+}

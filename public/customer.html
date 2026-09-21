@@ -151,6 +151,25 @@
   .tabs button.active { background: var(--ink); border-color: var(--ink); color: #fff; }
   .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: sp .7s linear infinite; vertical-align: -2px; }
   @keyframes sp { to { transform: rotate(360deg); } }
+  .fav {
+    display: flex; align-items: center; gap: 12px;
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: #fff;
+  }
+  .fav .thumb {
+    width: 54px; height: 54px; flex: 0 0 auto; border-radius: 9px; overflow: hidden;
+    background: linear-gradient(135deg, #b3351f, #e0855a); color: #fff;
+    display: grid; place-items: center; font-weight: 800; font-size: 20px; text-decoration: none;
+  }
+  .fav .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .fav .body { flex: 1 1 auto; min-width: 0; }
+  .fav .name { font-weight: 800; font-size: 14.5px; }
+  .fav .acts { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+  button.mini { padding: 7px 12px; font-size: 12.5px; }
+  .note { border-radius: 9px; padding: 9px 12px; font-size: 13px; margin-bottom: 12px; }
+  .note.ok { background: #e9f6ec; color: var(--good); border: 1px solid #bfe5c9; }
+  .note.err { background: #fdecea; color: var(--bad); border: 1px solid #f5c6c6; }
+  .reorder-btn { background: #fff; border: 1px solid var(--accent); color: var(--accent); padding: 6px 11px; font-size: 12.5px; border-radius: 7px; }
+  .reorder-btn:hover { background: rgba(179,53,31,.06); }
 </style>
 </head>
 <body>
@@ -208,6 +227,7 @@
   </div>
 
   <div id="dash" hidden>
+    <div class="note ok" id="dash-note" hidden></div>
     <div class="panel">
       <div class="welcome">
         <div>
@@ -227,6 +247,12 @@
       <p class="muted" style="margin-bottom:0;">Enter the code at checkout on the <a href="/order">order page</a>.</p>
     </div>
 
+    <div class="panel" id="favorites-panel" hidden>
+      <h3>Your favourites</h3>
+      <div id="favorites"></div>
+      <p class="muted" style="margin-bottom:0;">Tap the heart on any dish in <a href="/order">the menu</a> to save it here for next time.</p>
+    </div>
+
     <div class="panel">
       <h3>Order history</h3>
       <div id="orders"></div>
@@ -235,6 +261,7 @@
   </div>
 </main>
 
+<script src="/shop.js"></script>
 <script>
 "use strict";
 const $ = (s) => document.querySelector(s);
@@ -348,7 +375,7 @@ function orderCard(o) {
     .map(
       (i) =>
         `<tr>
-          <td>${esc(i.itemName)}${i.sizeLabel ? ` <span class="muted">(${esc(i.sizeLabel)})</span>` : ""}${i.extras ? ` <span class="muted">· ${esc(i.extras)}</span>` : ""}</td>
+          <td>${esc(i.itemName)}${i.sizeLabel ? ` <span class="muted">(${esc(i.sizeLabel)})</span>` : ""}${i.extras ? ` <span class="muted">· ${esc(extrasText(i.extras))}</span>` : ""}</td>
           <td style="text-align:center">${i.quantity}</td>
           <td style="text-align:right">${money(i.unitPrice)}</td>
           <td style="text-align:right"><b>${money(i.total)}</b></td>
@@ -371,6 +398,7 @@ function orderCard(o) {
         <span class="meta">${esc(date)}</span>
         ${statusBadge(o.status)}
         <span class="meta">${o.items.reduce((n, i) => n + i.quantity, 0)} item(s)</span>
+        <button class="reorder-btn" type="button" onclick="event.preventDefault(); event.stopPropagation(); reorder(${o.id})">Reorder</button>
         <div class="order-total">
           ${hasDiscount ? `<span class="was">${money(o.total)}</span> <span class="discount">−${money(o.discountAmount)}</span><br>` : ""}
           <b>${money(o.grandTotal)}</b>
@@ -442,6 +470,7 @@ async function loadDash() {
       api("/api/customer/orders"),
       api("/api/customer/offers"),
     ]);
+    ORDER_HISTORY = orders;
     renderOffers(offers);
     const oel = $("#orders");
     if (!orders.length) {
@@ -449,13 +478,144 @@ async function loadDash() {
     } else {
       oel.innerHTML = orders.map(orderCard).join("");
     }
+    await loadFavorites();
   } catch (err) {
     $("#errors").hidden = true;
     showErr(err.message);
   }
 }
 
+/* ------------------------------------------------------- Favourites + reorder */
+let ORDER_HISTORY = [];
+
+function extrasText(raw) {
+  if (!raw) return "";
+  try {
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) return arr.map((e) => e.name + (Number(e.price) ? ` +${money(e.price)}` : "")).join(", ");
+  } catch {}
+  return String(raw);
+}
+
+function parseExtras(raw) {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.map((e) => ({ name: String(e.name ?? ""), price: Number(e.price) || 0 })) : [];
+  } catch {
+    return [];
+  }
+}
+
+function dashNote(msg, kind = "ok") {
+  const el = $("#dash-note");
+  el.className = "note " + kind;
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(dashNote._t);
+  dashNote._t = setTimeout(() => (el.hidden = true), 3200);
+}
+
+function favPrice(f) {
+  if (f.special) {
+    return f.special.kind === "bogo"
+      ? `Pick ${f.special.count}, pay ${f.special.count / 2}`
+      : money(f.special.price);
+  }
+  const sizes = (f.item?.sizes || []).filter((s) => s.isActive !== false);
+  if (!sizes.length) return "Ask in store";
+  return "from " + money(Math.min(...sizes.map((s) => s.price)));
+}
+
+function favCard(f) {
+  const it = f.item, sp = f.special;
+  const name = it ? it.name : sp.name;
+  const cat = (it || sp).category?.name || (sp ? (sp.kind === "bogo" ? "Weekly deal" : "Combo deal") : "");
+  const href = it ? `/order?item=${encodeURIComponent(it.slug || "")}` : "/order";
+  const img = it && it.imageUrl
+    ? `<img src="${esc(it.imageUrl)}" alt="" loading="lazy" onerror="this.remove()" />`
+    : `<span>${esc(name.charAt(0).toUpperCase())}</span>`;
+  return `<div class="fav">
+    <a class="thumb" href="${href}" aria-hidden="true" tabindex="-1">${img}</a>
+    <div class="body">
+      <div class="name">${esc(name)}</div>
+      <small class="muted">${esc(cat)} · ${favPrice(f)}</small>
+    </div>
+    <div class="acts">
+      <button class="primary mini" onclick="location.href='${href}'">${it ? "Order" : "View"}</button>
+      <button class="ghost mini" onclick="removeFav(${f.id})">Remove</button>
+    </div>
+  </div>`;
+}
+
+async function loadFavorites() {
+  const el = $("#favorites");
+  const panel = $("#favorites-panel");
+  let rows = [];
+  try {
+    rows = await api("/api/customer/favorites");
+  } catch {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = rows.length === 0;
+  el.innerHTML = rows.length ? rows.map(favCard).join("") : "";
+}
+
+window.removeFav = async (id) => {
+  try {
+    await api("/api/customer/favorites/" + id, { method: "DELETE" });
+    await loadFavorites();
+    dashNote("Removed from your favourites.");
+  } catch (err) {
+    dashNote(err.message, "err");
+  }
+};
+
+window.reorder = async (orderId) => {
+  const o = ORDER_HISTORY.find((x) => x.id === orderId);
+  if (!o) return;
+  let added = 0, skipped = 0;
+  try {
+    await Shop.load();
+  } catch {
+    dashNote("Could not load the menu — please try again.", "err");
+    return;
+  }
+  for (const row of o.items || []) {
+    if (!row.itemId) { skipped++; continue; }
+    const item = Shop.data.byId.get(row.itemId);
+    if (!item || item.isActive === false) { skipped++; continue; }
+    const sizes = (item.sizes || []).filter((s) => s.isActive !== false);
+    let sizeLabel = row.sizeLabel || null;
+    if (sizes.length && !sizes.some((s) => s.sizeLabel === sizeLabel)) sizeLabel = sizes[0].sizeLabel;
+    const sz = sizes.length ? sizes.find((s) => s.sizeLabel === sizeLabel) : null;
+    Shop.addLine({
+      kind: "item",
+      itemId: item.id,
+      name: item.name,
+      catHint: item.category ? item.category.name : "",
+      sizeLabel,
+      unitPrice: sz ? sz.price : 0,
+      extras: parseExtras(row.extras),
+      qty: row.quantity || 1,
+    });
+    added += row.quantity || 1;
+  }
+  if (!added) {
+    dashNote("Nothing from that order is on the menu right now.", "err");
+    return;
+  }
+  sessionStorage.setItem("beluchis-reorder-note", `Reordered ${added} item(s)${skipped ? `, ${skipped} no longer available` : ""}.`);
+  location.href = "/order?checkout=1";
+};
+
 async function init() {
+  const reorderNote = sessionStorage.getItem("beluchis-reorder-note");
+  if (reorderNote) {
+    sessionStorage.removeItem("beluchis-reorder-note");
+    setTimeout(() => dashNote(reorderNote), 400);
+  }
   try {
     await api("/api/customer/auth/me");
     await loadDash();

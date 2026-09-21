@@ -16,6 +16,7 @@ model Category {
   sortOrder   Int     @default(0)
   isActive    Boolean @default(true)
   items       Item[]
+  specials    Special[]
 }
 
 model Item {
@@ -29,24 +30,48 @@ model Item {
   imageUrl    String?
   isActive    Boolean    @default(true)
   isFeatured  Boolean    @default(false)
+  showOnHome  Boolean    @default(false)
   sortOrder   Int        @default(0)
   sizes       ItemSize[]
   toppings    ItemTopping[]
   bases       ItemBase[]
   orderItems  OrderItem[]
   specialItems SpecialItem[]
+  favorites   Favorite[]
 }
 
 model Special {
   id          Int           @id @default(autoincrement())
   name        String
   description String?
-  price       Int
+  price       Int           @default(0)
+  kind        String        @default("flat") // "flat" | "bogo"
+  categoryId  Int?
+  category    Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  sizeLabel   String?
+  count       Int           @default(2)
+  imageUrl    String?
+  showOnHome  Boolean       @default(false)
   isActive    Boolean       @default(true)
   sortOrder   Int           @default(0)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   items       SpecialItem[]
+  favorites   Favorite[]
+}
+
+model Favorite {
+  id         Int       @id @default(autoincrement())
+  customerId Int
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  itemId     Int?
+  item       Item?     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  specialId  Int?
+  special    Special?  @relation(fields: [specialId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+
+  @@unique([customerId, itemId])
+  @@unique([customerId, specialId])
 }
 
 model SpecialItem {
@@ -69,6 +94,7 @@ model Customer {
   username     String   @unique
   passwordHash String
   claimedAt    DateTime?
+  inviteSentAt DateTime?
   lat          Float?
   lng          Float?
   addressLabel String?
@@ -76,6 +102,7 @@ model Customer {
   updatedAt    DateTime @updatedAt
   orders       Order[]
   coupons      Coupon[]
+  favorites    Favorite[]
 }
 
 model Order {
@@ -165,14 +192,15 @@ model ItemSize {
 }
 
 model Topping {
-  id        Int            @id @default(autoincrement())
-  name      String
-  slug      String         @unique
-  tier      Int            @default(0)
-  sortOrder Int            @default(0)
-  isActive  Boolean        @default(true)
-  prices    ToppingPrice[]
-  items     ItemTopping[]
+  id         Int            @id @default(autoincrement())
+  name       String
+  slug       String         @unique
+  tier       Int            @default(0)
+  sortOrder  Int            @default(0)
+  isActive   Boolean        @default(true)
+  isInSeason Boolean        @default(true)
+  prices     ToppingPrice[]
+  items      ItemTopping[]
 }
 
 model ToppingPrice {
