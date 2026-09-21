@@ -3,3 +3,5 @@ data/
 *.log
 node_modules/
 .DS_Store
+dist/
+*.err.log
