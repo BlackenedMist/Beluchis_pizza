@@ -2238,6 +2238,7 @@ app.get(
   })
 );
 
-app.listen(PORT, () => {
-  console.log(`Beluchis menu admin running at http://localhost:${PORT}`);
+const HOST = process.env.HOST || "0.0.0.0";
+app.listen(PORT, HOST, () => {
+  console.log(`Beluchis menu admin running at http://${HOST}:${PORT}`);
 });
