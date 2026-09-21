@@ -8,7 +8,7 @@ dev.db-shm
 .env
 server/.dev-time
 invites.csv
-xello.info*
+*xello.info*
 .beluchis.pid
 StandAlone/data/
 StandAlone/*.log
