@@ -1,46 +1,31 @@
 #!/usr/bin/env bash
 # Build the distributable Windows package for the Beluchis Kitchen Bridge.
-# Downloads the official Node.js Windows binaries + NSSM service wrapper,
-# assembles a clean standalone folder, and zips it to dist/.
 #
-# The binaries are never committed to the repo - they are cached under
-# ~/.cache/beluchis-win-build and only used inside the built zip.
+# The package contains no binaries. On first run, fetch-node.bat downloads the
+# official Node.js build from nodejs.org and checks it against the SHA256
+# checksum nodejs.org publishes, so this build needs no network access and
+# produces a zip of about 45 KB instead of 33 MB.
+#
+# The previous package shipped an unsigned nssm.exe to wrap the bridge as a
+# Windows service. The bridge now runs as a native scheduled task instead,
+# which needs no third-party service wrapper.
 #
 # Usage:  bash build-windows.sh   (run from the StandAlone directory)
 
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="1.0.0"
-NODE_V="22.23.2"
-NSSM_ZIP_NAME="nssm-2.24-101-g897c7ad.zip"
-NSSM_DIR="nssm-2.24-101-g897c7ad"
+VERSION="1.0.1"
 PKG="Beluchis-Kitchen-${VERSION}-windows-x64"
-CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/beluchis-win-build"
 OUT="$(pwd)/dist/${PKG}.zip"
 STAGE="$(mktemp -d)/${PKG}"
 
-mkdir -p "$STAGE/bin" "$CACHE" "$(pwd)/dist"
-
-# --- node.exe -------------------------------------------------------------
-NODE_ZIP="${CACHE}/node-v${NODE_V}-win-x64.zip"
-if [ ! -f "$NODE_ZIP" ]; then
-  echo "Downloading Node ${NODE_V} (win-x64)..."
-  curl -sSL -o "$NODE_ZIP" "https://nodejs.org/dist/v${NODE_V}/node-v${NODE_V}-win-x64.zip"
-fi
-unzip -p "$NODE_ZIP" "node-v${NODE_V}-win-x64/node.exe" > "$STAGE/bin/node.exe"
-
-# --- nssm.exe -------------------------------------------------------------
-NSSM_ZIP="${CACHE}/${NSSM_ZIP_NAME}"
-if [ ! -f "$NSSM_ZIP" ]; then
-  echo "Downloading NSSM..."
-  curl -sSL -o "$NSSM_ZIP" "https://nssm.cc/ci/${NSSM_ZIP_NAME}"
-fi
-unzip -p "$NSSM_ZIP" "${NSSM_DIR}/win64/nssm.exe" > "$STAGE/bin/nssm.exe"
+mkdir -p "$STAGE" "$(pwd)/dist"
 
 # --- app files ------------------------------------------------------------
 cp -r server.mjs lib public .env.example README-WINDOWS.txt package.json "$STAGE/"
-cp start-kitchen.bat install-service.bat restart-service.bat stop-service.bat uninstall-service.bat check-env.bat "$STAGE/"
+cp start-kitchen.bat install-service.bat restart-service.bat stop-service.bat \
+      uninstall-service.bat check-env.bat fetch-node.bat run-kitchen.cmd "$STAGE/"
 
 # --- zip ------------------------------------------------------------------
 (
@@ -60,8 +45,10 @@ PY
   fi
 )
 
+rm -rf "$(dirname "$STAGE")"
+
 echo "Built: $OUT"
 ls -lh "$OUT"
 echo
 echo "Contents:"
-unzip -l "$OUT" | head -25
+unzip -l "$OUT"

@@ -1,0 +1,7 @@
+# Windows batch files must use CRLF line endings. cmd.exe mis-parses
+# parenthesised blocks and goto labels when the file is LF-only, which is easy
+# to introduce by accident on Linux or macOS. Forcing CRLF here means the files
+# are correct no matter what core.autocrlf is set to on the machine that
+# checks them out.
+*.bat text eol=crlf
+*.cmd text eol=crlf
