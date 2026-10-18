@@ -55,7 +55,6 @@ set "BELUCHIS_RUNNER=%RUNNER%"
   echo   ^<Principals^>
   echo     ^<Principal id="Author"^>
   echo       ^<UserId^>S-1-5-18^</UserId^>
-  echo       ^<LogonType^>ServiceAccount^</LogonType^>
   echo       ^<RunLevel^>HighestAvailable^</RunLevel^>
   echo     ^</Principal^>
   echo   ^</Principals^>

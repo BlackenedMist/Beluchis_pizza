@@ -18,8 +18,10 @@ if not exist ".env" (
     echo.
     echo  First run: your .env file was created and has opened in Notepad.
     echo.
-    echo  Inside it, set the website admin PIN next to  SOURCE_PIN=  ,
-    echo  save and close Notepad, then run this file again.
+    echo  Inside it, set two things:
+    echo    SOURCE_PIN=       the website admin PIN (ask the owner)
+    echo    BRIDGE_PASSWORD=  a password for the kitchen page
+    echo  Then save and close Notepad and run this file again.
     echo.
     start "" notepad ".env"
     pause
@@ -47,6 +49,14 @@ if errorlevel 1 (
   echo The kitchen bridge cannot start without Node.js. See the message above.
   pause
   exit /b 1
+)
+
+rem --- encrypt the PIN and the page password in .env ------------------------
+rem Done on every start rather than once, because it is a no-op once they are
+rem already stored as *_ENC, and it means the secrets are never left in .env
+rem in readable text just because someone edited the file in Notepad.
+if exist "protect-secrets.ps1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0protect-secrets.ps1" >nul
 )
 
 rem --- install on first start --------------------------------------------

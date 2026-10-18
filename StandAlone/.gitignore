@@ -5,3 +5,8 @@ node_modules/
 .DS_Store
 dist/
 *.err.log
+# Node.js runtime fetched by fetch-node.bat on each machine (about 87 MB)
+bin/
+# Task definition written by install-service.bat when the task is installed
+BeluchisKitchen.xml
+*.pid

@@ -205,6 +205,14 @@ async function loadPrinters() {
   } catch { /* ignore */ }
 }
 
+// Only a raw network printer has an IP and a port. The other two are addressed
+// by share name or by label, so appending ":9100" would just be misleading.
+function printerAddress(pr) {
+  if (pr.type === 'network') return `${pr.host}:${pr.port | 0}`;
+  if (pr.type === 'windows') return `${pr.host}  (Windows printer)`;
+  return `${pr.host}  (file only)`;
+}
+
 function printerRow(pr) {
   const div = document.createElement('div');
   div.className = 'printer-row' + (pr.target ? ' target' : '');
@@ -218,7 +226,7 @@ function printerRow(pr) {
   div.innerHTML = `
     <div>
       <div class="printer-name">${esc(pr.name)}</div>
-      <div class="printer-host">${esc(pr.host)}:${pr.port|0}</div>
+      <div class="printer-host">${esc(printerAddress(pr))}</div>
       ${testHtml}
     </div>
     <div class="printer-actions">
@@ -428,6 +436,25 @@ function wireEvents() {
 // ---------- bindings ----------
 $('#refreshOrders').addEventListener('click', loadOrders);
 $('#scanBtn').addEventListener('click', runScan);
+// The manual-add form serves three kinds of printer, so the address and port
+// fields only make sense for the raw-network one.
+const PRINTER_TYPES = {
+  network: { host: 'IP address', placeholder: '192.168.1.50', port: true, hint: 'A thermal printer that listens on port 9100. This is the only type that sends ESC/POS control codes.' },
+  windows: { host: 'Printer share name', placeholder: '\\\\pos2\\Invoice', port: false, hint: 'A printer already installed on this computer, including one shared over SMB. Printing goes through the Windows driver, so the slip is plain text with no cut or init codes.' },
+  file: { host: 'Label', placeholder: 'debug', port: false, hint: 'Writes the slip into data/prints instead of printing anything. Useful for checking a receipt.' }
+};
+
+function syncPrinterTypeFields() {
+  const spec = PRINTER_TYPES[$('#pType').value] || PRINTER_TYPES.network;
+  $('#pHostLabel').firstChild.textContent = `${spec.host} `;
+  $('#pHost').placeholder = spec.placeholder;
+  $('#pPortLabel').style.display = spec.port ? '' : 'none';
+  $('#pTypeHint').textContent = spec.hint;
+}
+
+$('#pType').addEventListener('change', syncPrinterTypeFields);
+syncPrinterTypeFields();
+
 $('#addForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   await fetch('/api/printers', {
@@ -436,7 +463,8 @@ $('#addForm').addEventListener('submit', async (e) => {
     body: JSON.stringify({
       name: $('#pName').value.trim(),
       host: $('#pHost').value.trim(),
-      port: Number($('#pPort').value) || 9100
+      port: Number($('#pPort').value) || 9100,
+      type: $('#pType').value
     })
   });
   $('#pName').value = '';

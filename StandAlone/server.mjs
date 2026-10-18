@@ -6,8 +6,14 @@ import { fileURLToPath } from 'node:url';
 import { Poller } from './lib/poller.mjs';
 import { buildReceipt, segsToText } from './lib/receipt.mjs';
 import { localIPv4, scanLan } from './lib/scan.mjs';
+import { restoreSecrets } from './lib/secret.mjs';
 import { flush, seed } from './lib/store.mjs';
 import { testPrinter } from './lib/printer.mjs';
+
+// Decrypt anything stored as KEY_ENC in .env before the rest of this module
+// runs. BRIDGE_PASSWORD is read a few lines below and SOURCE_PIN is read by the
+// poller when it logs in, so both have to be in place first.
+const RESTORED_SECRETS = restoreSecrets();
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -293,7 +299,7 @@ async function handle(req, res) {
     if (!name || !host) return json(res, 400, { error: 'name and host required' });
     const id = body.id || createHash('md5').update(`${Date.now()}${Math.random()}`).digest('hex').slice(0, 10);
     const existing = findPrinter(id);
-    const kind = body.type === 'file' ? 'file' : 'network';
+    const kind = ['file', 'windows'].includes(body.type) ? body.type : 'network';
     const printer = existing
       ? { ...existing, name, host, port: Number(body.port) || 9100, type: kind }
       : { id, name, host, port: Number(body.port) || 9100, type: kind, target: false, lastTest: null };
@@ -398,6 +404,10 @@ export function start() {
     console.warn('   Set BRIDGE_PASSWORD in .env to lock it.');
     console.warn('  ============================================================');
     console.warn('');
+  }
+
+  if (RESTORED_SECRETS.length) {
+    console.log(`Decrypted from .env (protected on this machine): ${RESTORED_SECRETS.join(', ')}`);
   }
 
   poller.start();

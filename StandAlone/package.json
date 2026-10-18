@@ -9,6 +9,6 @@
   },
   "scripts": {
     "start": "node --env-file=.env server.mjs",
-    "check": "node --check server.mjs && for f in lib/*.mjs; do node --check \"$f\" || exit 1; done"
+    "check": "node --check server.mjs && node -e \"const{readdirSync}=require('node:fs'),{execFileSync}=require('node:child_process');for(const f of readdirSync('lib').filter(f=>f.endsWith('.mjs'))){execFileSync(process.execPath,['--check','lib/'+f]);console.log('ok lib/'+f)}\""
   }
 }

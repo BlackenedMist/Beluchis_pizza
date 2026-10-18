@@ -23,6 +23,7 @@ What is in the folder
   fetch-node.bat              Downloads Node.js, and repairs it if damaged
   run-kitchen.cmd             Started by Windows at boot
   install-service.bat         Creates the scheduled task
+  protect-secrets.ps1         Encrypts the passwords in .env
   .env.example                Settings template
   data\                       Created on first run, your settings + history
   bin\                        Created on first run, holds node.exe
@@ -41,9 +42,14 @@ Install - four steps
 
 2. Double-click  start-kitchen.bat
    - The first run creates your .env file and opens it in Notepad.
-   - In Notepad set the admin PIN next to  SOURCE_PIN=  for the website
-     (ask the owner - the default "1234" will NOT work), then
-     save, close Notepad and double-click start-kitchen.bat again.
+   - In Notepad set two things, then save, close Notepad and
+     double-click start-kitchen.bat again:
+       SOURCE_PIN=      the admin PIN for the website (ask the owner -
+                        the default "1234" will NOT work)
+       BRIDGE_PASSWORD= a password for the kitchen page itself. Leave it
+                        empty and anyone on the restaurant network can
+                        read live customer orders and trigger test prints.
+                        Any string without spaces or quotes; make it random.
    - The second run downloads Node.js, about 30 MB. On a slow line this takes
      a minute. This is the only step that needs the internet.
 
@@ -59,15 +65,17 @@ Install - four steps
 
 Website address
 ---------------
-The .env file already points at the live site (https://beluchis.co.za).
-While the site is still being cut over, it only answers on its raw address
-http://154.65.100.89 - if the bridge shows "no connection", either use the
-Settings tab on the kitchen page, or edit .env like this:
-   - put a # in front of  SOURCE_BASE_URL=https://beluchis.co.za
-   - remove the # in front of  SOURCE_BASE_URL=http://154.65.100.89
-   - save, then double-click restart-service.bat
-You can also change the site address any time from the Settings tab on the
-kitchen page (no file editing needed).
+The .env file already points at the live site, https://beluchis.co.za. The
+domain and its certificate are both live now, so it should just work.
+
+Do NOT change it to the server's raw address 154.65.100.89. That stopped
+working once HTTPS was switched on: nginx redirects http to https, and the
+certificate has no IP address in it, so https://154.65.100.89 fails with a
+name mismatch. The domain name is the only address that works.
+
+If the bridge ever shows "no connection", use the Settings tab on the kitchen
+page, or edit .env and then double-click restart-service.bat. You can change
+the site address from the Settings tab at any time (no file editing needed).
 
 Printers (thermal)
 ------------------
@@ -88,6 +96,23 @@ Other scripts
   uninstall-service.bat Remove it completely (your settings are kept)
   check-env.bat         Check the machine when something is not working
   fetch-node.bat        Download or repair Node.js on its own
+  protect-secrets.bat   Re-encrypt the PIN and page password in .env
+
+The passwords in .env
+---------------------
+.env holds two secrets: the website admin PIN and the kitchen page password.
+Every time start-kitchen.bat runs it encrypts both of them with Windows DPAPI
+and rewrites them as SOURCE_PIN_ENC= and BRIDGE_PASSWORD_ENC=, so the file is
+not readable text. The bridge decrypts them itself at startup - nothing else
+to do, and the page still asks for the same password you typed.
+
+DPAPI ties the value to this one computer. That is deliberate: a copy of this
+folder cannot be un-locked on another machine. It also means if you move the
+bridge to a new PC, type the values in again there.
+
+To change either one: open .env in Notepad, delete the *_ENC= line, type the
+plain KEY= line with the new value, save, and double-click start-kitchen.bat
+(protect-secrets.bat on its own just re-encrypts what is already plain).
 
 Troubleshooting
 ---------------

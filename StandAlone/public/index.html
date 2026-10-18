@@ -57,9 +57,17 @@
         <h3>Add a printer manually</h3>
         <p class="muted">Use this only if the scan cannot find your printer (for example if it is on a different router).</p>
         <form id="addForm" class="form">
+          <label>Type
+            <select id="pType">
+              <option value="network">Network thermal printer (IP + port 9100)</option>
+              <option value="windows">Windows shared printer (e.g. \\pos2\Invoice)</option>
+              <option value="file">Save to a file only (no printing)</option>
+            </select>
+          </label>
           <label>Name <input id="pName" type="text" placeholder="Kitchen printer" required></label>
-          <label>IP address <input id="pHost" type="text" placeholder="192.168.1.50" required></label>
-          <label>Port <input id="pPort" type="number" value="9100" min="1" max="65535"></label>
+          <label id="pHostLabel">IP address <input id="pHost" type="text" placeholder="192.168.1.50" required></label>
+          <label id="pPortLabel">Port <input id="pPort" type="number" value="9100" min="1" max="65535"></label>
+          <small class="muted" id="pTypeHint"></small>
           <button class="btn primary" type="submit">Add printer</button>
         </form>
       </div>

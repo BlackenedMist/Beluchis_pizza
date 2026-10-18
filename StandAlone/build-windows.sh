@@ -25,7 +25,8 @@ mkdir -p "$STAGE" "$(pwd)/dist"
 # --- app files ------------------------------------------------------------
 cp -r server.mjs lib public .env.example README-WINDOWS.txt package.json "$STAGE/"
 cp start-kitchen.bat install-service.bat restart-service.bat stop-service.bat \
-      uninstall-service.bat check-env.bat fetch-node.bat run-kitchen.cmd "$STAGE/"
+      uninstall-service.bat check-env.bat fetch-node.bat run-kitchen.cmd \
+      protect-secrets.bat protect-secrets.ps1 "$STAGE/"
 
 # --- zip ------------------------------------------------------------------
 (
