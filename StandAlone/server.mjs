@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -26,6 +26,78 @@ poller.printers = seed('printers', { printers: [] });
 const sseClients = new Set();
 let scanning = false;
 
+// ---------------------------------------------------------------- auth
+// Opt-in: set BRIDGE_PASSWORD in .env to require a password on the page.
+// Without it the bridge stays open (backwards compatible) but warns loudly
+// at startup, because it binds to 0.0.0.0 and exposes customer order data.
+const BRIDGE_PASSWORD = String(process.env.BRIDGE_PASSWORD || '');
+const AUTH_ENABLED = BRIDGE_PASSWORD.length > 0;
+const AUTH_COOKIE = 'bridge_auth';
+
+// Random per process, so restarting the bridge invalidates existing sessions.
+const SESSION_TOKEN = randomBytes(32).toString('hex');
+
+// Brute-force guard: exponential backoff after repeated failures.
+let loginFails = 0;
+let loginBlockedUntil = 0;
+
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a), 'utf8');
+  const bb = Buffer.from(String(b), 'utf8');
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
+function parseCookies(req) {
+  const out = {};
+  for (const part of String(req.headers.cookie || '').split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+  }
+  return out;
+}
+
+function isAuthed(req) {
+  if (!AUTH_ENABLED) return true;
+  return safeEqual(parseCookies(req)[AUTH_COOKIE] || '', SESSION_TOKEN);
+}
+
+function cookieHeader(value, maxAge) {
+  return `${AUTH_COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}`;
+}
+
+function sendLoginPage(res, message) {
+  const body = loginHtml(message);
+  res.writeHead(200, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-length': Buffer.byteLength(body)
+  });
+  res.end(body);
+}
+
+function loginHtml(message) {
+  const notice = message ? `<p class="err">${message}</p>` : '';
+  return `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Beluchis Kitchen Bridge</title><style>
+:root{color-scheme:dark light}
+body{font:16px/1.5 system-ui,sans-serif;margin:0;min-height:100vh;display:grid;place-items:center;background:#14120f;color:#f4efe6}
+form{width:min(340px,86vw);background:#1e1a16;padding:28px;border-radius:12px;border:1px solid #3a332b}
+h1{font-size:19px;margin:0 0 4px}
+p.sub{color:#a29684;font-size:13px;margin:0 0 20px}
+input{width:100%;box-sizing:border-box;padding:11px;border-radius:8px;border:1px solid #4a4238;background:#141210;color:#f4efe6;font-size:16px}
+button{width:100%;margin-top:12px;padding:11px;border:0;border-radius:8px;background:#c8102e;color:#fff;font-size:16px;font-weight:600;cursor:pointer}
+.err{color:#ff8a8a;font-size:13px;margin:0 0 12px}
+</style></head><body><form method="POST" action="/login">
+<h1>Kitchen Bridge</h1>
+<p class="sub">Beluchis &mdash; restaurant network</p>
+${notice}
+<input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password" required>
+<button type="submit">Unlock</button>
+</form></body></html>`;
+}
+
 function broadcast(event) {
   const payload = `data: ${JSON.stringify(event)}\n\n`;
   for (const res of sseClients) {
@@ -50,6 +122,12 @@ function readBody(req) {
     req.on('end', () => {
       const raw = Buffer.concat(chunks).toString('utf8');
       if (!raw) return resolve({});
+      // JSON (the API) or urlencoded (the login form)
+      if (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
+        const out = {};
+        for (const [k, v] of new URLSearchParams(raw)) out[k] = v;
+        return resolve(out);
+      }
       try { resolve(JSON.parse(raw)); } catch { resolve({}); }
     });
     req.on('error', () => resolve({}));
@@ -90,6 +168,39 @@ async function handle(req, res) {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   const method = req.method;
+
+  // ---- auth gate: everything is locked except the login form itself ----
+  if (AUTH_ENABLED && p !== '/login' && !isAuthed(req)) {
+    if (p.startsWith('/api/')) return json(res, 401, { error: 'auth required' });
+    return sendLoginPage(res);
+  }
+
+  // ---- login / logout ----
+  if (method === 'POST' && p === '/login') {
+    const body = await readBody(req);
+    if (Date.now() < loginBlockedUntil) {
+      return sendLoginPage(res, 'Too many attempts. Wait a minute and try again.');
+    }
+    if (safeEqual(body.password || '', BRIDGE_PASSWORD)) {
+      loginFails = 0;
+      res.writeHead(302, {
+        'set-cookie': cookieHeader(SESSION_TOKEN, 60 * 60 * 12),
+        location: '/'
+      });
+      return res.end();
+    }
+    loginFails += 1;
+    if (loginFails >= 5) {
+      loginBlockedUntil = Date.now() + 60_000;
+      loginFails = 0;
+    }
+    return sendLoginPage(res, 'Wrong password.');
+  }
+
+  if (method === 'POST' && p === '/logout') {
+    res.writeHead(302, { 'set-cookie': cookieHeader('', 0), location: '/login' });
+    return res.end();
+  }
 
   if (method === 'GET' && (p === '/' || p === '/index.html')) {
     return serveStatic(res, 'index.html', req);
@@ -275,7 +386,20 @@ export function start() {
     });
   });
   const port = Number(process.env.PORT) || 3101;
-  server.listen(port, process.env.HOST || '0.0.0.0');
+  const host = process.env.HOST || '0.0.0.0';
+  server.listen(port, host);
+
+  if (AUTH_ENABLED) {
+    console.log(`Kitchen bridge is password-locked (BRIDGE_PASSWORD set).`);
+  } else {
+    console.warn('');
+    console.warn('  ============================================================');
+    console.warn('   NO PASSWORD SET - this page is open to the whole network.');
+    console.warn('   Set BRIDGE_PASSWORD in .env to lock it.');
+    console.warn('  ============================================================');
+    console.warn('');
+  }
+
   poller.start();
   return server;
 }

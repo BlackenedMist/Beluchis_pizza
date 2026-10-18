@@ -9,8 +9,9 @@ kitchen's eye.
 - **No installation** – it only uses what Node.js already provides.
 - **Zero dependencies** – copy the folder to any machine on the same network as
   the printers and run one script.
-- **No sign-in on this page** – it stays on the restaurant's own network. The
-  login to the website is fixed in `.env` (see below).
+- **No sign-in on the *website*** – the kitchen page's own password is set in
+  `.env` (see `BRIDGE_PASSWORD` below). The login to the website is fixed in
+  `.env` too (see below).
 
 ---
 
@@ -33,8 +34,9 @@ kitchen's eye.
 
    | Setting | Meaning | Example |
    | ------- | ------- | ------- |
-   | `SOURCE_BASE_URL` | Address of the online Beluchis website | `http://192.168.1.10:3100` |
+   | `SOURCE_BASE_URL` | Address of the online Beluchis website | `https://beluchis.co.za` |
    | `SOURCE_PIN` | The **admin PIN** of that website | `1234` |
+   | `BRIDGE_PASSWORD` | Password for this app's own page | `kitchen-4821` |
    | `PORT` | Port for this app's own page | `3101` |
    | `POLL_SECONDS` | How often it checks the website (seconds) | `60` |
    | `HOST` | Network interface to listen on | `0.0.0.0` |
@@ -42,6 +44,10 @@ kitchen's eye.
    The bridge always logs in to the website as the **admin** user. The PIN is
    **hardcoded for now** through `.env` — if you change the website's admin PIN,
    update `SOURCE_PIN` here and restart. Nothing else needs the login.
+
+   > **Set `BRIDGE_PASSWORD`.** Without it the page is open to every device on
+   > the restaurant network and shows live customer orders. If it's empty the
+   > bridge still starts, but prints a warning on every boot.
 
    ```bash
    ./start.sh
