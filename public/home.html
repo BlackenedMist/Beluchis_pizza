@@ -130,7 +130,10 @@
     box-shadow: 0 10px 26px rgba(42, 37, 32, .14); aspect-ratio: 4 / 3;
   }
   .tile a.media { position: absolute; inset: 0; display: block; }
-  .tile a.media img { width: 100%; height: 100%; object-fit: cover; transition: transform .35s ease; }
+  /* position/z-index lift the photo ABOVE the .ph placeholder.
+     Without this the absolutely-positioned placeholder paints on top of
+     the static <img> and hides every dish photo. */
+  .tile a.media img { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: cover; transition: transform .35s ease; }
   .tile:hover a.media img { transform: scale(1.05); }
   .tile .ph {
     position: absolute; inset: 0; display: grid; place-items: center;
