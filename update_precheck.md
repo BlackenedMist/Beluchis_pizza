@@ -84,14 +84,42 @@ on every start. The bridge decrypts them itself at startup via `lib/secret.mjs`.
 - `StandAlone\dist\Beluchis-Kitchen-1.0.1-windows-x64.zip` — **45 KB**, no
   binaries, fetches Node on first run, contains no `.env`/`data`/`bin`.
 
+## Admin PIN — rotated 2026-10-18 ✅
+Live on **both** sides now:
+- Server: `ADMIN_PIN` changed in `/opt/beluchis/.env` on `154.65.100.89`, service
+  restarted. Verified: `POST /api/auth/login` → `200 {"ok":true,"role":"admin"}`.
+- Bridge: `SOURCE_PIN` in `StandAlone\.env`, re-encrypted, bridge restarted.
+  Verified by a forced poll: `{"ok":true,"count":1,"newOrders":[],"ms":188}`.
+
+The value itself is deliberately **not** recorded in this repo — it lives
+encrypted in `StandAlone\.env`. Anyone reading this needs it from
+`/opt/beluchis/.env` on the server.
+
+**If the server PIN is ever changed again, change the bridge in the same
+session.** Otherwise every poll fails `401` and the kitchen silently stops
+receiving orders — no alarm, just nothing printing.
+
+⚠️ The new PIN is a name plus a digit, which is guessable on a publicly
+reachable login form. The server allows 10 attempts / 15 min / IP, which helps.
+Worth rotating to something random later.
+
+## Closed-shop cadence
+Trading hours are 10:00–21:00. After 21:00 the bridge drops from every 60s to
+every **1800s (30 min)**. An order placed overnight can wait up to half an hour
+to reach the kitchen. Lowerable in the Settings tab.
+
 ## Open items
-- [ ] **Set the new admin PIN.** The intended replacement has not been applied
-      anywhere yet. Change `ADMIN_PIN` in `/opt/beluchis/.env` on
-      `154.65.100.89`, `systemctl restart beluchis`, then update
-      `StandAlone\.env` the same way and run `restart-service.bat`. Until then
-      both sides must stay on the PIN they have now.
+- [ ] **`git push origin main` — 2 commits are local only.** The token supplied
+      in session was not valid PAT format, so auth never completed. Commits:
+      `5ff0492`, `61c3e9e`. Neither is on GitHub yet.
+- [ ] Confirm paper actually prints from **both** printers. `ok:true` only means
+      the printer accepted the bytes. `10.0.0.7` took 1962 ms vs 4 ms for
+      `192.168.1.114` — the slow one may be low on paper or in an error state.
+- [ ] Decide the target printer. Currently `PIZZA (Kitchen)` (`192.168.1.114`),
+      changed from the kitchen page UI. `10.0.0.7` is **not** the target. Only
+      one target is supported: `/target` clears all others and the poller uses
+      `printers.find(p => p.target)`.
 - [ ] PayGate end-to-end: confirm `NOTIFY_URL` flips an order to `paid`.
 - [ ] Confirm the two home-page image fixes (`c0b498d`, `ef9bf8f`) are live —
       they are committed on `main`, so the server just needs to pull.
-- [ ] Confirm paper actually prints from the kitchen during open hours.
 - [ ] Kitchen-PC install from the 1.0.1 zip (not done — this PC is the bridge).
