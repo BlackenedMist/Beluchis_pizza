@@ -1,7 +1,7 @@
 # Update Phase 3 — Automatic Fixed-Price Deals
 
 **Date:** 2026-10-20
-**Status:** Complete (server + storefront + admin + docs verified end-to-end; changes uncommitted)
+**Status:** Complete and committed (`31b4bb8`); re-verified 2026-10-21 after a session crash (server matrix 10/10, client preview, admin Deals tab)
 **Scope:** One customer-facing feature plus its admin surface:
 
 1. **Automatic "buy N for R…" deals** — e.g. *any 2 Large Traditional Pizzas for R200*, applied in the cart with no picker or modal.
@@ -194,7 +194,7 @@ node --env-file-if-exists=.env server/index.mjs      # dev server
 
 ## Status
 
-**Code complete, verified, not yet committed.** All Phase 3 changes are sitting in the working tree alongside the uncommitted Phase 1 + Phase 2 sets.
+**Code complete, verified, committed (`31b4bb8`).** Phase 1 + Phase 2 were already committed earlier; this phase's set is now in `main`.
 
 ---
 
@@ -205,6 +205,16 @@ node --env-file-if-exists=.env server/index.mjs      # dev server
 
 ## Remaining work
 
-- [ ] Commit the Phase 1 + 2 + 3 change set.
+- [x] Commit the change set — done (`31b4bb8`, 2026-10-21).
 - [ ] Production deployment with a real `ADMIN_PIN`, HTTPS and a persistent session store.
 - [ ] Social media auto-poster (deferred from Phase 2).
+
+### Re-verification after the 2026-10-21 session crash
+
+The working tree survived intact. Re-ran against a scratch copy of `dev.db` with the deals active:
+
+- **Server matrix 10/10** — C1–C8 pricing, C9 deal+coupon stack (`discount 60`, `grand 180`, label `"2 L Traditional Pizzas + Verify 10%"`), C10 deal `specialId` → **400**. Zero-saving cases return `discountLabel: null`.
+- **Storefront** — deal cards render; adding 2 × Hot Chicken L shows `You save R40`, `Total R200`, matching the server.
+- **Admin** — Deals tab renders per category with only the sizes that category actually sells (Traditional → `M · live` / `L · live`; Deluxe → `S M L`); Specials tab filters deals out.
+
+Note: `dev.db` had the two deal rows left `isActive: false` by the earlier test pass and no flat/BOGO demo combos. The deals were re-activated to match the seed; the combos are absent from this DB (the plan's "two combos" check was against the scratch seed).
