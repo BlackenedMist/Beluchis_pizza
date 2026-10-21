@@ -12,6 +12,9 @@
 
   /* ---------------------------------------------------------------- state */
   let CART = loadCart();
+  // Automatic fixed-price deals currently claimed by the cart, recomputed by
+  // refreshDeals() on every mutation (see applyDeals).
+  let DEALS = { saving: 0, rows: [] };
   const DATA = { cats: [], items: [], specials: [], toppings: [], byId: new Map(), catById: new Map(), dupeNames: new Set(), delivery: null };
 
   function loadCart() {
@@ -29,10 +32,14 @@
 
   const lines = () => CART;
   const count = () => CART.reduce((s, l) => s + l.qty, 0);
-  const total = () => CART.reduce((s, l) => s + (l.unitPrice + (l.extras || []).reduce((a, e) => a + e.price, 0)) * l.qty, 0);
+  const gross = () => CART.reduce((s, l) => s + (l.unitPrice + (l.extras || []).reduce((a, e) => a + e.price, 0)) * l.qty, 0);
+  // Payable total: the cart at full price, less any automatic deal saving.
+  const total = () => Math.max(0, gross() - DEALS.saving);
+  const deals = () => DEALS;
 
   function emit() {
     saveCart();
+    refreshDeals();
     renderCart();
     syncUI();
     if (hooks.onCartChange) hooks.onCartChange(CART);
@@ -100,6 +107,65 @@
   }
   const extrasTotal = (pizzas) => (pizzas || []).reduce((s, p) => s + (p.extras || []).reduce((a, e) => a + e.price, 0), 0);
 
+  /* ------------------------------------------------------- automatic deals
+     Fixed-price specials (kind === "deal") apply themselves: any `count`
+     items from the special's category, at the special's size, for a flat
+     price - so the customer just adds pizzas normally and the cart does the
+     rest. This mirrors POST /api/orders exactly: group the qualifying units
+     by size, take floor(n / count) groups cheapest-first, and only reward a
+     group when the deal actually beats the normal price (two R90 Margheritas
+     stay at R180 rather than being pushed UP to R200). Extras never qualify. */
+  function applyDeals(cart) {
+    const src = cart || CART;
+    const out = { saving: 0, rows: [] };
+    const deals = activeSpecials().filter((s) => s.kind === "deal" && s.categoryId != null && s.count >= 2 && s.price > 0);
+    if (!deals.length || !src.length) return out;
+
+    // A unit is one individual pizza, so a qty-3 line contributes three.
+    // `claimed` stops two overlapping deals from discounting the same pizza.
+    const claimed = new Set();
+
+    for (const s of deals) {
+      const units = [];
+      src.forEach((l, idx) => {
+        if (l.kind === "special" || l.itemId == null) return;
+        const item = DATA.byId.get(l.itemId);
+        if (!item || item.categoryId !== s.categoryId) return;
+        const sz = sizeRowOf(item, l.sizeLabel);
+        if (!sz) return;
+        if (s.sizeLabel && l.sizeLabel !== s.sizeLabel) return;
+        for (let n = 0; n < (l.qty || 1); n++) {
+          const key = idx + ":" + n;
+          if (claimed.has(key)) continue;
+          units.push({ key, base: sz.price, sizeLabel: l.sizeLabel });
+        }
+      });
+      if (units.length < s.count) continue;
+
+      const sorted = units.slice().sort((a, b) => a.base - b.base);
+      for (let i = 0; i + s.count <= sorted.length; i += s.count) {
+        const chunk = sorted.slice(i, i + s.count);
+        const normal = chunk.reduce((sum, u) => sum + u.base, 0);
+        const saving = Math.max(0, normal - s.price);
+        if (!saving) continue;
+        chunk.forEach((u) => claimed.add(u.key));
+        out.saving += saving;
+        out.rows.push({
+          id: s.id,
+          name: s.name,
+          sizeLabel: s.sizeLabel || chunk[0].sizeLabel || "",
+          count: s.count,
+          price: s.price,
+          normal,
+          saving,
+        });
+      }
+    }
+    return out;
+  }
+
+  function refreshDeals() { DEALS = applyDeals(CART); return DEALS; }
+
   /* --------------------------------------------------------------- catalog */
   async function load() {
     const [catsRes, itemsRes, specialsRes, toppingsRes] = await Promise.all([
@@ -139,6 +205,7 @@
       if (seen.has(n)) dupes.add(n); else seen.add(n);
     }
     DATA.dupeNames = dupes;
+    refreshDeals();
     return DATA;
   }
 
@@ -149,7 +216,10 @@
     const keep = []; const dropped = [];
     for (const l of CART) {
       if (l.kind === "special" && l.specialId != null) {
-        if (!specialsById.has(l.specialId)) { dropped.push(l.name || "special"); continue; }
+        const sp = specialsById.get(l.specialId);
+        // A fixed-price deal never sits in the cart as a line - it applies
+        // itself, so drop any stale copy an older cart may still hold.
+        if (!sp || sp.kind === "deal") { dropped.push(l.name || "special"); continue; }
         keep.push(l);
         continue;
       }
@@ -177,6 +247,7 @@
       CART.push(...keep);
       saveCart();
       if (dropped.length) toast("Removed from cart (no longer available): " + dropped.join(", "));
+      refreshDeals();
       renderCart();
       syncUI();
     }
@@ -223,8 +294,22 @@
         '<button class="remove" data-remove-idx="' + idx + '">Remove</button></div>' +
         "</div>"
       );
-    }).join("");
+    }).join("") +
+    DEALS.rows.map(dealRow).join("");
     syncUI();
+  }
+
+  /* Highlight row for an automatic deal the cart has claimed. */
+  function dealRow(d) {
+    return (
+      '<div class="cart-line deal-line">' +
+      '<div class="top"><span class="name">' + esc(d.name) +
+      '<br /><span class="meta">' + d.count + " &times; " + money(d.price / d.count) + " = " + money(d.price) +
+      (d.sizeLabel ? " &middot; " + esc(d.sizeLabel) : "") + "</span></span>" +
+      '<span class="line-total"><s>' + money(d.normal) + "</s> " + money(d.price) + "</span></div>" +
+      '<div class="meta">You save ' + money(d.saving) + "</div>" +
+      "</div>"
+    );
   }
 
   function renderSpecialLine(l, idx) {
@@ -281,9 +366,9 @@
 
   window.Shop = {
     CART_KEY, $, $$, money, esc,
-    lines, count, total, lineKey, addLine, changeQty, removeLine, setLines, clear, renderCart, syncUI,
+    lines, count, total, gross, deals, lineKey, addLine, changeQty, removeLine, setLines, clear, renderCart, syncUI,
     sizeRowOf, basePriceOf, topPriceOf, availBases, availToppings, hasCustom, categoryOf, activeSpecials,
-    outOfSeasonToppings, affordableSwaps, bogoBaseTotal, extrasTotal,
+    outOfSeasonToppings, affordableSwaps, bogoBaseTotal, extrasTotal, applyDeals, refreshDeals,
     load, reconcile, toast, data: DATA, hooks,
     get onCheckout() { return hooks.onCheckout; },
     set onCheckout(fn) { hooks.onCheckout = fn; },

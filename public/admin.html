@@ -232,6 +232,12 @@
   }
   #toast.show { opacity: 1; }
   #toast.err { background: var(--bad); }
+.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:6px}
+.img-tile{position:relative;border:1px solid #e8e0d5;border-radius:8px;overflow:hidden;background:#f7f2ea}
+.img-tile img{width:100%;height:96px;object-fit:cover;display:block}
+.img-tile-actions{position:absolute;bottom:4px;right:4px;display:flex;gap:4px}
+.img-tile-actions button{padding:2px 6px;font-size:11px}
+
 </style>
 </head>
 <body>
@@ -251,6 +257,7 @@
   <button data-tab="contact" data-roles="admin,orders">Inbox</button>
   <button data-tab="items" data-roles="admin">Items</button>
   <button data-tab="specials" data-roles="admin">Specials</button>
+  <button data-tab="deals" data-roles="admin">Deals</button>
   <button data-tab="toppings" data-roles="admin">Toppings</button>
   <button data-tab="bases" data-roles="admin">Bases</button>
   <button data-tab="categories" data-roles="admin">Categories</button>
@@ -263,6 +270,7 @@
   <section id="tab-contact" class="panel" hidden></section>
   <section id="tab-items" class="panel" hidden></section>
   <section id="tab-specials" class="panel" hidden></section>
+  <section id="tab-deals" class="panel" hidden></section>
   <section id="tab-toppings" class="panel" hidden></section>
   <section id="tab-bases" class="panel" hidden></section>
   <section id="tab-categories" class="panel" hidden></section>
@@ -296,6 +304,7 @@ const ROLES = {
   orders: "Orders",
   kitchen: "Main Kitchen",
   cashier: "Cashier",
+  driver: "Driver",
 };
 const STATUSES = ["placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
 const STATUS_NAMES = {
@@ -565,7 +574,7 @@ async function loadUsers() {
 
 function renderUsers() {
   const el = $("#tab-users");
-  const roleBadge = (r) => `<span class="tag" style="${r === "admin" ? "background:#fdecea;color:#c62828" : r === "orders" ? "background:#e3f2fd;color:#1565c0" : r === "kitchen" ? "background:#fff3e0;color:#e65100" : "background:#f3e5f5;color:#6a1b9a"}">${roleLabel(r)}</span>`;
+  const roleBadge = (r) => `<span class="tag" style="${r === "admin" ? "background:#fdecea;color:#c62828" : r === "orders" ? "background:#e3f2fd;color:#1565c0" : r === "kitchen" ? "background:#fff3e0;color:#e65100" : r === "driver" ? "background:#e0f2f1;color:#00695c" : "background:#f3e5f5;color:#6a1b9a"}">${roleLabel(r)}</span>`;
   el.innerHTML = `
     <div class="toolbar">
       <h2>Staff &amp; Access</h2>
@@ -612,6 +621,7 @@ window.openUser = (id) => {
         <option value="orders"${u?.role==="orders"?" selected":""}>Orders</option>
         <option value="kitchen"${u?.role==="kitchen"?" selected":""}>Main Kitchen</option>
         <option value="cashier"${u?.role==="cashier"?" selected":""}>Cashier</option>
+        <option value="driver"${u?.role==="driver"?" selected":""}>Driver</option>
       </select></div>`}
       ${`<div class="field"><label>Active</label><select id="u-active">
         <option value="true"${u?.isActive !== false?" selected":""}>Active</option>
@@ -898,6 +908,7 @@ function renderCategories() {
 function render() {
   renderItems();
   renderSpecials();
+  renderDeals();
   renderToppings();
   renderBases();
   renderCategories();
@@ -955,6 +966,57 @@ window.uploadPicture = async (input, targetId) => {
   }
 };
 
+window.currentImages = [];
+
+window.renderImageGrid = () => {
+  const el = $("#f-images");
+  if (!el) return;
+  el.innerHTML = (window.currentImages || []).map((im, idx) => `
+    <div class="img-tile">
+      <img src="${esc(im.url)}" alt="" />
+      <div class="img-tile-actions">
+        <button type="button" class="ghost" onclick="moveImage(${idx},-1)" ${idx===0?"disabled":""}>↑</button>
+        <button type="button" class="ghost" onclick="moveImage(${idx},1)" ${idx===(window.currentImages.length-1)?"disabled":""}>↓</button>
+        <button type="button" class="ghost" onclick="removeImage(${idx})">✕</button>
+      </div>
+    </div>`).join("");
+};
+
+window.moveImage = (idx, dir) => {
+  const arr = window.currentImages;
+  const ni = idx + dir;
+  if (ni < 0 || ni >= arr.length) return;
+  const t = arr[idx]; arr[idx] = arr[ni]; arr[ni] = t;
+  renderImageGrid();
+};
+
+window.removeImage = (idx) => {
+  window.currentImages.splice(idx, 1);
+  renderImageGrid();
+};
+
+window.uploadGalleryImages = async (input) => {
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  for (const file of files) {
+    if (file.size > 6 * 1024 * 1024) { toast("Image must be 6MB or smaller", true); continue; }
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("Could not read that file"));
+      reader.readAsDataURL(file);
+    });
+    try {
+      const out = await api("/api/upload", { method: "POST", body: JSON.stringify({ dataUrl }) });
+      window.currentImages.push({ url: out.url, alt: null, sortOrder: window.currentImages.length });
+      renderImageGrid();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+  input.value = "";
+};
+
 // Item
 window.openItem = (id) => {
   const item = id ? state.items.find((i) => i.id === id) : null;
@@ -969,6 +1031,12 @@ window.openItem = (id) => {
     </div>
     ${field("Description", `<textarea id="f-desc" rows="2">${item?.description || ""}</textarea>`)}
     ${pictureField("f-img", item?.imageUrl)}
+    ${field("Gallery (multiple images)", `
+      <div id="f-images" class="img-grid"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+        <input type="file" accept="image/*" multiple onchange="uploadGalleryImages(this)" />
+        <span class="muted" style="font-size:12px">Upload one or more; drag order with the arrows.</span>
+      </div>`)}
     <div class="row">
       ${field("Category", `<select id="f-cat">
         <option value="">— none —</option>
@@ -996,6 +1064,8 @@ window.openItem = (id) => {
     sizes = [["S",""],["M",""],["L",""]].map(([s, p]) => ({ sizeLabel: s, price: p }));
   }
   window.currentSizes = sizes;
+  window.currentImages = item ? (item.images || []).map((im) => ({ url: im.url, alt: im.alt, sortOrder: im.sortOrder })) : [];
+  window.renderImageGrid();
   window.renderSizeRows = () => {
     $("#f-sizes").innerHTML = currentSizes.map((s, idx) => `
       <div class="price-row">
@@ -1025,6 +1095,7 @@ window.saveItem = async (id) => {
     sizes: currentSizes.map((s) => ({ sizeLabel: s.sizeLabel, price: Number(s.price) || 0 })),
     toppingIds: $$("#f-toppings input:checked").map((c) => Number(c.value)),
     baseIds: $$("#f-bases input:checked").map((c) => Number(c.value)),
+    images: (window.currentImages || []).map((im, i) => ({ url: im.url, alt: im.alt, sortOrder: i })),
   };
   if (!payload.name) return toast("Name is required", true);
   try {
@@ -1181,7 +1252,9 @@ window.delCategory = async (id) => {
 function renderSpecials() {
   const el = $("#tab-specials");
   const q = state.search.trim().toLowerCase();
-  const list = state.specials.filter((s) => {
+  // Fixed-price deals live on their own tab - they are configured per size,
+  // not as bundle rows, so they are hidden from this list.
+  const list = state.specials.filter((s) => s.kind !== "deal").filter((s) => {
     if (!q) return true;
     const parts = s.items.map((x) => x.item.name).join(" ");
     return s.name.toLowerCase().includes(q) || (s.description || "").toLowerCase().includes(q) || parts.toLowerCase().includes(q) || (s.category?.name || "").toLowerCase().includes(q);
@@ -1225,6 +1298,166 @@ function renderSpecials() {
     </table>` : `<div class="empty">${state.specials.length ? "No specials match your search" : "No specials yet"}</div>`}`;
 }
 
+// ------------------------------------------------------------------ Deals
+// Fixed-price deals (kind === "deal") get their own tab: one price box per
+// size actually sold in a category. An empty box means no deal for that size,
+// and clearing a box + Save removes it.
+const DEAL_SIZE_ORDER = ["S", "M", "L", "XL", "ONE", "JNR ROLLA", "BIG BOY ROLLA"];
+
+function catSizeList(catId) {
+  const items = state.items.filter((i) => i.categoryId === catId && i.isActive !== false);
+  const set = new Set();
+  for (const i of items) for (const sz of i.sizes || []) if (sz.isActive !== false) set.add(sz.sizeLabel);
+  return [...set].sort((a, b) => {
+    const ia = DEAL_SIZE_ORDER.indexOf(a), ib = DEAL_SIZE_ORDER.indexOf(b);
+    if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    return String(a).localeCompare(String(b));
+  });
+}
+
+function sizeSelectHtml(selected, catId) {
+  const opts = catSizeList(catId);
+  // Keep a size that is configured but no longer sold so an existing special
+  // is never silently rewritten - the server will reject it if it is invalid.
+  if (selected && !opts.includes(selected)) opts.push(selected);
+  return `<option value="">any size</option>` + opts.map((z) => `<option value="${esc(z)}"${z === selected ? " selected" : ""}>${esc(z)}</option>`).join("");
+}
+
+// Rebuild the size dropdown from the sizes actually sold in the picked
+// category (the old fixed S/M/L list was wrong for rollas, etc). A size that
+// the new category does not sell is dropped rather than kept.
+window.renderBogoSizes = () => {
+  const sel = $("#sp-size");
+  if (!sel) return;
+  const opts = catSizeList(Number($("#sp-cat")?.value || 0));
+  const cur = opts.includes(sel.value) ? sel.value : "";
+  sel.innerHTML = `<option value="">any size</option>` + opts.map((z) => `<option value="${esc(z)}"${z === cur ? " selected" : ""}>${esc(z)}</option>`).join("");
+};
+
+function renderDeals() {
+  const el = $("#tab-deals");
+  const deals = state.specials.filter((s) => s.kind === "deal");
+  const q = state.search.trim().toLowerCase();
+  const byCat = new Map();
+  for (const d of deals) {
+    if (!byCat.has(d.categoryId)) byCat.set(d.categoryId, []);
+    byCat.get(d.categoryId).push(d);
+  }
+  const cats = state.categories.filter((c) => {
+    const rows = byCat.get(c.id) || [];
+    if (!catSizeList(c.id).length && !rows.length) return false;
+    if (!q) return true;
+    if (c.name.toLowerCase().includes(q)) return true;
+    return rows.some((d) => (d.name || "").toLowerCase().includes(q) || String(d.sizeLabel || "").toLowerCase().includes(q));
+  });
+
+  el.innerHTML = `
+    <div class="toolbar">
+      <h2>Deals</h2>
+      <div class="muted" style="max-width:580px;font-size:13px">Automatic multi-buy offers. The customer just adds the pizzas &mdash; the saving lands in the cart, and any coupon stacks on top at checkout.</div>
+    </div>
+    ${cats.length ? cats.map((c) => {
+      const rows = (byCat.get(c.id) || []).slice().sort((a, b) => String(a.sizeLabel).localeCompare(String(b.sizeLabel)));
+      const sold = catSizeList(c.id);
+      const sizes = [...new Set([...sold, ...rows.map((r) => r.sizeLabel)])];
+      const bySize = new Map(rows.map((r) => [r.sizeLabel, r]));
+      const count = rows[0]?.count ?? 2;
+      const active = rows.length ? rows.every((d) => d.isActive !== false) : true;
+      return `
+      <div class="card" style="margin-bottom:14px;padding:14px 16px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap">
+          <div>
+            <b>${esc(c.name)}</b>
+            <div class="muted" style="font-size:12.5px">${rows.length ? rows.length + " size deal" + (rows.length === 1 ? "" : "s") + " configured" : "no deal configured yet"}</div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <div class="field" style="margin:0">
+              <label>Buy this many</label>
+              <input class="num" type="number" min="2" step="1" value="${count}" data-deal-count="${c.id}" style="width:76px" />
+            </div>
+            <div class="field" style="margin:0">
+              <label>Status</label>
+              <select data-deal-active="${c.id}">
+                <option value="true"${active ? " selected" : ""}>Active</option>
+                <option value="false"${!active ? " selected" : ""}>Inactive</option>
+              </select>
+            </div>
+            <button class="primary" onclick="saveDeals(${c.id})">Save deals</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px">
+          ${sizes.map((z) => {
+            const d = bySize.get(z);
+            return `
+            <label style="flex:1 1 140px;min-width:124px">
+              <span class="muted" style="font-size:12px">${esc(z)}${sold.includes(z) ? "" : " · not sold"}${d ? (d.isActive === false ? " · inactive" : " · live") : ""}</span>
+              <input type="number" min="1" step="1" placeholder="no deal" value="${d ? esc(d.price) : ""}" data-deal-price="${c.id}" data-deal-size="${esc(z)}" style="width:100%" />
+            </label>`;
+          }).join("")}
+        </div>
+        <p class="muted" style="font-size:12.5px;margin:12px 0 0">
+          Enter the flat price charged every ${count} ${esc(c.name)} of that size &mdash; e.g. R200 for 2 Large. Only the base price is discounted, so extra toppings still get added on top, and a deal never makes an order cost more than usual. Clear a box and press Save to remove that size&rsquo;s deal.
+        </p>
+      </div>`;
+    }).join("") : `<div class="empty">${state.categories.length ? "No categories match your search" : "No categories yet"}</div>`}
+  `;
+}
+
+window.saveDeals = async (catId) => {
+  const cat = state.categories.find((c) => c.id === catId);
+  if (!cat) return;
+  const countEl = $(`[data-deal-count="${catId}"]`);
+  const count = Math.max(2, Math.round(Number(countEl?.value) || 2));
+  const activeEl = $(`[data-deal-active="${catId}"]`);
+  const isActive = activeEl ? activeEl.value === "true" : true;
+
+  const existing = new Map(
+    state.specials.filter((s) => s.kind === "deal" && s.categoryId === catId).map((s) => [s.sizeLabel, s])
+  );
+  const jobs = [];
+
+  for (const box of $$(`[data-deal-price="${catId}"]`)) {
+    const size = box.dataset.dealSize;
+    const cur = existing.get(size);
+    const raw = String(box.value || "").trim();
+
+    if (raw === "") {
+      if (!cur) continue;
+      if (!confirm(`Remove the ${size} deal for ${cat.name}?`)) continue;
+      jobs.push(api(`/api/specials/${cur.id}`, { method: "DELETE" }));
+      continue;
+    }
+
+    const price = Math.round(Number(raw));
+    if (!(price > 0)) return toast(`The ${size} deal price must be more than R0`, true);
+
+    const body = {
+      kind: "deal",
+      categoryId: catId,
+      sizeLabel: size,
+      count,
+      price,
+      name: `${count} ${size} ${cat.name}`,
+      description: `Any ${count} ${size} ${cat.name} for R${price} — applied automatically in your cart.`,
+      isActive,
+      showOnHome: false,
+      sortOrder: cur?.sortOrder ?? 0,
+    };
+    jobs.push(
+      cur
+        ? api(`/api/specials/${cur.id}`, { method: "PUT", body: JSON.stringify(body) })
+        : api("/api/specials", { method: "POST", body: JSON.stringify(body) })
+    );
+  }
+
+  if (!jobs.length) return toast("Nothing to save");
+  try {
+    await Promise.all(jobs);
+    toast("Deals saved");
+    await loadAll();
+  } catch (e) { toast(e.message, true); }
+};
+
 window.openSpecial = (id) => {
   const s = id ? state.specials.find((x) => x.id === id) : null;
   const isBogo = s?.kind === "bogo";
@@ -1244,14 +1477,11 @@ window.openSpecial = (id) => {
     </div>
     <div id="sp-bogo"${isBogo ? "" : " hidden"}>
       <div class="row">
-        ${field("Category *", `<select id="sp-cat">
+        ${field("Category *", `<select id="sp-cat" onchange="renderBogoSizes()">
           <option value="">— pick a category —</option>
           ${state.categories.map((c) => `<option value="${c.id}"${s?.categoryId===c.id?" selected":""}>${esc(c.name)}</option>`).join("")}
         </select>`)}
-        ${field("Size (optional)", `<select id="sp-size">
-          <option value="">any size</option>
-          ${["S","M","L"].map((z) => `<option value="${z}"${s?.sizeLabel===z?" selected":""}>${z}</option>`).join("")}
-        </select>`)}
+        ${field("Size (optional)", `<select id="sp-size">${sizeSelectHtml(s?.sizeLabel, s?.categoryId)}</select>`)}
       </div>
       ${field("Pizzas the customer picks (even number)", `<input id="sp-count" type="number" min="2" step="2" value="${s?.count ?? 2}" />`)}
       <p class="hint" style="margin:0 0 10px">The customer builds that many pizzas from the category (at the chosen size, if set) and pays for the higher half of the base prices &mdash; extras are always charged. Example: 2 pizzas &rarr; pay for 1; 4 pizzas &rarr; pay for 2.</p>
@@ -1702,9 +1932,13 @@ function renderDelivery() {
           <div class="field"><label>Closes</label><input id="f-close" type="time" value="${esc(closeTime)}" /></div>
         </div>
         <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-online" ${onlineEnabled ? "checked" : ""} /> Accept online orders</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-force" ${forceOpen ? "checked" : ""} /> Force open (keep taking orders outside hours)</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-force" ${forceOpen ? "checked" : ""} onchange="if(this.checked)document.getElementById('f-force-closed').checked=false" /> Force open (keep taking orders outside hours)</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-force-closed" ${shop.forceClosed ? "checked" : ""} onchange="if(this.checked)document.getElementById('f-force').checked=false" /> Force closed (stop taking orders even during hours)</label>
         <div class="hint" style="margin:8px 0 10px">Shop time is South African (UTC+2). Customers can't check out while closed unless "force open" is ticked &mdash; staff orders are always allowed.</div>
-        <div style="font-weight:700;color:${shop.open ? "#2e7d32" : "#b3351f"}">Currently ${shop.open ? "OPEN" : "CLOSED"}</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
+          <div style="font-weight:700;color:${shop.open ? "#2e7d32" : "#b3351f"}">Currently ${shop.open ? "OPEN" : "CLOSED"}</div>
+          <button class="ghost" type="button" onclick="toggleForceClosed()" style="padding:4px 10px;font-size:12px">${shop.forceClosed ? "Resume normal hours" : "Force close now"}</button>
+        </div>
       </div>
       <div class="card" style="padding:14px;text-align:center;align-self:flex-start">
         <h3 style="margin:0 0 6px;font-size:14px">Radius preview</h3>
@@ -1756,12 +1990,21 @@ window.sendTestInvite = async () => {
   }
 };
 
+window.toggleForceClosed = async () => {
+  const cb = document.getElementById("f-force-closed");
+  if (cb) cb.checked = !cb.checked;
+  const cbOpen = document.getElementById("f-force");
+  if (cb && cb.checked && cbOpen) cbOpen.checked = false;
+  await saveSettings();
+};
+
 window.saveSettings = async () => {
   const settings = { ...state.settings };
   settings["shop.openTime"] = $("#f-open").value.trim();
   settings["shop.closeTime"] = $("#f-close").value.trim();
   settings["shop.onlineEnabled"] = $("#f-online").checked ? "true" : "false";
   settings["shop.forceOpen"] = $("#f-force").checked ? "true" : "false";
+  settings["shop.forceClosed"] = $("#f-force-closed").checked ? "true" : "false";
   settings["delivery.enabled"] = $("#f-del-enabled").checked ? "true" : "false";
   settings["shop.lat"] = $("#f-shop-lat").value.trim();
   settings["shop.lng"] = $("#f-shop-lng").value.trim();

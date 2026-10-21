@@ -64,31 +64,35 @@
   /* ----------------------------------------------------- hero */
   .hero {
     position: relative;
-    background: #1c1712;
-    color: #fff;
+    background: var(--bg);
+    color: var(--ink);
     text-align: center;
     overflow: hidden;
   }
+  /* Option C: the welcome picture sits on top, the hero text flows BELOW it
+     (no longer floating over the image). */
   .hero .bg {
-    position: absolute; inset: 0;
+    position: relative;
+    height: 360px;
     background: url("/home/cover.jpg") center / cover no-repeat;
   }
-  .hero .shade { position: absolute; inset: 0; background: rgba(20, 12, 6, .52); }
+  .hero .shade { display: none; }
   .hero-inner {
     position: relative;
     max-width: 900px; margin: 0 auto;
-    padding: 96px 22px 110px;
+    padding: 36px 22px 60px;
+    text-align: center;
   }
   .hero .script {
     font-family: Satisfy, cursive;
-    font-size: 34px; color: #ffd9a0; margin: 0 0 8px;
+    font-size: 34px; color: var(--brand); margin: 0 0 8px;
   }
   .hero h1 {
     font-family: "Roboto Slab", Georgia, serif;
     font-size: clamp(34px, 6vw, 58px);
-    line-height: 1.08; margin: 0 0 16px; letter-spacing: -.5px;
+    line-height: 1.08; margin: 0 0 16px; letter-spacing: -.5px; color: var(--ink);
   }
-  .hero p { font-size: 17px; color: #f3e4d2; margin: 0 auto 30px; max-width: 560px; }
+  .hero p { font-size: 17px; color: var(--muted); margin: 0 auto 30px; max-width: 560px; }
   .btn-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 
   /* --------------------------------------------------- sections */
@@ -283,7 +287,8 @@
     .nav-links a { padding: 11px 8px; border-radius: 8px; }
     .nav-links .order-btn { justify-content: center; padding: 12px; }
     .menu-toggle { display: block; }
-    .hero-inner { padding: 64px 18px 84px; }
+    .hero .bg { height: 240px; }
+    .hero-inner { padding: 24px 18px 48px; }
     .form-card .row { grid-template-columns: 1fr; }
     .gallery { grid-template-columns: 1fr; }
     #mini-cart { gap: 8px; padding: 10px 12px; }
@@ -520,16 +525,23 @@ function tileHtml(t) {
   const isSpecial = Boolean(special);
   const name = isSpecial ? special.name : item.name;
   const catName = isSpecial
-    ? (special.kind === "bogo" ? "Weekly deal" : "Combo deal")
+    ? (special.kind === "bogo" ? "Weekly deal" : special.kind === "deal" ? "Automatic deal" : "Combo deal")
     : (item.category ? item.category.name : "");
   const sz = isSpecial ? null : firstSize(item);
   const priceTxt = isSpecial
-    ? (special.kind === "bogo" ? "Pick " + special.count + ", pay " + special.count / 2 : money(special.price))
+    ? (special.kind === "bogo"
+        ? "Pick " + special.count + ", pay " + special.count / 2
+        : special.kind === "deal"
+          ? money(special.price) + " for " + special.count
+          : money(special.price))
     : (sz ? money(sz.price) : "");
   const href = isSpecial ? "/order" : "/order?item=" + encodeURIComponent(item.slug || "");
 
   let action = "";
   if (isSpecial && special.kind === "bogo") action = '<a class="choose" href="/order">Build your deal</a>';
+  // A fixed-price deal prices itself in the cart, so there is nothing to add
+  // here - send the customer to the menu and it will apply on its own.
+  else if (isSpecial && special.kind === "deal") action = '<a class="choose" href="/order">Get this deal</a>';
   else if (isSpecial) action = '<button class="quick" type="button" data-add-special="' + special.id + '">+ Add</button>';
   else if (Shop.hasCustom(item)) action = '<a class="choose" href="' + href + '">Choose</a>';
   else if (sz) action = '<button class="quick" type="button" data-add-item="' + item.id + '" data-add-size="' + esc(sz.sizeLabel) + '">+ Add</button>';
@@ -559,14 +571,14 @@ function renderTiles() {
   for (const i of Shop.data.items.filter((x) => x.isActive !== false && x.showOnHome)) {
     if (seen.has(i.id)) continue;
     seen.add(i.id);
-    tiles.push({ item: i, img: i.imageUrl || (GALLERY_IMG[i.slug] ? "/home/gallery/" + GALLERY_IMG[i.slug] : null) });
+    tiles.push({ item: i, img: (GALLERY_IMG[i.slug] ? "/home/gallery/" + GALLERY_IMG[i.slug] : (i.imageUrl || null)) });
   }
   for (const slug of Object.keys(GALLERY_IMG)) {
     if (tiles.length >= 9) break;
     const i = Shop.data.items.find((x) => x.slug === slug && x.isActive !== false);
     if (!i || seen.has(i.id)) continue;
     seen.add(i.id);
-    tiles.push({ item: i, img: i.imageUrl || "/home/gallery/" + GALLERY_IMG[slug] });
+    tiles.push({ item: i, img: "/home/gallery/" + GALLERY_IMG[slug] });
   }
   $("#home-tiles").innerHTML = tiles.map(tileHtml).join("");
 }

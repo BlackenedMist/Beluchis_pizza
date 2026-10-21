@@ -71,7 +71,7 @@ Body:
     { "itemId": 151, "sizeLabel": "L", "quantity": 1,
       "extras": [{ "name": "Extra cheese", "price": 15 }] },   // menu line
     { "specialId": 3, "quantity": 1 },                          // flat/combo special line
-    { "specialId": 9,                                           // BOGO deal line
+    { "specialId": 9,                                           // BOGO line
       "pizzas": [
         { "itemId": 151, "sizeLabel": "M", "extras": [] },
         { "itemId": 160, "sizeLabel": "M", "extras": [{ "name": "Extra cheese", "price": 15 }] }
@@ -91,6 +91,11 @@ Body:
 - Coupon validated server-side: active, unexpired, under usage limit, subtotal ≥ minSpend, customer-linked coupons need that customer logged in.
 - `paygate` flow: first initiates PayWeb3; on success the response includes `redirect: { url, fields }` for the browser to auto-submit. Orders never persisted upstream of a gateway failure.
 - **BOGO lines** (`special.kind === "bogo"`): send exactly one entry per pizza under `pizzas`, and the array length must equal the special's `count`. Every `itemId` must belong to the special's `categoryId` (and match `sizeLabel` when the special pins one). The server sorts base prices descending, charges only the higher half, and keeps extras payable. It writes one `OrderItem` per pizza and records the saving on `Order.discountAmount`. Invalid picks → `400`.
+- **Automatic fixed-price deals** (`special.kind === "deal"`, e.g. *any 2 Large Traditional pizzas for R200*): these have **no line of their own** — the customer just adds the pizzas and the server prices them. Send the qualifying pizzas as ordinary `itemId` lines and never send the deal's `specialId`; doing so returns `400` (`… is an automatic deal - send its pizzas as normal item lines`).
+
+  The server groups the ordered units by size, takes `floor(n / count)` groups cheapest-first, and charges `count ×` the deal's flat `price` per group. A group only earns the discount when it actually beats the normal base total, so two R90 Margheritas stay at R180 rather than being pushed **up** to R200. Extras never qualify and stay payable — the discount is computed on base price only, so the saving is clamped at 0 and can never make an order cost more. Overlapping deals can't discount the same pizza twice.
+
+  The units keep their normal base price on their `OrderItem`s; the saving is folded into `Order.discountAmount` alongside any coupon, and named in `Order.discountLabel` (`"2 L Traditional Pizzas"`, or `"<deal> + <coupon>"` when both apply). `Order.total` stays the gross charged price, so `total - discountAmount = grandTotal` holds on every surface — receipt, cashier board, portal and confirmation email need no changes.
 - Response `201`: the full order (`OrderItem`s, `customer`, `deliveryDistance`, `deliveryFee`, `deliveryStatus`, `total`, `discount*`, `grandTotal`).
 
 ### Contact
@@ -175,7 +180,7 @@ Menu CRUD (`admin`). Writes are server-validated; `name` required; `400` on inva
 | `POST /api/items` / `PUT /api/items/:id` / `DELETE /api/items/:id` | Items (sizes, `toppingIds`, `baseIds` swapped atomically on PUT). PUT accepts partial bodies, so `{ "showOnHome": true }` flags a tile without re-sending the item |
 | `POST /api/toppings` / `PUT /api/toppings/:id` / `DELETE /api/toppings/:id` | Toppings + per-size prices; `isInSeason` (`bool`, default `true`) drives the storefront seasonal-swap rule |
 | `POST /api/bases` / `PUT /api/bases/:id` / `DELETE /api/bases/:id` | Bases + per-size prices |
-| `POST /api/specials` / `PUT /api/specials/:id` / `DELETE /api/specials/:id` | Specials. `kind: "flat"` (default) uses `price` + `itemIds`; `kind: "bogo"` uses `categoryId`, `sizeLabel?` and an even `count ≥ 2` and is priced per-order (see `POST /api/orders`) |
+| `POST /api/specials` / `PUT /api/specials/:id` / `DELETE /api/specials/:id` | Specials. `kind: "flat"` (default) uses `price` + `itemIds`; `kind: "bogo"` uses `categoryId`, `sizeLabel?` and an even `count ≥ 2`; `kind: "deal"` uses `categoryId`, `sizeLabel` and `count ≥ 2` plus a flat `price`. Both `bogo` and `deal` are priced per-order (see `POST /api/orders`) and `sizeLabel` must be a size the category actually sells |
 | `POST /api/upload` | Upload an image. Body `{ dataUrl, filename? }` where `dataUrl` is a base64 `data:image/(png\|jpeg\|jpg\|gif\|webp);base64,…` (≤ 6 MB). Writes to `public/uploads/` → `{ "ok": true, "url": "/uploads/<name>" }` |
 
 Customers (`admin`):

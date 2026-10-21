@@ -97,7 +97,16 @@
     display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap; align-items: flex-start;
   }
   .item:first-of-type { border-top: 0; border-radius: var(--radius) var(--radius) 0 0; }
+  .item-media { width: 88px; height: 88px; flex: 0 0 88px; border-radius: 10px; overflow: hidden; background: #f1ebe1; border: 1px solid var(--line); }
+  .item-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .item-media.noimg { display: none; }
   .item-info { min-width: 220px; flex: 1; }
+  .custom-gallery { margin: 0 0 12px; }
+  .custom-gallery .custom-main { width: 100%; max-height: 260px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); display: block; }
+  .custom-gallery .custom-thumbs { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .custom-gallery .thumb { border: 2px solid transparent; border-radius: 6px; padding: 0; overflow: hidden; cursor: pointer; background: #fff; }
+  .custom-gallery .thumb.on { border-color: var(--accent); }
+  .custom-gallery .thumb img { width: 56px; height: 56px; object-fit: cover; display: block; }
   .item-info h3 { margin: 0 0 2px; font-size: 15.5px; }
   .item-info .desc { font-size: 12.5px; color: var(--muted); margin: 0; }
   .item-info .cat-hint { font-size: 11px; color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
@@ -218,6 +227,9 @@
   .qty .n { min-width: 30px; text-align: center; line-height: 28px; font-size: 13px; font-weight: 700; }
   .cart-line .line-total { font-weight: 700; font-size: 13.5px; }
   .cart-line .remove { background: none; border: 0; color: var(--bad); cursor: pointer; font-size: 12px; text-decoration: underline; }
+  .cart-line.deal-line { background: #fff4e5; border: 1px solid #f0c48a; border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+  .cart-line.deal-line .name, .cart-line.deal-line .meta, .cart-line.deal-line .line-total { color: #8a4b00; }
+  .cart-line.deal-line .line-total s { color: #b08a5e; font-weight: 500; margin-right: 5px; }
   .drawer-foot { padding: 16px 18px; border-top: 1px solid var(--line); }
   .grand { display: flex; justify-content: space-between; font-size: 15px; font-weight: 800; margin-bottom: 12px; }
   .drawer-foot .primary { width: 100%; }
@@ -468,24 +480,42 @@ function renderMenu() {
     parts.push('<h2 style="margin:0 0 10px;font-size:18px;">Specials</h2>');
     parts.push('<div class="specials">' + SPECIALS.map((s) => {
       const bogo = s.kind === "bogo";
+      // Fixed-price deals are never added as a cart line - they price
+      // themselves off the pizzas already in it, so the card only explains
+      // them and points at the category.
+      const deal = s.kind === "deal";
+      const dealCat = deal && s.category ? s.category.name : "";
       const action = bogo
         ? '<button class="add-special" data-bogo-id="' + s.id + '">Build your deal</button>'
-        : '<span class="stepper" role="group" aria-label="Quantity for ' + esc(s.name) + '">' +
-          '<button type="button" data-qdec-special="' + s.id + '" aria-label="Decrease">&minus;</button>' +
-          '<span class="n" data-qty-special="' + s.id + '">' + (specQty.get(s.id) || 1) + "</span>" +
-          '<button type="button" data-qinc-special="' + s.id + '" aria-label="Increase">+</button></span>' +
-          '<button class="add-special" data-special-id="' + s.id + '">Add to Order</button>';
+        : deal
+          ? '<button class="add-special" data-goto-cat="' + (s.categoryId ?? "") + '">' +
+            (dealCat ? "Shop " + esc(dealCat) : "Shop the menu") + "</button>"
+          : '<span class="stepper" role="group" aria-label="Quantity for ' + esc(s.name) + '">' +
+            '<button type="button" data-qdec-special="' + s.id + '" aria-label="Decrease">&minus;</button>' +
+            '<span class="n" data-qty-special="' + s.id + '">' + (specQty.get(s.id) || 1) + "</span>" +
+            '<button type="button" data-qinc-special="' + s.id + '" aria-label="Increase">+</button></span>' +
+            '<button class="add-special" data-special-id="' + s.id + '">Add to Order</button>';
       const detail = bogo
         ? '<div class="special-parts">' +
             (s.category ? '<span class="part">Pick any ' + esc(s.category.name) + "</span>" : "") +
             (s.sizeLabel ? '<span class="part">' + esc(s.sizeLabel) + " only</span>" : "") +
             '<span class="part">Choose ' + s.count + " &middot; pay for " + s.count / 2 + "</span>" +
           "</div>"
-        : (s.items || []).map((si) => '<span class="part">' + (si.quantity > 1 ? si.quantity + "&times; " : "") + esc(si.item.name) + "</span>").join("");
-      const partsHtml = bogo ? detail : (detail ? '<div class="special-parts">' + detail + "</div>" : "");
+        : deal
+          ? '<div class="special-parts">' +
+              '<span class="part">Add ' + s.count + (s.sizeLabel ? " " + esc(s.sizeLabel) : "") + (dealCat ? " " + esc(dealCat) : " items") + "</span>" +
+              '<span class="part">Applies automatically &middot; you save on the pair</span>' +
+            "</div>"
+          : (s.items || []).map((si) => '<span class="part">' + (si.quantity > 1 ? si.quantity + "&times; " : "") + esc(si.item.name) + "</span>").join("");
+      const partsHtml = bogo || deal ? detail : (detail ? '<div class="special-parts">' + detail + "</div>" : "");
+      const priceText = bogo
+        ? "Pick " + s.count + ", pay " + s.count / 2
+        : deal
+          ? money(s.price) + " for " + s.count
+          : money(s.price);
       return (
         '<div class="special-card">' +
-        '<div class="special-top"><h3>' + esc(s.name) + '</h3><span class="price">' + (bogo ? "Pick " + s.count + ", pay " + s.count / 2 : money(s.price)) + "</span>" + favButton("special", s.id) + "</div>" +
+        '<div class="special-top"><h3>' + esc(s.name) + '</h3><span class="price">' + priceText + "</span>" + favButton("special", s.id) + "</div>" +
         (s.description ? '<div class="special-desc">' + esc(s.description) + "</div>" : "") +
         partsHtml +
         '<div class="special-actions">' + action + "</div></div>"
@@ -503,6 +533,10 @@ function renderMenu() {
       rows.map((item) => {
         const catHint = DUPE_NAMES.has(item.name.toLowerCase()) ? '<div class="cat-hint">' + esc(cat.name) + "</div>" : "";
         const desc = item.description ? '<p class="desc">' + esc(item.description) + "</p>" : "";
+        const imgs = (item.images && item.images.length) ? item.images : (item.imageUrl ? [{ url: item.imageUrl, alt: item.name }] : []);
+        const media = imgs.length
+          ? '<div class="item-media"><img src="' + esc(imgs[0].url) + '" alt="' + esc(item.name) + '" loading="lazy" onerror="this.parentElement.classList.add(\'noimg\')" /></div>'
+          : "";
         const activeSizes = item.sizes.filter((s) => s.isActive !== false);
         const sizeBtns = activeSizes.map((s) =>
           '<button data-item-id="' + item.id + '" data-size="' + esc(s.sizeLabel) + '">' + esc(s.sizeLabel) +
@@ -515,6 +549,7 @@ function renderMenu() {
           '<button type="button" data-qinc-item="' + item.id + '" aria-label="Increase">+</button></span>';
         return (
           '<div class="item" data-item-id="' + item.id + '" data-item-slug="' + esc(item.slug || "") + '">' +
+          media +
           '<div class="item-info">' + catHint +
           '<div class="item-title"><h3>' + esc(item.name) + "</h3>" + favButton("item", item.id) + "</div>" +
           desc + "</div>" +
@@ -651,7 +686,16 @@ function renderCustomize() {
   }
   const note = !bases.length && !tops.length ? '<p class="hint">Includes base and standard toppings. Not available with extra toppings.</p>' : "";
 
+  const cImgs = (item.images && item.images.length) ? item.images : (item.imageUrl ? [{ url: item.imageUrl, alt: item.name }] : []);
+  const cGallery = cImgs.length
+    ? '<div class="custom-gallery">' +
+      '<img class="custom-main" id="custom-main-img" src="' + esc(cImgs[0].url) + '" alt="' + esc(item.name) + '" />' +
+      (cImgs.length > 1 ? '<div class="custom-thumbs">' + cImgs.map((im, i) =>
+        '<button type="button" class="thumb' + (i === 0 ? " on" : "") + '" data-img="' + esc(im.url) + '"><img src="' + esc(im.url) + '" alt="" /></button>').join("") + "</div>" : "") +
+      "</div>"
+    : "";
   $("#customize-modal").innerHTML =
+    cGallery +
     "<h3>" + esc(item.name) + "</h3>" +
     '<p class="sub">' + esc(size) + " &middot; " + money(sizeRowOf(item, size).price) + (item.description ? " &middot; " + esc(item.description) : "") + "</p>" +
     '<div class="size-pick">' + customizeSizes() + "</div>" +
@@ -681,6 +725,14 @@ $("#customize-modal").addEventListener("change", (e) => {
 });
 
 $("#customize-modal").addEventListener("click", (e) => {
+  const th = e.target.closest(".thumb");
+  if (th) {
+    const main = $("#custom-main-img");
+    if (main) main.src = th.dataset.img;
+    $$(".thumb", $("#customize-modal")).forEach((b) => b.classList.remove("on"));
+    th.classList.add("on");
+    return;
+  }
   const sz = e.target.closest("button[data-csize]");
   if (sz) {
     customModal.size = sz.dataset.csize;
@@ -882,6 +934,18 @@ $("#app").addEventListener("click", (e) => {
     }
     return;
   }
+  const gc = e.target.closest("button[data-goto-cat]");
+  if (gc) {
+    const id = Number(gc.dataset.gotoCat);
+    const node = id ? document.querySelector('section[data-cat-id="' + id + '"]') : null;
+    if (node) {
+      node.classList.remove("flash");
+      void node.offsetWidth;
+      node.classList.add("flash");
+      scrollIntoView(node);
+    } else toast("That section is not on the menu right now");
+    return;
+  }
   const sp = e.target.closest("button[data-special-id]");
   if (sp) {
     const s = SPECIALS.find((x) => x.id === Number(sp.dataset.specialId));
@@ -963,14 +1027,30 @@ function openCheckout() {
   if (shopCfg && shopCfg.onlineEnabled === false) { toast("Online ordering is paused right now \u2014 please call us."); return; }
   if (shopCfg && !shopCfg.open) { toast("We\u2019re closed \u2014 checkout opens " + shopCfg.openTime + " to " + shopCfg.closeTime + "."); return; }
   $("#cart-drawer").classList.remove("open");
-  const total = CART.reduce((s, l) => s + (l.unitPrice + (l.extras || []).reduce((a, e) => a + e.price, 0)) * l.qty, 0);
+  const gross = Shop.gross();
+  const dealSaving = Shop.deals().saving;
   const count = CART.reduce((s, l) => s + l.qty, 0);
-  let summary = count + " item" + (count === 1 ? "" : "s") + " \u00b7 " + money(total);
+  let summary = count + " item" + (count === 1 ? "" : "s") + " \u00b7 " + money(gross);
+  if (dealSaving > 0) summary += " \u2212 deal saving " + money(dealSaving) + " = " + money(gross - dealSaving);
   if (geoStatus === "fee" && deliveryCfg) summary += " + R" + deliveryCfg.feeAmount + " delivery";
   if (geoStatus === "out" && deliveryCfg) summary += " \u00b7 \u26a0\ufe0f outside delivery range";
   $("#checkout-summary").textContent = summary;
   $("#checkout-error").hidden = true;
   $("#checkout-overlay").hidden = false;
+  // Unregistered (guest) customers may only place collection orders.
+  const addr = $("#checkout-form input[name=deliveryAddress]");
+  const loc = $("#checkout-form button[data-action=\"use-location\"]");
+  const geoHint = $("#geo-hint");
+  if (!FAVS.loggedIn) {
+    if (addr) { addr.value = ""; addr.disabled = true; addr.placeholder = "Collection only - sign in for delivery"; }
+    if (loc) loc.disabled = true;
+    geo = { lat: null, lng: null };
+    geoStatus = null;
+    if (geoHint) geoHint.textContent = "Collection only - sign in for delivery. No address = collection.";
+  } else {
+    if (addr) { addr.disabled = false; addr.placeholder = "House no & street, suburb, Worcester"; }
+    if (loc) loc.disabled = false;
+  }
 }
 
 $("#checkout-overlay").addEventListener("change", (e) => {
@@ -999,7 +1079,15 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
     deliveryLat: geo.lat, deliveryLng: geo.lng,
     items: CART.map((l) =>
       l.kind === "special"
-        ? { specialId: l.specialId, quantity: l.qty }
+        ? {
+            specialId: l.specialId,
+            quantity: l.qty,
+            // A BOGO needs the pizzas the customer chose; a fixed-price deal
+            // applies itself server-side off the cart, so it sends none.
+            ...(l.pizzas
+              ? { pizzas: l.pizzas.map((p) => ({ itemId: p.itemId, sizeLabel: p.sizeLabel, extras: p.extras || [] })) }
+              : {}),
+          }
         : { itemId: l.itemId, sizeLabel: l.sizeLabel, quantity: l.qty, extras: (l.extras || []).map((x) => ({ name: x.name, price: x.price })) }
     ),
   };
@@ -1088,7 +1176,7 @@ async function load() {
     const data = await Shop.load();
     CATS = data.cats;
     ITEMS = data.items;
-    SPECIALS = data.specials;
+    SPECIALS = data.specials.filter((s) => s.isActive !== false);
     deliveryCfg = data.delivery;
     try {
       const sr = await fetch("/api/shop/config");

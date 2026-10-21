@@ -518,9 +518,9 @@ function dashNote(msg, kind = "ok") {
 
 function favPrice(f) {
   if (f.special) {
-    return f.special.kind === "bogo"
-      ? `Pick ${f.special.count}, pay ${f.special.count / 2}`
-      : money(f.special.price);
+    if (f.special.kind === "bogo") return `Pick ${f.special.count}, pay ${f.special.count / 2}`;
+    if (f.special.kind === "deal") return `${money(f.special.price)} for ${f.special.count}`;
+    return money(f.special.price);
   }
   const sizes = (f.item?.sizes || []).filter((s) => s.isActive !== false);
   if (!sizes.length) return "Ask in store";
@@ -530,7 +530,7 @@ function favPrice(f) {
 function favCard(f) {
   const it = f.item, sp = f.special;
   const name = it ? it.name : sp.name;
-  const cat = (it || sp).category?.name || (sp ? (sp.kind === "bogo" ? "Weekly deal" : "Combo deal") : "");
+  const cat = (it || sp).category?.name || (sp ? (sp.kind === "bogo" ? "Weekly deal" : sp.kind === "deal" ? "Automatic deal" : "Combo deal") : "");
   const href = it ? `/order?item=${encodeURIComponent(it.slug || "")}` : "/order";
   const img = it && it.imageUrl
     ? `<img src="${esc(it.imageUrl)}" alt="" loading="lazy" onerror="this.remove()" />`

@@ -49,6 +49,11 @@ app.get("/cashier", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "public", "cashier.html"));
 });
 
+app.get("/driver", (req, res) => {
+  if (!getSession(req)) return res.redirect("/login");
+  res.sendFile(path.join(__dirname, "..", "public", "driver.html"));
+});
+
 const slugify = (s) =>
   String(s || "")
     .toLowerCase()
@@ -158,7 +163,8 @@ const getShopConfig = async () => {
   const closeTime = await getSetting("shop.closeTime", "21:00");
   const onlineEnabled = (await getSetting("shop.onlineEnabled", "true")).toLowerCase() === "true";
   const forceOpen = (await getSetting("shop.forceOpen", "false")).toLowerCase() === "true";
-  return { openTime, closeTime, onlineEnabled, forceOpen };
+  const forceClosed = (await getSetting("shop.forceClosed", "false")).toLowerCase() === "true";
+  return { openTime, closeTime, onlineEnabled, forceOpen, forceClosed };
 };
 
 // Live open/closed status. A window that crosses midnight (close < open) is
@@ -169,7 +175,7 @@ const getShopStatus = async (now = new Date()) => {
   const openM = parseHHMM(cfg.openTime);
   const closeM = parseHHMM(cfg.closeTime);
   let open;
-  if (!cfg.onlineEnabled) open = false;
+  if (!cfg.onlineEnabled || cfg.forceClosed) open = false;
   else if (cfg.forceOpen) open = true;
   else if (openM == null || closeM == null || openM === closeM) open = true;
   else if (closeM > openM) open = minutes >= openM && minutes < closeM;
@@ -220,7 +226,7 @@ const badRequest = (msg) => {
 const normalizeSettingsPayload = (raw) => {
   const out = {};
   const s = raw && typeof raw.settings === "object" ? raw.settings : raw && typeof raw === "object" ? raw : {};
-  const boolKeys = ["delivery.enabled", "shop.onlineEnabled", "shop.forceOpen"];
+  const boolKeys = ["delivery.enabled", "shop.onlineEnabled", "shop.forceOpen", "shop.forceClosed"];
   const timeKeys = ["shop.openTime", "shop.closeTime"];
   const textKeys = ["mail.inviteSubject", "mail.inviteBody"];
   const numKeys = [
@@ -264,9 +270,10 @@ const normalizeSettingsPayload = (raw) => {
 };
 
 // ------------------------------------------------------------------- Auth
-const ADMIN_ROLES = new Set(["admin", "orders", "kitchen", "cashier"]);
+const ADMIN_ROLES = new Set(["admin", "orders", "kitchen", "cashier", "driver"]);
 const ORDER_ROLES = new Set(["admin", "orders"]);
 const CASHIER_STATUSES = new Set(["out_for_delivery"]);
+const DRIVER_STATUSES = new Set(["out_for_delivery", "delivered"]);
 const KITCHEN_STATUSES = new Set(["preparing", "out_for_delivery", "delivered"]);
 const ALLOWED_STATUSES = ["placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
 
@@ -674,17 +681,47 @@ const specialIncludes = {
   },
 };
 
-const normalizeSpecialKind = (v) => (String(v || "flat").toLowerCase() === "bogo" ? "bogo" : "flat");
+// "flat"  - a fixed bundle of named items at a fixed price.
+// "bogo"  - the customer picks `count` items from a category and pays for the
+//           higher half of the base prices.
+// "deal"  - the customer picks `count` items from a category at a flat deal
+//           price (e.g. any 2 Large Traditional pizzas for R200). Applied
+//           automatically in the cart, see POST /api/orders.
+const PICK_KINDS = new Set(["bogo", "deal"]);
+const normalizeSpecialKind = (v) => {
+  const k = String(v || "flat").toLowerCase();
+  return PICK_KINDS.has(k) ? k : "flat";
+};
 
-// BOGO config guard: needs a category, a size >= 2 and an even count (pay for
-// half - the customer picks `count` pizzas and pays for the higher half).
-const validateBogo = async (categoryId, sizeLabel, count) => {
+// Shared guard for the pick-your-own specials: they need a category and a
+// count of 2 or more. BOGO additionally requires an even count (you pay for
+// half); a deal requires a price.
+const validatePickKind = async (kind, categoryId, sizeLabel, count, price) => {
   const cat = await prisma.category.findUnique({ where: { id: Number(categoryId) } });
   if (!cat) throw badRequest("categoryId does not match a category");
   const n = Number(count);
-  if (!Number.isInteger(n) || n < 2 || n % 2 !== 0)
-    throw badRequest("count must be an even number of 2 or more");
-  return { categoryId: cat.id, sizeLabel: sizeLabel?.trim() || null, count: n };
+  if (!Number.isInteger(n) || n < 2) throw badRequest("count must be a whole number of 2 or more");
+  if (kind === "bogo" && n % 2 !== 0) throw badRequest("count must be an even number of 2 or more");
+
+  const label = sizeLabel?.trim() || null;
+  if (label) {
+    // S/M/L are not the only labels on this menu - ONE, JNR ROLLA and
+    // BIG BOY ROLLA exist too - so accept whatever the category sells.
+    const sizes = await prisma.itemSize.findMany({
+      where: { item: { categoryId: cat.id } },
+      select: { sizeLabel: true },
+      distinct: ["sizeLabel"],
+    });
+    if (!sizes.some((s) => s.sizeLabel === label))
+      throw badRequest(`"${label}" is not a size sold in ${cat.name}`);
+  }
+
+  if (kind === "deal") {
+    const p = Number(price);
+    if (!Number.isInteger(p) || p <= 0) throw badRequest("a deal needs a price above R0");
+    return { categoryId: cat.id, sizeLabel: label, count: n, price: p };
+  }
+  return { categoryId: cat.id, sizeLabel: label, count: n };
 };
 
 app.get(
@@ -705,7 +742,7 @@ app.post(
     const {
       name,
       description = null,
-      price = 0,
+      price,
       kind = "flat",
       categoryId = null,
       sizeLabel = null,
@@ -719,10 +756,10 @@ app.post(
     if (!name?.trim()) return res.status(400).json({ error: "name is required" });
     const kindNorm = normalizeSpecialKind(kind);
 
-    let bogo = null;
-    if (kindNorm === "bogo") {
+    let pick = null;
+    if (PICK_KINDS.has(kindNorm)) {
       try {
-        bogo = await validateBogo(categoryId, sizeLabel, count);
+        pick = await validatePickKind(kindNorm, categoryId, sizeLabel, count, price);
       } catch (e) {
         return res.status(e.status || 400).json({ error: e.message });
       }
@@ -744,11 +781,11 @@ app.post(
       data: {
         name: name.trim(),
         description,
-        price: kindNorm === "bogo" ? 0 : Number(price),
+        price: kindNorm === "bogo" ? 0 : Number(price ?? 0),
         kind: kindNorm,
-        categoryId: bogo ? bogo.categoryId : null,
-        sizeLabel: bogo ? bogo.sizeLabel : null,
-        count: bogo ? bogo.count : 2,
+        categoryId: pick ? pick.categoryId : null,
+        sizeLabel: pick ? pick.sizeLabel : null,
+        count: pick ? pick.count : 2,
         imageUrl: imageUrl?.trim() || null,
         showOnHome: Boolean(showOnHome),
         isActive,
@@ -778,13 +815,15 @@ app.put(
 
     const kindNorm = kind !== undefined ? normalizeSpecialKind(kind) : existing.kind;
 
-    let bogo = null;
-    if (kindNorm === "bogo") {
+    let pick = null;
+    if (PICK_KINDS.has(kindNorm)) {
       try {
-        bogo = await validateBogo(
+        pick = await validatePickKind(
+          kindNorm,
           categoryId !== undefined ? categoryId : existing.categoryId,
           sizeLabel !== undefined ? sizeLabel : existing.sizeLabel,
-          count !== undefined ? count : existing.count
+          count !== undefined ? count : existing.count,
+          price !== undefined ? price : existing.price
         );
       } catch (e) {
         return res.status(e.status || 400).json({ error: e.message });
@@ -807,14 +846,15 @@ app.put(
           ...(description !== undefined ? { description } : {}),
           ...(price !== undefined ? { price: kindNorm === "bogo" ? 0 : Number(price) } : {}),
           ...(kind !== undefined ? { kind: kindNorm } : {}),
-          ...(bogo ? { categoryId: bogo.categoryId, sizeLabel: bogo.sizeLabel, count: bogo.count } : {}),
+          ...(pick ? { categoryId: pick.categoryId, sizeLabel: pick.sizeLabel, count: pick.count } : {}),
           ...(imageUrl !== undefined ? { imageUrl: imageUrl?.trim() || null } : {}),
           ...(showOnHome !== undefined ? { showOnHome: Boolean(showOnHome) } : {}),
           ...(isActive !== undefined ? { isActive } : {}),
           ...(sortOrder !== undefined ? { sortOrder: Number(sortOrder) } : {}),
         },
       });
-      if (kindNorm === "bogo") {
+      if (PICK_KINDS.has(kindNorm)) {
+        // Pick-your-own specials carry no fixed bundle rows.
         await tx.specialItem.deleteMany({ where: { specialId: id } });
       } else if (Array.isArray(items)) {
         await tx.specialItem.deleteMany({ where: { specialId: id } });
@@ -1026,6 +1066,7 @@ app.post("/api/mail/test-invite", requireRole("admin"), asyncHandler(async (req,
 const orderIncludes = {
   customer: true,
   items: true,
+  events: { orderBy: { createdAt: "asc" } },
 };
 
 // ------------------------------------------------------- PayGate (PayWeb3)
@@ -1153,7 +1194,7 @@ const renderPaygateResult = (res, { approved, resultCode, resultDesc, orderId, a
 app.get(
   "/api/orders",
   requireAuth,
-  requireRole("admin", "orders", "kitchen", "cashier"),
+  requireRole("admin", "orders", "kitchen", "cashier", "driver"),
   asyncHandler(async (_req, res) => {
     const rows = await prisma.order.findMany({
       orderBy: { createdAt: "desc" },
@@ -1166,7 +1207,7 @@ app.get(
 app.get(
   "/api/orders/:id",
   requireAuth,
-  requireRole("admin", "orders", "kitchen", "cashier"),
+  requireRole("admin", "orders", "kitchen", "cashier", "driver"),
   asyncHandler(async (req, res) => {
     const row = await prisma.order.findUnique({
       where: { id: Number(req.params.id) },
@@ -1190,6 +1231,45 @@ app.get(
     res.json(rows.map(publicOrder));
   })
 );
+
+// Resolve the items a customer picked for a BOGO / fixed-price deal special.
+// Every value is validated against the DB - client prices are ignored. Throws
+// a 400 via badRequest() when a pick is not allowed.
+const resolvePicks = async (special, picks) => {
+  if (!Array.isArray(picks) || picks.length !== special.count)
+    throw badRequest(`${special.name} needs exactly ${special.count} items`);
+
+  const resolved = [];
+  for (const pick of picks) {
+    if (pick.itemId == null) throw badRequest(`each ${special.name} item needs an itemId`);
+    const item = await prisma.item.findUnique({ where: { id: Number(pick.itemId) }, include: { sizes: true } });
+    if (!item) throw badRequest(`item ${pick.itemId} not found`);
+    if (!item.isActive) throw badRequest(`item ${item.id} is not active`);
+    if (special.categoryId != null && item.categoryId !== special.categoryId)
+      throw badRequest(`${item.name} is not part of ${special.name}`);
+
+    let sizeLabel = pick.sizeLabel ?? null;
+    let base = 0;
+    if (item.sizes.length) {
+      if (!sizeLabel) {
+        if (item.sizes.length !== 1) throw badRequest(`sizeLabel is required for item ${item.id}`);
+        sizeLabel = item.sizes[0].sizeLabel;
+      }
+      const size = item.sizes.find((s) => s.sizeLabel === sizeLabel);
+      if (!size) throw badRequest(`size "${sizeLabel}" not found for item ${item.id}`);
+      sizeLabel = size.sizeLabel;
+      base = size.price;
+    }
+    if (special.sizeLabel && item.sizes.length && sizeLabel !== special.sizeLabel)
+      throw badRequest(`${special.name} is only available in ${special.sizeLabel}`);
+
+    const extras = Array.isArray(pick.extras)
+      ? pick.extras.map((x) => ({ name: String(x.name ?? ""), price: Number(x.price) || 0 }))
+      : [];
+    resolved.push({ item, sizeLabel, base, extras, extrasTotal: extras.reduce((sum, x) => sum + x.price, 0) });
+  }
+  return resolved;
+};
 
 app.post(
   "/api/orders",
@@ -1243,6 +1323,15 @@ app.post(
     if (!delivery.ok)
       return res.status(400).json({ error: delivery.reason, code: "delivery_out_of_range", distanceKm: delivery.distanceKm });
 
+    // Unregistered (guest) customers may only place collection orders.
+    const wantsDelivery = Boolean(deliveryAddress?.trim()) || Number.isFinite(nOr(lat)) || Number.isFinite(nOr(lng));
+    if (wantsDelivery) {
+      const sessCustomer = await currentCustomer(req);
+      if (!sessCustomer && !customerId) {
+        return res.status(400).json({ error: "Unregistered customers can only place collection orders. Please sign in for delivery, or clear the delivery address.", code: "guest_collection_only" });
+      }
+    }
+
     // Customer resolution: a logged-in portal customer wins (guest orders placed
     // while signed in attach to their account), otherwise explicit customerId or
     // guest checkout that lazily finds/reuses/creates a Customer by cellphone/email.
@@ -1282,6 +1371,14 @@ app.post(
     }
 
     const rows = [];
+    // Regular item lines, remembered so the automatic-deal pass below can
+    // price them. BOGO/flat special rows never join this list.
+    const itemRows = [];
+    // Automatic fixed-price deals (kind === "deal") contribute to this, and
+    // are folded into the Order-level discount together with any coupon.
+    let dealSaving = 0;
+    const dealLabels = new Set();
+
     for (const line of items) {
       // Bundle/special line — validated active.
       if (line.specialId != null) {
@@ -1289,44 +1386,22 @@ app.post(
         if (!special) return res.status(400).json({ error: `special ${line.specialId} not found` });
         if (!special.isActive) return res.status(400).json({ error: `special ${special.id} is not active` });
 
-        // BOGO: the customer picks `count` pizzas from the special's category
-        // (optionally a fixed size). They pay for the higher half of the base
-        // prices; extras are always charged in full. Priced server-side.
+        // Fixed-price deals (kind === "deal") have no line of their own.
+        // They are applied server-side off the cart's regular item lines in
+        // the "automatic deals" pass further down, so a hand-crafted or
+        // stale specialId can never claim one twice.
+        if (special.kind === "deal") {
+          return res.status(400).json({
+            error: `special ${special.id} is an automatic deal - send its pizzas as normal item lines`,
+          });
+        }
+
+        // BOGO: the customer chooses `count` items from the special's
+        // category, optionally at a pinned size. Every price comes from the
+        // DB, never the client.
         if (special.kind === "bogo") {
-          const picks = Array.isArray(line.pizzas) ? line.pizzas : [];
-          if (picks.length !== special.count)
-            return res.status(400).json({ error: `${special.name} needs exactly ${special.count} pizzas` });
-
-          const resolved = [];
-          for (const pick of picks) {
-            if (pick.itemId == null) return res.status(400).json({ error: `each ${special.name} pizza needs an itemId` });
-            const item = await prisma.item.findUnique({ where: { id: Number(pick.itemId) }, include: { sizes: true } });
-            if (!item) return res.status(400).json({ error: `item ${pick.itemId} not found` });
-            if (!item.isActive) return res.status(400).json({ error: `item ${item.id} is not active` });
-            if (special.categoryId != null && item.categoryId !== special.categoryId)
-              return res.status(400).json({ error: `${item.name} is not part of ${special.name}` });
-
-            let sizeLabel = pick.sizeLabel ?? null;
-            let base = 0;
-            if (item.sizes.length) {
-              if (!sizeLabel) {
-                if (item.sizes.length !== 1) return res.status(400).json({ error: `sizeLabel is required for item ${item.id}` });
-                sizeLabel = item.sizes[0].sizeLabel;
-              }
-              const size = item.sizes.find((s) => s.sizeLabel === sizeLabel);
-              if (!size) return res.status(400).json({ error: `size "${sizeLabel}" not found for item ${item.id}` });
-              sizeLabel = size.sizeLabel;
-              base = size.price;
-            }
-            if (special.sizeLabel && item.sizes.length && sizeLabel !== special.sizeLabel)
-              return res.status(400).json({ error: `${special.name} is only available in ${special.sizeLabel}` });
-
-            const extras = Array.isArray(pick.extras)
-              ? pick.extras.map((x) => ({ name: String(x.name ?? ""), price: Number(x.price) || 0 }))
-              : [];
-            resolved.push({ item, sizeLabel, base, extras, extrasTotal: extras.reduce((sum, x) => sum + x.price, 0) });
-          }
-
+          const resolved = await resolvePicks(special, line.pizzas);
+          const quantity = Math.max(1, Number(line.quantity) || 1);
           // Discount the cheaper half of the bases; extras stay payable.
           const cheapest = resolved
             .map((r, i) => ({ i, base: r.base }))
@@ -1341,9 +1416,9 @@ app.post(
               itemName: r.item.name,
               sizeLabel: r.sizeLabel,
               unitPrice: pricedBase,
-              quantity: 1,
+              quantity,
               extras: r.extras.length ? JSON.stringify(r.extras) : null,
-              total: pricedBase + r.extrasTotal,
+              total: (pricedBase + r.extrasTotal) * quantity,
             });
           });
           continue;
@@ -1395,16 +1470,69 @@ app.post(
         extras: extras.length ? JSON.stringify(extras) : null,
         total: (unitPrice + extrasTotal) * quantity,
       });
+      // Remember the base price so the automatic-deal pass can claim units
+      // off it. Extras are deliberately not part of a deal group.
+      itemRows.push({ key: itemRows.length, item, sizeLabel, base: unitPrice, qty: quantity });
+    }
+
+    // ---- Automatic fixed-price deals (kind === "deal") --------------------------
+    // Applied here, server-side, off the real item rows - the same rule the
+    // cart previews with Shop.applyDeals(), so what the customer saw is what
+    // they are charged. Any `count` items from the special's category, at the
+    // special's size, go for a flat price: group the qualifying units by size,
+    // take floor(n / count) groups cheapest-first, and only reward a group when
+    // the deal actually beats the normal price - so two R90 Margheritas stay at
+    // R180 rather than being pushed UP to R200. Extras never qualify, and the
+    // units stay billed at full price on their OrderItems.
+    if (itemRows.length) {
+      const dealSpecials = await prisma.special.findMany({
+        where: { kind: "deal", isActive: true, categoryId: { not: null } },
+      });
+      // A unit is one individual pizza, so a qty-3 line contributes three.
+      // `claimed` stops two overlapping deals from discounting the same pizza.
+      const claimed = new Set();
+
+      for (const s of dealSpecials) {
+        if (!(s.count >= 2) || !(s.price > 0)) continue;
+
+        const units = [];
+        for (const r of itemRows) {
+          if (r.item.categoryId !== s.categoryId) continue;
+          if (s.sizeLabel && r.sizeLabel !== s.sizeLabel) continue;
+          for (let n = 0; n < r.qty; n++) {
+            const key = r.key + ":" + n;
+            if (claimed.has(key)) continue;
+            units.push({ key, base: r.base, sizeLabel: r.sizeLabel });
+          }
+        }
+        if (units.length < s.count) continue;
+
+        const sorted = units.slice().sort((a, b) => a.base - b.base);
+        for (let i = 0; i + s.count <= sorted.length; i += s.count) {
+          const chunk = sorted.slice(i, i + s.count);
+          const normal = chunk.reduce((sum, u) => sum + u.base, 0);
+          const saving = Math.max(0, normal - s.price);
+          if (!saving) continue;
+          chunk.forEach((u) => claimed.add(u.key));
+          dealSaving += saving;
+          dealLabels.add(s.name);
+        }
+      }
     }
 
     const foodSubtotal = rows.reduce((sum, r) => sum + r.total, 0);
     const deliveryFee = delivery.fee;
-    const subtotal = foodSubtotal + deliveryFee;
+    // "Was" price - what the order costs with no deal and no coupon. Stored as
+    // Order.total and shown struck through on every surface.
+    const orderTotal = foodSubtotal + deliveryFee;
+    // Automatic deals come off the food first, so a coupon applies to the
+    // price the customer is actually paying.
+    const subtotal = foodSubtotal - dealSaving + deliveryFee;
 
     // Coupon: validated server-side only (never trust the client).
     let coupon = null;
-    let discountAmount = 0;
-    let discountLabel = null;
+    let couponDiscount = 0;
+    let couponLabel = null;
     if (couponCode && String(couponCode).trim()) {
       coupon = await prisma.coupon.findUnique({ where: { code: String(couponCode).trim() } });
       if (!coupon) return res.status(400).json({ error: `Coupon "${couponCode}" not found` });
@@ -1419,13 +1547,20 @@ app.post(
         if (!sessCustomer) return res.status(400).json({ error: "Coupon is linked to a specific customer - log in to use it" });
         if (coupon.customerId !== sessCustomer.id) return res.status(400).json({ error: "Coupon does not belong to this account" });
       }
-      discountAmount =
+      couponDiscount =
         coupon.kind === "percent"
           ? Math.round((subtotal * Math.min(100, Math.max(0, coupon.value))) / 100)
           : Math.min(coupon.value, subtotal);
-      discountLabel = coupon.label || (coupon.kind === "percent" ? `${coupon.value}% off` : `R${coupon.value} off`);
+      couponLabel = coupon.label || (coupon.kind === "percent" ? `${coupon.value}% off` : `R${coupon.value} off`);
     }
-    const grandTotal = subtotal - discountAmount;
+
+    // Fold the automatic deal saving and the coupon into a single markdown -
+    // that is what the receipt, cashier board, portal and confirmation email
+    // already render, so no display code has to know deals exist.
+    const dealLabel = [...dealLabels].join(", ") || null;
+    const discountAmount = dealSaving + couponDiscount;
+    const discountLabel = [dealLabel, couponLabel].filter(Boolean).join(" + ") || null;
+    const grandTotal = orderTotal - discountAmount;
 
     // ----- Online (PayGate) flow ---------------------------------------------------
     // Initiate BEFORE the order is persisted so a gateway failure leaves no
@@ -1459,7 +1594,7 @@ app.post(
           paymentStatus: paygateFree ? "paid" : "pending",
           payRef,
           payRequestId,
-          total: subtotal,
+          total: orderTotal,
           discountCode: coupon ? coupon.code : null,
           discountLabel: discountLabel || null,
           discountAmount,
@@ -1510,6 +1645,8 @@ app.put(
       if (!KITCHEN_STATUSES.has(status)) return res.status(403).json({ error: "kitchen cannot set this status" });
     } else if (role === "cashier") {
       if (!CASHIER_STATUSES.has(status)) return res.status(403).json({ error: "cashier can only mark orders out for delivery" });
+    } else if (role === "driver") {
+      if (!DRIVER_STATUSES.has(status)) return res.status(403).json({ error: "driver can only mark orders out for delivery or delivered" });
     } else if (!ORDER_ROLES.has(role)) {
       return res.status(403).json({ error: "insufficient permissions" });
     }
@@ -1897,6 +2034,7 @@ app.delete(
 const itemIncludes = {
   category: true,
   sizes: true,
+  images: { orderBy: { sortOrder: "asc" } },
   toppings: { include: { topping: { include: { prices: true } } } },
   bases: { include: { base: { include: { prices: true } } } },
 };
@@ -1916,7 +2054,7 @@ app.post(
   "/api/items",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    const { name, description = null, itemType = "menuitem", categoryId = null, imageUrl = null, showOnHome = false, sizes = [], toppingIds = [], baseIds = [], sortOrder = 0 } = req.body || {};
+    const { name, description = null, itemType = "menuitem", categoryId = null, imageUrl = null, showOnHome = false, sizes = [], toppingIds = [], baseIds = [], images = [], sortOrder = 0 } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     const row = await prisma.$transaction(async (tx) => {
@@ -1947,6 +2085,11 @@ app.post(
           data: baseIds.map((id) => ({ itemId: item.id, baseId: Number(id) })),
         });
       }
+      if (Array.isArray(images) && images.length) {
+        await tx.itemImage.createMany({
+          data: images.map((im, i) => ({ itemId: item.id, url: (im && im.url) || String(im), alt: (im && im.alt) || null, sortOrder: (im && im.sortOrder) ?? i })),
+        });
+      }
       return item;
     });
     const full = await prisma.item.findUnique({ where: { id: row.id }, include: itemIncludes });
@@ -1958,7 +2101,7 @@ app.put(
   "/api/items/:id",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    const { name, description, itemType, categoryId, imageUrl, showOnHome, sizes, toppingIds, baseIds, sortOrder, isActive } = req.body || {};
+    const { name, description, itemType, categoryId, imageUrl, showOnHome, sizes, toppingIds, baseIds, images, sortOrder, isActive } = req.body || {};
     const id = Number(req.params.id);
     const row = await prisma.$transaction(async (tx) => {
       const item = await tx.item.update({
@@ -1996,6 +2139,14 @@ app.put(
         if (baseIds.length) {
           await tx.itemBase.createMany({
             data: baseIds.map((bid) => ({ itemId: id, baseId: Number(bid) })),
+          });
+        }
+      }
+      if (Array.isArray(images)) {
+        await tx.itemImage.deleteMany({ where: { itemId: id } });
+        if (images.length) {
+          await tx.itemImage.createMany({
+            data: images.map((im, i) => ({ itemId: id, url: (im && im.url) || String(im), alt: (im && im.alt) || null, sortOrder: (im && im.sortOrder) ?? i })),
           });
         }
       }
