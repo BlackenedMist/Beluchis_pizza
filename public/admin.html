@@ -1930,9 +1930,13 @@ function renderDelivery() {
           <div class="field"><label>Closes</label><input id="f-close" type="time" value="${esc(closeTime)}" /></div>
         </div>
         <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-online" ${onlineEnabled ? "checked" : ""} /> Accept online orders</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-force" ${forceOpen ? "checked" : ""} /> Force open (keep taking orders outside hours)</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-force" ${forceOpen ? "checked" : ""} onchange="if(this.checked)document.getElementById('f-force-closed').checked=false" /> Force open (keep taking orders outside hours)</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-force-closed" ${shop.forceClosed ? "checked" : ""} onchange="if(this.checked)document.getElementById('f-force').checked=false" /> Force closed (stop taking orders even during hours)</label>
         <div class="hint" style="margin:8px 0 10px">Shop time is South African (UTC+2). Customers can't check out while closed unless "force open" is ticked &mdash; staff orders are always allowed.</div>
-        <div style="font-weight:700;color:${shop.open ? "#2e7d32" : "#b3351f"}">Currently ${shop.open ? "OPEN" : "CLOSED"}</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
+          <div style="font-weight:700;color:${shop.open ? "#2e7d32" : "#b3351f"}">Currently ${shop.open ? "OPEN" : "CLOSED"}</div>
+          <button class="ghost" type="button" onclick="toggleForceClosed()" style="padding:4px 10px;font-size:12px">${shop.forceClosed ? "Resume normal hours" : "Force close now"}</button>
+        </div>
       </div>
       <div class="card" style="padding:14px;text-align:center;align-self:flex-start">
         <h3 style="margin:0 0 6px;font-size:14px">Radius preview</h3>
@@ -1984,12 +1988,21 @@ window.sendTestInvite = async () => {
   }
 };
 
+window.toggleForceClosed = async () => {
+  const cb = document.getElementById("f-force-closed");
+  if (cb) cb.checked = !cb.checked;
+  const cbOpen = document.getElementById("f-force");
+  if (cb && cb.checked && cbOpen) cbOpen.checked = false;
+  await saveSettings();
+};
+
 window.saveSettings = async () => {
   const settings = { ...state.settings };
   settings["shop.openTime"] = $("#f-open").value.trim();
   settings["shop.closeTime"] = $("#f-close").value.trim();
   settings["shop.onlineEnabled"] = $("#f-online").checked ? "true" : "false";
   settings["shop.forceOpen"] = $("#f-force").checked ? "true" : "false";
+  settings["shop.forceClosed"] = $("#f-force-closed").checked ? "true" : "false";
   settings["delivery.enabled"] = $("#f-del-enabled").checked ? "true" : "false";
   settings["shop.lat"] = $("#f-shop-lat").value.trim();
   settings["shop.lng"] = $("#f-shop-lng").value.trim();

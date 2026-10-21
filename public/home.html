@@ -64,31 +64,35 @@
   /* ----------------------------------------------------- hero */
   .hero {
     position: relative;
-    background: #1c1712;
-    color: #fff;
+    background: var(--bg);
+    color: var(--ink);
     text-align: center;
     overflow: hidden;
   }
+  /* Option C: the welcome picture sits on top, the hero text flows BELOW it
+     (no longer floating over the image). */
   .hero .bg {
-    position: absolute; inset: 0;
+    position: relative;
+    height: 360px;
     background: url("/home/cover.jpg") center / cover no-repeat;
   }
-  .hero .shade { position: absolute; inset: 0; background: rgba(20, 12, 6, .52); }
+  .hero .shade { display: none; }
   .hero-inner {
     position: relative;
     max-width: 900px; margin: 0 auto;
-    padding: 96px 22px 110px;
+    padding: 36px 22px 60px;
+    text-align: center;
   }
   .hero .script {
     font-family: Satisfy, cursive;
-    font-size: 34px; color: #ffd9a0; margin: 0 0 8px;
+    font-size: 34px; color: var(--brand); margin: 0 0 8px;
   }
   .hero h1 {
     font-family: "Roboto Slab", Georgia, serif;
     font-size: clamp(34px, 6vw, 58px);
-    line-height: 1.08; margin: 0 0 16px; letter-spacing: -.5px;
+    line-height: 1.08; margin: 0 0 16px; letter-spacing: -.5px; color: var(--ink);
   }
-  .hero p { font-size: 17px; color: #f3e4d2; margin: 0 auto 30px; max-width: 560px; }
+  .hero p { font-size: 17px; color: var(--muted); margin: 0 auto 30px; max-width: 560px; }
   .btn-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 
   /* --------------------------------------------------- sections */
@@ -283,7 +287,8 @@
     .nav-links a { padding: 11px 8px; border-radius: 8px; }
     .nav-links .order-btn { justify-content: center; padding: 12px; }
     .menu-toggle { display: block; }
-    .hero-inner { padding: 64px 18px 84px; }
+    .hero .bg { height: 240px; }
+    .hero-inner { padding: 24px 18px 48px; }
     .form-card .row { grid-template-columns: 1fr; }
     .gallery { grid-template-columns: 1fr; }
     #mini-cart { gap: 8px; padding: 10px 12px; }

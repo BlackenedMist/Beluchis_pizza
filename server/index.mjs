@@ -158,7 +158,8 @@ const getShopConfig = async () => {
   const closeTime = await getSetting("shop.closeTime", "21:00");
   const onlineEnabled = (await getSetting("shop.onlineEnabled", "true")).toLowerCase() === "true";
   const forceOpen = (await getSetting("shop.forceOpen", "false")).toLowerCase() === "true";
-  return { openTime, closeTime, onlineEnabled, forceOpen };
+  const forceClosed = (await getSetting("shop.forceClosed", "false")).toLowerCase() === "true";
+  return { openTime, closeTime, onlineEnabled, forceOpen, forceClosed };
 };
 
 // Live open/closed status. A window that crosses midnight (close < open) is
@@ -169,7 +170,7 @@ const getShopStatus = async (now = new Date()) => {
   const openM = parseHHMM(cfg.openTime);
   const closeM = parseHHMM(cfg.closeTime);
   let open;
-  if (!cfg.onlineEnabled) open = false;
+  if (!cfg.onlineEnabled || cfg.forceClosed) open = false;
   else if (cfg.forceOpen) open = true;
   else if (openM == null || closeM == null || openM === closeM) open = true;
   else if (closeM > openM) open = minutes >= openM && minutes < closeM;
@@ -220,7 +221,7 @@ const badRequest = (msg) => {
 const normalizeSettingsPayload = (raw) => {
   const out = {};
   const s = raw && typeof raw.settings === "object" ? raw.settings : raw && typeof raw === "object" ? raw : {};
-  const boolKeys = ["delivery.enabled", "shop.onlineEnabled", "shop.forceOpen"];
+  const boolKeys = ["delivery.enabled", "shop.onlineEnabled", "shop.forceOpen", "shop.forceClosed"];
   const timeKeys = ["shop.openTime", "shop.closeTime"];
   const textKeys = ["mail.inviteSubject", "mail.inviteBody"];
   const numKeys = [
