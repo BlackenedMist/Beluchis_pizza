@@ -1679,6 +1679,75 @@ app.post(
   })
 );
 
+// --------------------------------------------------------- PayFast callbacks
+const applyPayfastResult = async (params) => {
+  if (!PAYFAST_ENABLED) return { ok: false, reason: "PayFast not configured" };
+  if (!validPayfastSignature(params, payfastPassphrase())) return { ok: false, reason: "checksum mismatch" };
+  const ref = params.get ? params.get("m_payment_id") || params.get("custom_str1") : params.m_payment_id || params.custom_str1;
+  if (!ref) return { ok: false, reason: "missing m_payment_id" };
+  const order = await prisma.order.findFirst({ where: { payRef: ref }, include: { customer: true } });
+  if (!order) return { ok: false, reason: "unknown order" };
+  const status = params.get ? params.get("payment_status") : params.payment_status;
+  const approved = String(status || "").toLowerCase() === "complete";
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      paymentStatus: approved ? "paid" : "failed",
+      txnId: (params.get ? params.get("pf_payment_id") : params.pf_payment_id) || order.txnId,
+    },
+  });
+  if (approved && order.customer?.email && mailEnabled()) {
+    const cust = order.customer;
+    const total = ((order.grandTotal ?? order.total) / 100).toFixed(2);
+    sendMail({
+      to: cust.email,
+      subject: `Payment received for Beluchis order #${order.id}`,
+      text:
+        `Hi ${cust.firstName || "there"},\n\n` +
+        `We received your payment of R${total} for order #${order.id}.\n\n` +
+        `— The Beluchis team`,
+    }).catch(() => {});
+  }
+  return { ok: true, approved, order };
+};
+
+app.post(
+  "/payfast/notify",
+  express.urlencoded({ extended: true }),
+  asyncHandler(async (req, res) => {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(req.body || {})) params.set(k, String(v));
+    const outcome = await applyPayfastResult(params);
+    if (outcome.reason) console.warn(`[payfast] notify rejected: ${outcome.reason}`);
+    res.type("text/plain").send("OK");
+  })
+);
+
+async function payfastReturn(req, res) {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(req.body || {})) params.set(k, String(v));
+  const outcome = await applyPayfastResult(params);
+  if (!outcome.ok) {
+    console.warn(`[payfast] return rejected: ${outcome.reason}`);
+    return renderPaymentResult(res, {
+      approved: false,
+      resultDesc: "We could not verify this payment. Your order was not charged.",
+      orderId: params.get ? params.get("m_payment_id") || "?" : "?",
+      amountCents: 0,
+    });
+  }
+  renderPaymentResult(res, {
+    approved: outcome.approved,
+    resultDesc: outcome.approved ? "Payment received" : "Payment not completed",
+    orderId: outcome.order.id,
+    amountCents: (outcome.order.grandTotal ?? outcome.order.total) * 100,
+    ref: params.get ? params.get("pf_payment_id") : null,
+  });
+}
+
+app.post("/payfast/return", express.urlencoded({ extended: true }), asyncHandler(payfastReturn));
+app.get("/payfast/return", asyncHandler(payfastReturn));
+
 app.put(
   "/api/orders/:id",
   requireAuth,
