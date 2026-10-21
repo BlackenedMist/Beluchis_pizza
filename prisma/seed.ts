@@ -217,6 +217,34 @@ async function main() {
       }
     }
 
+    // ---------------------------------------------- Automatic category deals
+    // kind: "deal" rows are priced in the cart, not built by the customer -
+    // one row per (category, size), matching the numbers the Traditional
+    // Pizzas badge already advertises. No fixed-item rows for these.
+    const traditionalId = categoryBySlug.get("traditional-pizzas");
+    if (traditionalId) {
+      const dealRows = [
+        { sizeLabel: "L", price: 200 },
+        { sizeLabel: "M", price: 150 },
+      ];
+      for (const [i, d] of dealRows.entries()) {
+        await tx.special.create({
+          data: {
+            kind: "deal",
+            name: `2 ${d.sizeLabel} Traditional Pizzas`,
+            description: `Any 2 ${d.sizeLabel} Traditional Pizzas for R${d.price} — applied automatically in your cart.`,
+            price: d.price,
+            categoryId: traditionalId,
+            sizeLabel: d.sizeLabel,
+            count: 2,
+            isActive: true,
+            showOnHome: false,
+            sortOrder: 10 + i,
+          },
+        });
+      }
+    }
+
     // ------------------------------------------------- Store/settings defaults
     // Delivery radius policy + shop centre (Worcester CBD default). Upsert so a
     // reseed never clobbers radius choices the owner made in the admin panel.

@@ -520,16 +520,23 @@ function tileHtml(t) {
   const isSpecial = Boolean(special);
   const name = isSpecial ? special.name : item.name;
   const catName = isSpecial
-    ? (special.kind === "bogo" ? "Weekly deal" : "Combo deal")
+    ? (special.kind === "bogo" ? "Weekly deal" : special.kind === "deal" ? "Automatic deal" : "Combo deal")
     : (item.category ? item.category.name : "");
   const sz = isSpecial ? null : firstSize(item);
   const priceTxt = isSpecial
-    ? (special.kind === "bogo" ? "Pick " + special.count + ", pay " + special.count / 2 : money(special.price))
+    ? (special.kind === "bogo"
+        ? "Pick " + special.count + ", pay " + special.count / 2
+        : special.kind === "deal"
+          ? money(special.price) + " for " + special.count
+          : money(special.price))
     : (sz ? money(sz.price) : "");
   const href = isSpecial ? "/order" : "/order?item=" + encodeURIComponent(item.slug || "");
 
   let action = "";
   if (isSpecial && special.kind === "bogo") action = '<a class="choose" href="/order">Build your deal</a>';
+  // A fixed-price deal prices itself in the cart, so there is nothing to add
+  // here - send the customer to the menu and it will apply on its own.
+  else if (isSpecial && special.kind === "deal") action = '<a class="choose" href="/order">Get this deal</a>';
   else if (isSpecial) action = '<button class="quick" type="button" data-add-special="' + special.id + '">+ Add</button>';
   else if (Shop.hasCustom(item)) action = '<a class="choose" href="' + href + '">Choose</a>';
   else if (sz) action = '<button class="quick" type="button" data-add-item="' + item.id + '" data-add-size="' + esc(sz.sizeLabel) + '">+ Add</button>';

@@ -45,7 +45,7 @@ model Special {
   name        String
   description String?
   price       Int           @default(0)
-  kind        String        @default("flat") // "flat" | "bogo"
+  kind        String        @default("flat") // "flat" | "bogo" | "deal"
   categoryId  Int?
   category    Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   sizeLabel   String?
