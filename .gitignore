@@ -10,6 +10,7 @@ server/.dev-time
 invites.csv
 *xello.info*
 .beluchis.pid
+payfast.txt
 StandAlone/data/
 StandAlone/*.log
 StandAlone/*.pid
