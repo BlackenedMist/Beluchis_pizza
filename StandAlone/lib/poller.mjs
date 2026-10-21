@@ -77,8 +77,11 @@ export class Poller {
     }
   }
 
-  target() {
-    return this.printers.printers.find((p) => p.target) || null;
+  // Every printer ticked as a target gets a copy of each new order. More than
+  // one target means the slip comes out of both printers - useful when the
+  // kitchen and the till are at opposite ends of the shop.
+  targets() {
+    return this.printers.printers.filter((p) => p.target);
   }
 
   seenSet() {
@@ -193,35 +196,64 @@ export class Poller {
     }
   }
 
+  // Sends one order to one or more printers. When printerId is given the order
+  // goes to that printer only (manual reprint). Otherwise it goes to every
+  // printer ticked as a target, so a two-target shop gets the slip on both.
+  //
+  // The return value keeps the single-result shape the UI and the print log
+  // already expect, but adds `results` (one entry per printer) plus the two
+  // roll-ups the caller cares about:
+  //   ok    - true when at least one printer took the job
+  //   allOk - true when every target printed (false if one failed)
+  // That way a dead second printer is visible without blocking the order.
   async printOrder(order, printerId = null, auto = false) {
-    const printer = printerId
-      ? this.printers.printers.find((p) => String(p.id) === String(printerId))
-      : this.target();
-    const result = { orderId: String(order.id), auto, printer: null, ok: false, ms: 0, error: null, file: null };
+    const targets = printerId
+      ? this.printers.printers.filter((p) => String(p.id) === String(printerId))
+      : this.targets();
+    const createdAt = new Date().toISOString();
+    const results = [];
 
-    if (!printer) {
-      result.error = 'No target printer selected';
-      this.logPrint(result);
-      return result;
+    if (!targets.length) {
+      const error = printerId ? 'Printer not found' : 'No target printer selected';
+      results.push({ orderId: String(order.id), auto, printer: null, ok: false, ms: 0, error, file: null });
+      this.logPrint(results[0], createdAt);
+      return { ...results[0], results };
     }
 
-    const segments = buildReceipt(order);
-    const text = segsToText(segments);
-    result.printer = { id: printer.id, name: printer.name };
-    const sent = await send(printer, segments, text);
-    Object.assign(result, { ok: sent.ok, ms: sent.ms, error: sent.error || null, file: sent.file || null });
-    this.logPrint(result);
-    if (result.ok) {
-      this.emit({ type: 'printed', orderId: String(order.id), printer: printer.name, auto });
-    } else {
-      this.emit({ type: 'printError', orderId: String(order.id), message: result.error, auto });
+    for (const printer of targets) {
+      const result = { orderId: String(order.id), auto, printer: null, ok: false, ms: 0, error: null, file: null };
+      const segments = buildReceipt(order);
+      const text = segsToText(segments);
+      result.printer = { id: printer.id, name: printer.name };
+      const sent = await send(printer, segments, text);
+      Object.assign(result, { ok: sent.ok, ms: sent.ms, error: sent.error || null, file: sent.file || null });
+      this.logPrint(result, createdAt);
+      if (result.ok) {
+        this.emit({ type: 'printed', orderId: String(order.id), printer: printer.name, auto });
+      } else {
+        this.emit({ type: 'printError', orderId: String(order.id), message: result.error, auto });
+      }
+      results.push(result);
     }
-    return result;
+
+    const ok = results.some((r) => r.ok);
+    const allOk = results.every((r) => r.ok);
+    return {
+      orderId: String(order.id),
+      auto,
+      printer: results[0].printer,
+      ok,
+      allOk,
+      ms: results.reduce((max, r) => Math.max(max, r.ms), 0),
+      error: allOk ? null : results.find((r) => !r.ok)?.error || null,
+      file: results[0].file,
+      results
+    };
   }
 
-  logPrint(result) {
+  logPrint(result, at = new Date().toISOString()) {
     State.log.unshift({
-      at: new Date().toISOString(),
+      at,
       orderId: result.orderId,
       auto: result.auto,
       printer: result.printer ? result.printer.name : null,

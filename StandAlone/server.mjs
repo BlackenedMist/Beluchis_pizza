@@ -343,11 +343,15 @@ async function handle(req, res) {
     return json(res, result.ok ? 200 : 502, { test: printer.lastTest });
   }
 
+  // Toggle a printer's target flag. Multiple printers can be targets at once -
+  // each one gets a copy of every new order. body.target may force the value
+  // (true/false); without it the flag simply flips.
   if (method === 'POST' && p.startsWith('/api/printers/') && p.endsWith('/target')) {
     const id = p.split('/')[3];
     const printer = findPrinter(id);
     if (!printer) return json(res, 404, { error: 'printer not found' });
-    for (const each of poller.printers.printers) each.target = String(each.id) === String(id);
+    const body = await readBody(req);
+    printer.target = body.target === undefined ? !printer.target : !!body.target;
     flush('printers');
     return json(res, 200, { printer: printerView(printer) });
   }

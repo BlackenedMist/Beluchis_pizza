@@ -76,9 +76,9 @@ function renderStatus() {
 
   const pMeta = $('#printerMeta');
   if (pMeta) {
-    const target = s.printers.find((p) => p.target);
+    const targets = s.printers.filter((p) => p.target);
     pMeta.textContent = s.printers.length
-      ? `${s.printers.length} printer${s.printers.length === 1 ? '' : 's'} added · Auto-prints to: ${target ? target.name : 'none yet'}`
+      ? `${s.printers.length} printer${s.printers.length === 1 ? '' : 's'} added · Auto-prints to: ${targets.length ? targets.map((p) => p.name).join(' + ') : 'none yet'}`
       : '';
   }
 
@@ -174,7 +174,9 @@ function orderRow(order) {
     try {
       const r = await fetch(`/api/print/${order.id}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
       const data = await r.json();
-      toast(r.ok ? `Printed to ${data.printer ? data.printer.name : 'printer'}` : `Print failed: ${data.error}`, r.ok);
+      const names = (data.results || (data.printer ? [{ printer: data.printer, ok: data.ok }] : []))
+        .map((x) => `${x.printer ? x.printer.name : 'printer'}${x.ok ? '' : ' (failed)'}`);
+      toast(r.ok ? `Printed to ${names.join(' + ') || 'printer'}` : `Print failed: ${data.error}`, r.ok);
     } catch { toast('Print request failed', false); }
     btn.disabled = false;
   });
@@ -222,7 +224,7 @@ function printerRow(pr) {
         ? `<span class="printer-test test-ok">✓ Test ok · ${t.ms}ms</span>`
         : `<span class="printer-test test-fail">✗ Test failed · ${esc(t.error || 'error')}</span>`)
     : '<span class="printer-test muted">Not tested yet</span>';
-  const targetHtml = pr.target ? '<span class="target-label">★ Target</span>' : '';
+  const targetHtml = pr.target ? '<span class="target-label">★ Prints orders</span>' : '';
   div.innerHTML = `
     <div>
       <div class="printer-name">${esc(pr.name)}</div>
@@ -231,7 +233,7 @@ function printerRow(pr) {
     </div>
     <div class="printer-actions">
       ${targetHtml}
-      <button class="btn small set-target" ${pr.target ? 'disabled' : ''}>Set as target</button>
+      <button class="btn small set-target">${pr.target ? 'Stop printing orders' : 'Print orders here'}</button>
       <button class="btn small test">Test</button>
       <button class="btn small rename">Rename</button>
       <button class="btn small del">Remove</button>
@@ -252,7 +254,7 @@ function printerRow(pr) {
 
   div.querySelector('.set-target').addEventListener('click', async () => {
     await fetch(`/api/printers/${pr.id}/target`, { method: 'POST' });
-    toast(`${pr.name} is now the target for new orders`, true);
+    toast(pr.target ? `${pr.name} no longer prints new orders` : `${pr.name} will print new orders`, true);
     await loadPrinters();
   });
 
