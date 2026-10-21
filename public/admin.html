@@ -304,6 +304,7 @@ const ROLES = {
   orders: "Orders",
   kitchen: "Main Kitchen",
   cashier: "Cashier",
+  driver: "Driver",
 };
 const STATUSES = ["placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
 const STATUS_NAMES = {
@@ -573,7 +574,7 @@ async function loadUsers() {
 
 function renderUsers() {
   const el = $("#tab-users");
-  const roleBadge = (r) => `<span class="tag" style="${r === "admin" ? "background:#fdecea;color:#c62828" : r === "orders" ? "background:#e3f2fd;color:#1565c0" : r === "kitchen" ? "background:#fff3e0;color:#e65100" : "background:#f3e5f5;color:#6a1b9a"}">${roleLabel(r)}</span>`;
+  const roleBadge = (r) => `<span class="tag" style="${r === "admin" ? "background:#fdecea;color:#c62828" : r === "orders" ? "background:#e3f2fd;color:#1565c0" : r === "kitchen" ? "background:#fff3e0;color:#e65100" : r === "driver" ? "background:#e0f2f1;color:#00695c" : "background:#f3e5f5;color:#6a1b9a"}">${roleLabel(r)}</span>`;
   el.innerHTML = `
     <div class="toolbar">
       <h2>Staff &amp; Access</h2>
@@ -620,6 +621,7 @@ window.openUser = (id) => {
         <option value="orders"${u?.role==="orders"?" selected":""}>Orders</option>
         <option value="kitchen"${u?.role==="kitchen"?" selected":""}>Main Kitchen</option>
         <option value="cashier"${u?.role==="cashier"?" selected":""}>Cashier</option>
+        <option value="driver"${u?.role==="driver"?" selected":""}>Driver</option>
       </select></div>`}
       ${`<div class="field"><label>Active</label><select id="u-active">
         <option value="true"${u?.isActive !== false?" selected":""}>Active</option>

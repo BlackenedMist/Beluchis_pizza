@@ -1037,6 +1037,20 @@ function openCheckout() {
   $("#checkout-summary").textContent = summary;
   $("#checkout-error").hidden = true;
   $("#checkout-overlay").hidden = false;
+  // Unregistered (guest) customers may only place collection orders.
+  const addr = $("#checkout-form input[name=deliveryAddress]");
+  const loc = $("#checkout-form button[data-action=\"use-location\"]");
+  const geoHint = $("#geo-hint");
+  if (!FAVS.loggedIn) {
+    if (addr) { addr.value = ""; addr.disabled = true; addr.placeholder = "Collection only - sign in for delivery"; }
+    if (loc) loc.disabled = true;
+    geo = { lat: null, lng: null };
+    geoStatus = null;
+    if (geoHint) geoHint.textContent = "Collection only - sign in for delivery. No address = collection.";
+  } else {
+    if (addr) { addr.disabled = false; addr.placeholder = "House no & street, suburb, Worcester"; }
+    if (loc) loc.disabled = false;
+  }
 }
 
 $("#checkout-overlay").addEventListener("change", (e) => {

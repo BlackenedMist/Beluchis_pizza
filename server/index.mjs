@@ -49,6 +49,11 @@ app.get("/cashier", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "public", "cashier.html"));
 });
 
+app.get("/driver", (req, res) => {
+  if (!getSession(req)) return res.redirect("/login");
+  res.sendFile(path.join(__dirname, "..", "public", "driver.html"));
+});
+
 const slugify = (s) =>
   String(s || "")
     .toLowerCase()
@@ -265,9 +270,10 @@ const normalizeSettingsPayload = (raw) => {
 };
 
 // ------------------------------------------------------------------- Auth
-const ADMIN_ROLES = new Set(["admin", "orders", "kitchen", "cashier"]);
+const ADMIN_ROLES = new Set(["admin", "orders", "kitchen", "cashier", "driver"]);
 const ORDER_ROLES = new Set(["admin", "orders"]);
 const CASHIER_STATUSES = new Set(["out_for_delivery"]);
+const DRIVER_STATUSES = new Set(["out_for_delivery", "delivered"]);
 const KITCHEN_STATUSES = new Set(["preparing", "out_for_delivery", "delivered"]);
 const ALLOWED_STATUSES = ["placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
 
@@ -1060,6 +1066,7 @@ app.post("/api/mail/test-invite", requireRole("admin"), asyncHandler(async (req,
 const orderIncludes = {
   customer: true,
   items: true,
+  events: { orderBy: { createdAt: "asc" } },
 };
 
 // ------------------------------------------------------- PayGate (PayWeb3)
@@ -1187,7 +1194,7 @@ const renderPaygateResult = (res, { approved, resultCode, resultDesc, orderId, a
 app.get(
   "/api/orders",
   requireAuth,
-  requireRole("admin", "orders", "kitchen", "cashier"),
+  requireRole("admin", "orders", "kitchen", "cashier", "driver"),
   asyncHandler(async (_req, res) => {
     const rows = await prisma.order.findMany({
       orderBy: { createdAt: "desc" },
@@ -1200,7 +1207,7 @@ app.get(
 app.get(
   "/api/orders/:id",
   requireAuth,
-  requireRole("admin", "orders", "kitchen", "cashier"),
+  requireRole("admin", "orders", "kitchen", "cashier", "driver"),
   asyncHandler(async (req, res) => {
     const row = await prisma.order.findUnique({
       where: { id: Number(req.params.id) },
@@ -1315,6 +1322,15 @@ app.post(
     const delivery = await classifyDelivery({ deliveryAddress, lat, lng });
     if (!delivery.ok)
       return res.status(400).json({ error: delivery.reason, code: "delivery_out_of_range", distanceKm: delivery.distanceKm });
+
+    // Unregistered (guest) customers may only place collection orders.
+    const wantsDelivery = Boolean(deliveryAddress?.trim()) || Number.isFinite(nOr(lat)) || Number.isFinite(nOr(lng));
+    if (wantsDelivery) {
+      const sessCustomer = await currentCustomer(req);
+      if (!sessCustomer && !customerId) {
+        return res.status(400).json({ error: "Unregistered customers can only place collection orders. Please sign in for delivery, or clear the delivery address.", code: "guest_collection_only" });
+      }
+    }
 
     // Customer resolution: a logged-in portal customer wins (guest orders placed
     // while signed in attach to their account), otherwise explicit customerId or
@@ -1629,6 +1645,8 @@ app.put(
       if (!KITCHEN_STATUSES.has(status)) return res.status(403).json({ error: "kitchen cannot set this status" });
     } else if (role === "cashier") {
       if (!CASHIER_STATUSES.has(status)) return res.status(403).json({ error: "cashier can only mark orders out for delivery" });
+    } else if (role === "driver") {
+      if (!DRIVER_STATUSES.has(status)) return res.status(403).json({ error: "driver can only mark orders out for delivery or delivered" });
     } else if (!ORDER_ROLES.has(role)) {
       return res.status(403).json({ error: "insufficient permissions" });
     }
