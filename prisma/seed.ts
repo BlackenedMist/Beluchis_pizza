@@ -18,6 +18,7 @@ async function main() {
   const toppings = JSON.parse(fs.readFileSync(path.join(CATALOG, "toppings.json"), "utf8"));
   const bases = JSON.parse(fs.readFileSync(path.join(CATALOG, "bases.json"), "utf8"));
   const links = JSON.parse(fs.readFileSync(path.join(CATALOG, "links.json"), "utf8"));
+  const itemImages = JSON.parse(fs.readFileSync(path.join(CATALOG, "item-images.json"), "utf8"));
 
   const sw = Date.now();
 
@@ -35,6 +36,7 @@ async function main() {
     await tx.itemSize.deleteMany();
     await tx.toppingPrice.deleteMany();
     await tx.basePrice.deleteMany();
+    await tx.itemImage.deleteMany();
     await tx.item.deleteMany();
     await tx.topping.deleteMany();
     await tx.base.deleteMany();
@@ -47,12 +49,19 @@ async function main() {
 
     for (const item of items) {
       const { sizes, category, ...data } = item;
+      const imgs = itemImages.filter((im) => im.itemSlug === item.slug).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      const primaryUrl = imgs.length ? imgs[0].url : (item.imageUrl || null);
       const saved = await tx.item.create({
-        data: { ...data, categoryId: categoryBySlug.get(category) ?? categoryBySlug.get(slugify(category)) ?? null },
+        data: { ...data, imageUrl: primaryUrl, categoryId: categoryBySlug.get(category) ?? categoryBySlug.get(slugify(category)) ?? null },
       });
       if (sizes.length) {
         await tx.itemSize.createMany({
           data: sizes.map((s) => ({ itemId: saved.id, sizeLabel: s.sizeLabel, price: s.price })),
+        });
+      }
+      if (imgs.length) {
+        await tx.itemImage.createMany({
+          data: imgs.map((im, i) => ({ itemId: saved.id, url: im.url, alt: im.alt ?? null, sortOrder: im.sortOrder ?? i })),
         });
       }
     }

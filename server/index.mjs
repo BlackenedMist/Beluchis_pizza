@@ -2015,6 +2015,7 @@ app.delete(
 const itemIncludes = {
   category: true,
   sizes: true,
+  images: { orderBy: { sortOrder: "asc" } },
   toppings: { include: { topping: { include: { prices: true } } } },
   bases: { include: { base: { include: { prices: true } } } },
 };
@@ -2034,7 +2035,7 @@ app.post(
   "/api/items",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    const { name, description = null, itemType = "menuitem", categoryId = null, imageUrl = null, showOnHome = false, sizes = [], toppingIds = [], baseIds = [], sortOrder = 0 } = req.body || {};
+    const { name, description = null, itemType = "menuitem", categoryId = null, imageUrl = null, showOnHome = false, sizes = [], toppingIds = [], baseIds = [], images = [], sortOrder = 0 } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     const row = await prisma.$transaction(async (tx) => {
@@ -2065,6 +2066,11 @@ app.post(
           data: baseIds.map((id) => ({ itemId: item.id, baseId: Number(id) })),
         });
       }
+      if (Array.isArray(images) && images.length) {
+        await tx.itemImage.createMany({
+          data: images.map((im, i) => ({ itemId: item.id, url: (im && im.url) || String(im), alt: (im && im.alt) || null, sortOrder: (im && im.sortOrder) ?? i })),
+        });
+      }
       return item;
     });
     const full = await prisma.item.findUnique({ where: { id: row.id }, include: itemIncludes });
@@ -2076,7 +2082,7 @@ app.put(
   "/api/items/:id",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    const { name, description, itemType, categoryId, imageUrl, showOnHome, sizes, toppingIds, baseIds, sortOrder, isActive } = req.body || {};
+    const { name, description, itemType, categoryId, imageUrl, showOnHome, sizes, toppingIds, baseIds, images, sortOrder, isActive } = req.body || {};
     const id = Number(req.params.id);
     const row = await prisma.$transaction(async (tx) => {
       const item = await tx.item.update({
@@ -2114,6 +2120,14 @@ app.put(
         if (baseIds.length) {
           await tx.itemBase.createMany({
             data: baseIds.map((bid) => ({ itemId: id, baseId: Number(bid) })),
+          });
+        }
+      }
+      if (Array.isArray(images)) {
+        await tx.itemImage.deleteMany({ where: { itemId: id } });
+        if (images.length) {
+          await tx.itemImage.createMany({
+            data: images.map((im, i) => ({ itemId: id, url: (im && im.url) || String(im), alt: (im && im.alt) || null, sortOrder: (im && im.sortOrder) ?? i })),
           });
         }
       }

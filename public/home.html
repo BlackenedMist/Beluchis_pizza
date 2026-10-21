@@ -566,14 +566,14 @@ function renderTiles() {
   for (const i of Shop.data.items.filter((x) => x.isActive !== false && x.showOnHome)) {
     if (seen.has(i.id)) continue;
     seen.add(i.id);
-    tiles.push({ item: i, img: i.imageUrl || (GALLERY_IMG[i.slug] ? "/home/gallery/" + GALLERY_IMG[i.slug] : null) });
+    tiles.push({ item: i, img: (GALLERY_IMG[i.slug] ? "/home/gallery/" + GALLERY_IMG[i.slug] : (i.imageUrl || null)) });
   }
   for (const slug of Object.keys(GALLERY_IMG)) {
     if (tiles.length >= 9) break;
     const i = Shop.data.items.find((x) => x.slug === slug && x.isActive !== false);
     if (!i || seen.has(i.id)) continue;
     seen.add(i.id);
-    tiles.push({ item: i, img: i.imageUrl || "/home/gallery/" + GALLERY_IMG[slug] });
+    tiles.push({ item: i, img: "/home/gallery/" + GALLERY_IMG[slug] });
   }
   $("#home-tiles").innerHTML = tiles.map(tileHtml).join("");
 }

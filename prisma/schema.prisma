@@ -35,9 +35,23 @@ model Item {
   sizes       ItemSize[]
   toppings    ItemTopping[]
   bases       ItemBase[]
+  images      ItemImage[]
   orderItems  OrderItem[]
   specialItems SpecialItem[]
   favorites   Favorite[]
+}
+
+model ItemImage {
+  id        Int     @id @default(autoincrement())
+  itemId    Int
+  item      Item    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  url       String
+  alt       String?
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([itemId, sortOrder])
 }
 
 model Special {

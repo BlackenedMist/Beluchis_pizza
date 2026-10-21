@@ -232,6 +232,12 @@
   }
   #toast.show { opacity: 1; }
   #toast.err { background: var(--bad); }
+.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:6px}
+.img-tile{position:relative;border:1px solid #e8e0d5;border-radius:8px;overflow:hidden;background:#f7f2ea}
+.img-tile img{width:100%;height:96px;object-fit:cover;display:block}
+.img-tile-actions{position:absolute;bottom:4px;right:4px;display:flex;gap:4px}
+.img-tile-actions button{padding:2px 6px;font-size:11px}
+
 </style>
 </head>
 <body>
@@ -958,6 +964,57 @@ window.uploadPicture = async (input, targetId) => {
   }
 };
 
+window.currentImages = [];
+
+window.renderImageGrid = () => {
+  const el = $("#f-images");
+  if (!el) return;
+  el.innerHTML = (window.currentImages || []).map((im, idx) => `
+    <div class="img-tile">
+      <img src="${esc(im.url)}" alt="" />
+      <div class="img-tile-actions">
+        <button type="button" class="ghost" onclick="moveImage(${idx},-1)" ${idx===0?"disabled":""}>↑</button>
+        <button type="button" class="ghost" onclick="moveImage(${idx},1)" ${idx===(window.currentImages.length-1)?"disabled":""}>↓</button>
+        <button type="button" class="ghost" onclick="removeImage(${idx})">✕</button>
+      </div>
+    </div>`).join("");
+};
+
+window.moveImage = (idx, dir) => {
+  const arr = window.currentImages;
+  const ni = idx + dir;
+  if (ni < 0 || ni >= arr.length) return;
+  const t = arr[idx]; arr[idx] = arr[ni]; arr[ni] = t;
+  renderImageGrid();
+};
+
+window.removeImage = (idx) => {
+  window.currentImages.splice(idx, 1);
+  renderImageGrid();
+};
+
+window.uploadGalleryImages = async (input) => {
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  for (const file of files) {
+    if (file.size > 6 * 1024 * 1024) { toast("Image must be 6MB or smaller", true); continue; }
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("Could not read that file"));
+      reader.readAsDataURL(file);
+    });
+    try {
+      const out = await api("/api/upload", { method: "POST", body: JSON.stringify({ dataUrl }) });
+      window.currentImages.push({ url: out.url, alt: null, sortOrder: window.currentImages.length });
+      renderImageGrid();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+  input.value = "";
+};
+
 // Item
 window.openItem = (id) => {
   const item = id ? state.items.find((i) => i.id === id) : null;
@@ -972,6 +1029,12 @@ window.openItem = (id) => {
     </div>
     ${field("Description", `<textarea id="f-desc" rows="2">${item?.description || ""}</textarea>`)}
     ${pictureField("f-img", item?.imageUrl)}
+    ${field("Gallery (multiple images)", `
+      <div id="f-images" class="img-grid"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+        <input type="file" accept="image/*" multiple onchange="uploadGalleryImages(this)" />
+        <span class="muted" style="font-size:12px">Upload one or more; drag order with the arrows.</span>
+      </div>`)}
     <div class="row">
       ${field("Category", `<select id="f-cat">
         <option value="">— none —</option>
@@ -999,6 +1062,8 @@ window.openItem = (id) => {
     sizes = [["S",""],["M",""],["L",""]].map(([s, p]) => ({ sizeLabel: s, price: p }));
   }
   window.currentSizes = sizes;
+  window.currentImages = item ? (item.images || []).map((im) => ({ url: im.url, alt: im.alt, sortOrder: im.sortOrder })) : [];
+  window.renderImageGrid();
   window.renderSizeRows = () => {
     $("#f-sizes").innerHTML = currentSizes.map((s, idx) => `
       <div class="price-row">
@@ -1028,6 +1093,7 @@ window.saveItem = async (id) => {
     sizes: currentSizes.map((s) => ({ sizeLabel: s.sizeLabel, price: Number(s.price) || 0 })),
     toppingIds: $$("#f-toppings input:checked").map((c) => Number(c.value)),
     baseIds: $$("#f-bases input:checked").map((c) => Number(c.value)),
+    images: (window.currentImages || []).map((im, i) => ({ url: im.url, alt: im.alt, sortOrder: i })),
   };
   if (!payload.name) return toast("Name is required", true);
   try {

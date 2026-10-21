@@ -62,7 +62,7 @@
       },
       {
         "sizeLabel": "L",
-        "price": 120
+        "price": 115
       }
     ],
     "sortOrder": 2,
@@ -131,7 +131,7 @@
       },
       {
         "sizeLabel": "L",
-        "price": 120
+        "price": 115
       }
     ],
     "sortOrder": 5,
@@ -242,7 +242,7 @@
       },
       {
         "sizeLabel": "M",
-        "price": 100
+        "price": 95
       },
       {
         "sizeLabel": "L",
@@ -338,7 +338,7 @@
       },
       {
         "sizeLabel": "L",
-        "price": 140
+        "price": 100
       }
     ],
     "sortOrder": 14,
@@ -403,7 +403,7 @@
       },
       {
         "sizeLabel": "M",
-        "price": 100
+        "price": 98
       },
       {
         "sizeLabel": "L",
@@ -591,7 +591,7 @@
       },
       {
         "sizeLabel": "L",
-        "price": 170
+        "price": 140
       }
     ],
     "sortOrder": 25,
@@ -610,7 +610,7 @@
       },
       {
         "sizeLabel": "M",
-        "price": 115
+        "price": 85
       },
       {
         "sizeLabel": "L",
@@ -698,7 +698,7 @@
     "sizes": [
       {
         "sizeLabel": "L",
-        "price": 200
+        "price": 195
       }
     ],
     "sortOrder": 30,
@@ -713,7 +713,7 @@
     "sizes": [
       {
         "sizeLabel": "L",
-        "price": 230
+        "price": 220
       }
     ],
     "sortOrder": 31,
@@ -728,7 +728,7 @@
     "sizes": [
       {
         "sizeLabel": "L",
-        "price": 190
+        "price": 170
       }
     ],
     "sortOrder": 32,
@@ -879,7 +879,7 @@
       },
       {
         "sizeLabel": "L",
-        "price": 160
+        "price": 155
       }
     ],
     "sortOrder": 46,
@@ -894,11 +894,11 @@
     "sizes": [
       {
         "sizeLabel": "M",
-        "price": 120
+        "price": 115
       },
       {
         "sizeLabel": "L",
-        "price": 180
+        "price": 160
       }
     ],
     "sortOrder": 47,
@@ -913,11 +913,11 @@
     "sizes": [
       {
         "sizeLabel": "M",
-        "price": 95
+        "price": 90
       },
       {
         "sizeLabel": "L",
-        "price": 140
+        "price": 125
       }
     ],
     "sortOrder": 48,
@@ -932,7 +932,7 @@
     "sizes": [
       {
         "sizeLabel": "M",
-        "price": 120
+        "price": 105
       },
       {
         "sizeLabel": "L",
@@ -951,11 +951,11 @@
     "sizes": [
       {
         "sizeLabel": "M",
-        "price": 95
+        "price": 85
       },
       {
         "sizeLabel": "L",
-        "price": 140
+        "price": 125
       }
     ],
     "sortOrder": 50,
@@ -970,11 +970,11 @@
     "sizes": [
       {
         "sizeLabel": "M",
-        "price": 95
+        "price": 85
       },
       {
         "sizeLabel": "L",
-        "price": 140
+        "price": 125
       }
     ],
     "sortOrder": 51,
@@ -1008,7 +1008,7 @@
     "sizes": [
       {
         "sizeLabel": "M",
-        "price": 100
+        "price": 85
       },
       {
         "sizeLabel": "L",
@@ -1031,7 +1031,7 @@
       },
       {
         "sizeLabel": "L",
-        "price": 180
+        "price": 150
       }
     ],
     "sortOrder": 54,
@@ -1046,7 +1046,7 @@
     "sizes": [
       {
         "sizeLabel": "M",
-        "price": 120
+        "price": 85
       },
       {
         "sizeLabel": "L",
@@ -1159,7 +1159,7 @@
     "sizes": [
       {
         "sizeLabel": "ONE",
-        "price": 55
+        "price": 50
       }
     ],
     "sortOrder": 62,
@@ -1174,7 +1174,7 @@
     "sizes": [
       {
         "sizeLabel": "ONE",
-        "price": 55
+        "price": 50
       }
     ],
     "sortOrder": 63,
@@ -1189,7 +1189,7 @@
     "sizes": [
       {
         "sizeLabel": "ONE",
-        "price": 55
+        "price": 50
       }
     ],
     "sortOrder": 64,
@@ -1204,7 +1204,7 @@
     "sizes": [
       {
         "sizeLabel": "ONE",
-        "price": 75
+        "price": 50
       }
     ],
     "sortOrder": 65,
@@ -1219,7 +1219,7 @@
     "sizes": [
       {
         "sizeLabel": "ONE",
-        "price": 75
+        "price": 60
       }
     ],
     "sortOrder": 66,
