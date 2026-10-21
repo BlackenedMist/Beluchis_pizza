@@ -7,6 +7,7 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { canonicalPhone } from "./phone.mjs";
 import { buildOrderConfirmation, fill, mailEnabled, sendMail } from "./mail.mjs";
+import { payfastCheckoutFields, validPayfastSignature } from "./payfast.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const prisma = new PrismaClient();
@@ -20,10 +21,34 @@ const PAYGATE_ENDPOINT = process.env.PAYGATE_ENDPOINT || "https://secure.paygate
 const PAYGATE_ID = process.env.PAYGATE_ID || "";
 const PAYGATE_KEY = process.env.PAYGATE_KEY || "";
 const PAYGATE_ENABLED = Boolean(PAYGATE_ID && PAYGATE_KEY);
+
+// PayFast online payment config. Stays disabled until both PAYFAST_ID and
+// PAYFAST_KEY are present in the environment. PAYFAST_PASSPHRASE is optional:
+// PayFast falls back to the merchant key when the merchant set no passphrase.
+const PAYFAST_ENDPOINT = process.env.PAYFAST_ENDPOINT || "https://www.payfast.co.za";
+const PAYFAST_ID = process.env.PAYFAST_ID || "";
+const PAYFAST_KEY = process.env.PAYFAST_KEY || "";
+const PAYFAST_PASSPHRASE = process.env.PAYFAST_PASSPHRASE || "";
+const PAYFAST_ENABLED = Boolean(PAYFAST_ID && PAYFAST_KEY);
+// Which PayFast payment method to offer ("1" = card, "2" = EFT, ...). Empty
+// means "whatever the merchant has enabled in the PayFast dashboard".
+const PAYFAST_PAYMENT_METHOD = process.env.PAYFAST_PAYMENT_METHOD || "";
+// The passphrase PayFast signs with - the merchant key unless one was set.
+const payfastPassphrase = () => PAYFAST_PASSPHRASE || PAYFAST_KEY;
+
+// Which online payment provider the storefront should offer. PayFast wins when
+// it is configured; PayGate stays available by leaving its credentials in the
+// environment. With neither configured the checkout shows cash/card only.
+const onlinePaymentProvider = () => {
+  if (PAYFAST_ENABLED) return "payfast";
+  if (PAYGATE_ENABLED) return "paygate";
+  return null;
+};
+
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
 const PUBLIC_ORIGIN = PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 
-const PAYMENT_METHODS = new Set(["cod_cash", "cod_card", "paygate"]);
+const PAYMENT_METHODS = new Set(["cod_cash", "cod_card", "paygate", "payfast"]);
 const PAYMENT_STATUSES = new Set(["pending", "paid", "failed"]);
 
 app.use(express.json({ limit: "8mb" }));
@@ -164,7 +189,7 @@ const getShopConfig = async () => {
   const onlineEnabled = (await getSetting("shop.onlineEnabled", "true")).toLowerCase() === "true";
   const forceOpen = (await getSetting("shop.forceOpen", "false")).toLowerCase() === "true";
   const forceClosed = (await getSetting("shop.forceClosed", "false")).toLowerCase() === "true";
-  return { openTime, closeTime, onlineEnabled, forceOpen, forceClosed };
+  return { openTime, closeTime, onlineEnabled, forceOpen, forceClosed, onlinePayment: onlinePaymentProvider() };
 };
 
 // Live open/closed status. A window that crosses midnight (close < open) is
@@ -1163,8 +1188,8 @@ const applyPaygateResult = async (params) => {
   return { ok: true, approved, order };
 };
 
-// Customer-facing result page (browser lands here after PayGate redirects).
-const renderPaygateResult = (res, { approved, resultCode, resultDesc, orderId, amountCents, ref }) => {
+// Customer-facing result page (browser lands here after the gateway redirects).
+const renderPaymentResult = (res, { approved, resultCode, resultDesc, orderId, amountCents, ref }) => {
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const heading = approved ? "Payment successful" : "Payment not completed";
   const color = approved ? "#1c7c3e" : "#b3351f";
@@ -1190,6 +1215,7 @@ const renderPaygateResult = (res, { approved, resultCode, resultDesc, orderId, a
   <a class="btn ghost" href="/portal">My orders</a>
 </div></body></html>`);
 };
+
 
 app.get(
   "/api/orders",
@@ -1562,14 +1588,14 @@ app.post(
     const discountLabel = [dealLabel, couponLabel].filter(Boolean).join(" + ") || null;
     const grandTotal = orderTotal - discountAmount;
 
-    // ----- Online (PayGate) flow ---------------------------------------------------
+    // ----- Online (PayGate / PayFast) flow ---------------------------------------------------
     // Initiate BEFORE the order is persisted so a gateway failure leaves no
     // orphan order. A fully-discounted order has nothing to charge: mark it paid.
-    const paygateFree = paymentMethod === "paygate" && grandTotal <= 0;
+    const onlineFree = (paymentMethod === "paygate" || paymentMethod === "payfast") && grandTotal <= 0;
     let payRef = null;
     let payRequestId = null;
     let payRedirect = null;
-    if (paymentMethod === "paygate" && !paygateFree) {
+    if (paymentMethod === "paygate" && !onlineFree) {
       payRef = `BELU-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
       const outcome = await paygateInitiate({
         reference: payRef,
@@ -1581,7 +1607,28 @@ app.post(
       payRequestId = outcome.payRequestId;
       payRedirect = {
         url: `${PAYGATE_ENDPOINT}/payweb3/process.trans`,
+        provider: "paygate",
         fields: { PAY_REQUEST_ID: outcome.payRequestId, CHECKSUM: outcome.redirectChecksum },
+      };
+    } else if (paymentMethod === "payfast" && !onlineFree) {
+      if (!PAYFAST_ENABLED) throw new Error("PayFast is not configured on this server");
+      payRef = `BELU-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+      const fields = payfastCheckoutFields({
+        merchantId: PAYFAST_ID,
+        merchantKey: PAYFAST_KEY,
+        passphrase: payfastPassphrase(),
+        returnUrl: `${PUBLIC_ORIGIN}/payfast/return`,
+        notifyUrl: `${PUBLIC_ORIGIN}/payfast/notify`,
+        reference: payRef,
+        amount: grandTotal / 100,
+        name: `${firstName} ${lastName}`.trim() || customerName,
+        email,
+        paymentMethod: PAYFAST_PAYMENT_METHOD,
+      });
+      payRedirect = {
+        url: `${PAYFAST_ENDPOINT}/eng/process`,
+        provider: "payfast",
+        fields,
       };
     }
 
@@ -1590,11 +1637,12 @@ app.post(
         data: {
           customerId: customer.id,
           status,
-          paymentMethod: paygateFree ? "paygate" : paymentMethod,
-          paymentStatus: paygateFree ? "paid" : "pending",
+          paymentMethod: onlineFree ? paymentMethod : paymentMethod,
+          paymentStatus: onlineFree ? "paid" : "pending",
           payRef,
           payRequestId,
           total: orderTotal,
+          discountCode: coupon ? coupon.code : null,
           discountCode: coupon ? coupon.code : null,
           discountLabel: discountLabel || null,
           discountAmount,
