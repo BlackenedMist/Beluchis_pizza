@@ -316,13 +316,18 @@
     const picks = (l.pizzas || []).map((p) =>
       '<div class="extras">' + esc(p.name || (DATA.byId.get(Number(p.itemId)) || {}).name || "Pizza") + (p.sizeLabel ? " (" + esc(p.sizeLabel) + ")" : "") + "</div>"
     ).join("");
+    const bundle = l.pizzas
+      ? ""
+      : ((DATA.specials.find((x) => x.id === l.specialId) || {}).items || []).map((si) =>
+          '<div class="extras">' + (si.quantity > 1 ? si.quantity + "&times; " : "") + esc(si.item.name) + (si.sizeLabel ? " (" + esc(si.sizeLabel) + ")" : "") + "</div>"
+        ).join("");
     const meta = l.pizzas
       ? "Pick " + (l.pizzas.length) + ", pay " + Math.ceil(l.pizzas.length / 2) + " | R" + l.unitPrice + " each"
       : "Combo | R" + l.unitPrice + " each";
     return (
       '<div class="cart-line">' +
       '<div class="top"><span class="name">' + esc(l.name) + '</span><span class="line-total">' + money(l.unitPrice * l.qty) + "</span></div>" +
-      '<div class="meta">' + meta + "</div>" + picks +
+      '<div class="meta">' + meta + "</div>" + picks + bundle +
       '<div class="foot"><span class="qty"><button data-q="-1" data-idx="' + idx + '">&minus;</button><span class="n">' + l.qty + '</span><button data-q="1" data-idx="' + idx + '">+</button></span>' +
       '<button class="remove" data-remove-idx="' + idx + '">Remove</button></div>' +
       "</div>"

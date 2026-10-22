@@ -162,7 +162,13 @@
     border: 1px solid var(--line); border-radius: 8px; padding: 10px;
   }
   .specials-grid label { font-size: 12.5px; display: flex; gap: 6px; align-items: center; }
-  .specials-grid .num { margin-left: auto; }
+  .specials-grid .pick-name { flex: 1; min-width: 0; }
+  .specials-grid .pick-controls { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  .specials-grid .pick-size {
+    width: 64px; padding: 4px 5px; border: 1px solid var(--line); border-radius: 6px;
+    font-size: 12px; background: #fff; color: var(--ink);
+  }
+  .specials-grid .num { margin-left: 0; }
 
   /* orders board */
   .order-list { display: flex; flex-direction: column; gap: 14px; }
@@ -1263,7 +1269,9 @@ function renderSpecials() {
     s.items.reduce((sum, x) => {
       const sizes = x.item.sizes || [];
       if (!sizes.length) return sum;
-      return sum + Math.min(...sizes.map((sz) => sz.price)) * x.quantity;
+      const chosen = x.sizeLabel ? sizes.find((sz) => sz.sizeLabel === x.sizeLabel) : null;
+      const unit = chosen ? chosen.price : Math.min(...sizes.map((sz) => sz.price));
+      return sum + unit * x.quantity;
     }, 0);
 
   el.innerHTML = `
@@ -1285,7 +1293,7 @@ function renderSpecials() {
           <tr>
             <td><b>${esc(s.name)}</b>${s.kind === "bogo" ? ' <span class="tag">bogo</span>' : ""}${s.imageUrl ? `<br><img src="${esc(s.imageUrl)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:7px;border:1px solid #e8e0d5;margin-top:4px" />` : ""}${s.description ? `<br><span class="muted">${esc(s.description)}</span>` : ""}</td>
             <td>${s.kind === "bogo" ? `Pick ${s.count}, pay ${s.count / 2}${s.sizeLabel ? ` · ${esc(s.sizeLabel)}` : ""}` : `R${s.price}${sum > 0 ? `<br><span class="muted">parts R${sum}</span>` : ""}${deal ? `<br><span class="parts-tag" style="background:#e8f5e9;color:#2e7d32">${deal}% off</span>` : ""}`}</td>
-            <td>${s.kind === "bogo" ? `<span class="parts-tag">${esc(s.category?.name || "—")}</span>` : s.items.map((x) => `<span class="parts-tag">${esc(x.item.name)}${x.quantity > 1 ? ` ×${x.quantity}` : ""}</span>`).join("")}</td>
+            <td>${s.kind === "bogo" ? `<span class="parts-tag">${esc(s.category?.name || "—")}</span>` : s.items.map((x) => `<span class="parts-tag">${esc(x.item.name)}${x.sizeLabel ? ` (${esc(x.sizeLabel)})` : ""}${x.quantity > 1 ? ` ×${x.quantity}` : ""}</span>`).join("")}</td>
             <td>${s.showOnHome ? "Yes" : '<span class="muted">—</span>'}</td>
             <td>${s.isActive ? "Active" : '<span class="muted">Inactive</span>'}</td>
             <td class="row-actions">
@@ -1507,27 +1515,54 @@ window.openSpecial = (id) => {
     $("#sp-bogo").hidden = !bogo;
   };
 
-  window.specialPicks = s && !isBogo ? s.items.map((x) => ({ itemId: x.itemId, quantity: x.quantity })) : [];
+  const sizesOf = (item) => ((item && item.sizes) || []).filter((z) => z.isActive !== false);
+  window.specialPicks = s && !isBogo
+    ? s.items.map((x) => ({ itemId: x.itemId, quantity: x.quantity, sizeLabel: x.sizeLabel || null }))
+    : [];
   window.renderSpecialPicks = () => {
     $("#sp-items").innerHTML = state.items.map((i) => {
       const pick = specialPicks.find((p) => p.itemId === i.id);
       const checked = pick ? "checked" : "";
       const qty = pick ? pick.quantity : 1;
+      const sizes = sizesOf(i);
+      // Keep a saved size even if it has since been marked inactive so an
+      // existing special is never silently rewritten while being edited.
+      if (pick?.sizeLabel && !sizes.some((z) => z.sizeLabel === pick.sizeLabel)) {
+        const saved = (i.sizes || []).find((z) => z.sizeLabel === pick.sizeLabel);
+        if (saved) sizes.push(saved);
+      }
+      const sizeSel = checked && sizes.length
+        ? `<select class="pick-size" onchange="setSpecialSize(${i.id}, this.value)">
+            <option value=""${!pick.sizeLabel ? " selected" : ""}>—</option>
+            ${sizes.map((z) => `<option value="${esc(z.sizeLabel)}"${z.sizeLabel === pick.sizeLabel ? " selected" : ""}>${esc(z.sizeLabel)}</option>`).join("")}
+          </select>`
+        : "";
       return `<label>
         <input type="checkbox" value="${i.id}" ${checked} onchange="toggleSpecialPick(${i.id}, this.checked)" />
-        <span>${esc(i.name)}</span>
-        <input class="num" type="number" min="1" value="${qty}" ${checked ? "" : "disabled"} oninput="setSpecialQty(${i.id}, this.value)" />
+        <span class="pick-name">${esc(i.name)}</span>
+        <span class="pick-controls">${sizeSel}<input class="num" type="number" min="1" value="${qty}" ${checked ? "" : "disabled"} oninput="setSpecialQty(${i.id}, this.value)" /></span>
       </label>`;
     }).join("");
   };
   window.toggleSpecialPick = (itemId, on) => {
-    specialPicks = on ? [...specialPicks, { itemId, quantity: 1 }] : specialPicks.filter((p) => p.itemId !== itemId);
+    if (on) {
+      const item = state.items.find((i) => i.id === itemId);
+      const first = sizesOf(item)[0];
+      specialPicks = [...specialPicks, { itemId, quantity: 1, sizeLabel: first ? first.sizeLabel : null }];
+    } else {
+      specialPicks = specialPicks.filter((p) => p.itemId !== itemId);
+    }
     renderSpecialPicks();
     renderSpecialSum();
   };
   window.setSpecialQty = (itemId, v) => {
     const p = specialPicks.find((x) => x.itemId === itemId);
     if (p) p.quantity = Math.max(1, Number(v) || 1);
+    renderSpecialSum();
+  };
+  window.setSpecialSize = (itemId, v) => {
+    const p = specialPicks.find((x) => x.itemId === itemId);
+    if (p) p.sizeLabel = v || null;
     renderSpecialSum();
   };
   window.renderSpecialSum = () => {
@@ -1539,12 +1574,14 @@ window.openSpecial = (id) => {
     const sum = specialPicks.reduce((acc, p) => {
       const item = itemsById.get(p.itemId);
       if (!item || !item.sizes.length) return acc;
-      return acc + Math.min(...item.sizes.map((sz) => sz.price)) * (p.quantity || 1);
+      const chosen = p.sizeLabel ? item.sizes.find((sz) => sz.sizeLabel === p.sizeLabel) : null;
+      const unit = chosen ? chosen.price : Math.min(...item.sizes.map((sz) => sz.price));
+      return acc + unit * (p.quantity || 1);
     }, 0);
     if (sum <= 0) { el.textContent = ""; return; }
     const priceTxt = price >= 0 ? `  ·  Your price R${price}` : "";
     const save = price > 0 ? (price < sum ? `  ·  ~${Math.round((1 - price / sum) * 100)}% off` : "  ·  above parts total") : "";
-    el.textContent = `Parts total (cheapest sizes): R${sum}${priceTxt}${save}`;
+    el.textContent = `Parts total (chosen sizes): R${sum}${priceTxt}${save}`;
   };
   renderSpecialPicks();
   renderSpecialSum();
@@ -1577,7 +1614,7 @@ window.saveSpecial = async (id) => {
       ...base,
       kind: "flat",
       price: Number($("#sp-price").value) || 0,
-      items: specialPicks.map((p) => ({ itemId: p.itemId, quantity: p.quantity })),
+      items: specialPicks.map((p) => ({ itemId: p.itemId, quantity: p.quantity, sizeLabel: p.sizeLabel || null })),
     };
     if (!payload.items.length) return toast("Pick at least one item", true);
   }

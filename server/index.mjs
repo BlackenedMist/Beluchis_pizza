@@ -706,6 +706,36 @@ const specialIncludes = {
   },
 };
 
+// Bundle rows can pin the size of a pizza (e.g. "2× Large Margherita").
+// Sizes are optional so existing specials remain valid, but a supplied size
+// must be one the item actually sells.
+const normalizeSpecialSize = (value) => {
+  const label = value == null ? "" : String(value).trim();
+  return label || null;
+};
+
+const validateSpecialItems = async (items) => {
+  const rows = Array.isArray(items) ? items : [];
+  const ids = [...new Set(rows.map((i) => Number(i.itemId)))];
+  if (!ids.length) return;
+  const found = await prisma.item.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true, sizes: { select: { sizeLabel: true } } },
+  });
+  if (found.length !== ids.length) {
+    const missing = ids.filter((id) => !found.some((f) => f.id === id));
+    throw badRequest(`item(s) not found: ${missing.join(", ")}`);
+  }
+  const byId = new Map(found.map((item) => [item.id, item]));
+  for (const row of rows) {
+    const sizeLabel = normalizeSpecialSize(row.sizeLabel);
+    if (!sizeLabel) continue;
+    const item = byId.get(Number(row.itemId));
+    if (item && !item.sizes.some((size) => size.sizeLabel === sizeLabel))
+      throw badRequest(`size "${sizeLabel}" not found for item ${item.name}`);
+  }
+};
+
 // "flat"  - a fixed bundle of named items at a fixed price.
 // "bogo"  - the customer picks `count` items from a category and pays for the
 //           higher half of the base prices.
@@ -793,12 +823,11 @@ app.post(
       if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "at least one item is required" });
     }
 
-    const itemIds = [...new Set((items || []).map((i) => Number(i.itemId)))];
-    if (itemIds.length) {
-      const found = await prisma.item.findMany({ where: { id: { in: itemIds } }, select: { id: true } });
-      if (found.length !== itemIds.length) {
-        const missing = itemIds.filter((id) => !found.some((f) => f.id === id));
-        return res.status(400).json({ error: `item(s) not found: ${missing.join(", ")}` });
+    if (kindNorm === "flat") {
+      try {
+        await validateSpecialItems(items);
+      } catch (e) {
+        return res.status(e.status || 400).json({ error: e.message });
       }
     }
 
@@ -818,7 +847,11 @@ app.post(
         items:
           kindNorm === "flat"
             ? {
-                create: items.map((i) => ({ itemId: Number(i.itemId), quantity: Math.max(1, Number(i.quantity) || 1) })),
+                create: items.map((i) => ({
+                  itemId: Number(i.itemId),
+                  sizeLabel: normalizeSpecialSize(i.sizeLabel),
+                  quantity: Math.max(1, Number(i.quantity) || 1),
+                })),
               }
             : undefined,
       },
@@ -855,11 +888,10 @@ app.put(
       }
     } else if (Array.isArray(items)) {
       if (items.length === 0) return res.status(400).json({ error: "at least one item is required" });
-      const itemIds = [...new Set(items.map((i) => Number(i.itemId)))];
-      const found = await prisma.item.findMany({ where: { id: { in: itemIds } }, select: { id: true } });
-      if (found.length !== itemIds.length) {
-        const missing = itemIds.filter((x) => !found.some((f) => f.id === x));
-        return res.status(400).json({ error: `item(s) not found: ${missing.join(", ")}` });
+      try {
+        await validateSpecialItems(items);
+      } catch (e) {
+        return res.status(e.status || 400).json({ error: e.message });
       }
     }
 
@@ -884,7 +916,12 @@ app.put(
       } else if (Array.isArray(items)) {
         await tx.specialItem.deleteMany({ where: { specialId: id } });
         await tx.specialItem.createMany({
-          data: items.map((i) => ({ specialId: id, itemId: Number(i.itemId), quantity: Math.max(1, Number(i.quantity) || 1) })),
+          data: items.map((i) => ({
+            specialId: id,
+            itemId: Number(i.itemId),
+            sizeLabel: normalizeSpecialSize(i.sizeLabel),
+            quantity: Math.max(1, Number(i.quantity) || 1),
+          })),
         });
       }
       return special;

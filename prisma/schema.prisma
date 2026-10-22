@@ -94,6 +94,7 @@ model SpecialItem {
   special   Special @relation(fields: [specialId], references: [id], onDelete: Cascade)
   itemId    Int
   item      Item    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  sizeLabel String?
   quantity  Int     @default(1)
 
   @@unique([specialId, itemId])

@@ -274,7 +274,7 @@
 </main>
 
 <footer>
-  Beluchis &middot; 72 High Street, Q-Square, Worcester &middot; 023 347 5447 &middot; info@beluchis.co.za<br />
+  Beluchis &middot; 72 High Street, Q-Square, Worcester &middot; 023 347 5447 &middot; beluchis.worcester@gmail.com<br />
   <a href="/order">Order</a> &middot; <a href="/portal" target="_blank" rel="noopener">My orders</a> &middot; <a href="/admin" target="_blank" rel="noopener">Admin</a>
 </footer>
 
@@ -507,7 +507,7 @@ function renderMenu() {
               '<span class="part">Add ' + s.count + (s.sizeLabel ? " " + esc(s.sizeLabel) : "") + (dealCat ? " " + esc(dealCat) : " items") + "</span>" +
               '<span class="part">Applies automatically &middot; you save on the pair</span>' +
             "</div>"
-          : (s.items || []).map((si) => '<span class="part">' + (si.quantity > 1 ? si.quantity + "&times; " : "") + esc(si.item.name) + "</span>").join("");
+          : (s.items || []).map((si) => '<span class="part">' + (si.quantity > 1 ? si.quantity + "&times; " : "") + esc(si.item.name) + (si.sizeLabel ? " (" + esc(si.sizeLabel) + ")" : "") + "</span>").join("");
       const partsHtml = bogo || deal ? detail : (detail ? '<div class="special-parts">' + detail + "</div>" : "");
       const priceText = bogo
         ? "Pick " + s.count + ", pay " + s.count / 2
