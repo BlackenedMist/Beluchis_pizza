@@ -1994,7 +1994,7 @@ function renderDelivery() {
       <div class="card" style="padding:14px;text-align:center;align-self:flex-start">
         <h3 style="margin:0 0 6px;font-size:14px">Radius preview</h3>
         ${ringSVG(freeKm, maxKm, fee)}
-        <div class="muted" style="font-size:12px">Free ${freeKm}km &middot; R${fee} to ${maxKm}km &middot; R${beyondFee} beyond</div>
+        <div class="muted" style="font-size:12px">Free ${freeKm}km on orders R${minOrder}+ &middot; R${fee} to ${maxKm}km &middot; R${beyondFee} beyond</div>
       </div>
     </div>
     <p class="hint" style="margin:14px 0 12px">Delivery is available at the rates below around the shop. ${batch ? "Delivery is currently <b>on</b> for the storefront." : "Delivery is currently <b>paused</b>/unset &mdash; orders without an address fall back to collection."}</p>
@@ -2013,8 +2013,8 @@ function renderDelivery() {
           <div class="field"><label>Delivery fee (R) from free radius to standard radius</label><input id="f-fee" type="number" step="1" min="0" value="${fee}" /></div>
           <div class="field"><label>Fee (R) beyond standard radius</label><input id="f-beyond-fee" type="number" step="1" min="0" value="${beyondFee}" /></div>
         </div>
-        <div class="field"><label>Minimum food order for delivery (R)</label><input id="f-min-order" type="number" step="1" min="0" value="${minOrder}" /></div>
-        <div class="hint" style="margin-bottom:10px">0&ndash;free radius &rarr; free. Free&ndash;standard radius &rarr; standard fee. Beyond the standard radius &rarr; the "beyond" fee (delivery still available). The minimum applies to food before the delivery fee; collection is exempt. No GPS captured &rarr; delivery is unverified, so the shop confirms the address and fee with the customer.</div>
+        <div class="field"><label>Free-delivery food threshold (R)</label><input id="f-min-order" type="number" step="1" min="0" value="${minOrder}" /></div>
+        <div class="hint" style="margin-bottom:10px">Free delivery needs <b>both</b>: food subtotal at least the threshold and an address inside the free radius. Below the threshold the standard fee applies, even inside the free radius. Free&ndash;standard radius &rarr; standard fee. Beyond the standard radius &rarr; the "beyond" fee (delivery still available). There is no minimum-order block; collection is exempt. No GPS captured &rarr; the standard fee applies and the shop confirms the address/rate with the customer.</div>
         <button class="primary" onclick="saveSettings()">Save settings</button>
       </div>
       <div class="card" style="padding:16px;flex:1;min-width:300px">

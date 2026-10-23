@@ -197,22 +197,24 @@ or mark delivered, and the kitchen daemon (`kitchen/`) holds just the
 Delivery pricing (Shop tab):
 
 - **Storefront**: the checkout address field shows a live hint and estimated
-  fee. Free inside the free radius, the standard fee up to the standard-fee
-  radius, and the "beyond" fee after that (there is no hard cutoff). If the
-  browser shares location (> 8s timeout), the estimate uses GPS; otherwise it
-  falls back to plain address mode. Address without GPS is accepted as
-  "unverified" — the shop confirms the distance and fee with the customer.
+  fee. Free delivery requires both an address inside the free radius and a food
+  subtotal at least `minOrderAmount`; below the threshold the standard fee
+  applies, even inside the free radius. Up to the standard-fee radius → standard
+  fee; beyond → "beyond" fee (there is no hard cutoff). If the browser shares
+  location (> 8s timeout), the estimate uses GPS; otherwise it falls back to
+  plain address mode. Address without GPS is accepted as "unverified" — the
+  standard fee applies and the shop confirms the distance/rate with the customer.
 - **Server**: `POST /api/orders` takes `deliveryLat`/`deliveryLng` (legacy
   `lat`/`lng` also accepted) and runs Haversine against the shop centre.
-  ≤ `freeRadiusKm` → `free`; up to `maxRadiusKm` → `fee`; beyond →
-  `beyond` (the `beyondFeeAmount` is added to `total`). The food subtotal
-  (before the delivery fee) must meet `minOrderAmount` for delivery orders;
-  collection is exempt. Address without GPS → `unverified`; no address/coords →
-  `collection`.
+  ≤ `freeRadiusKm` **and** food subtotal ≥ `minOrderAmount` → `free`; within the
+  free radius but below the threshold → `fee`; up to `maxRadiusKm` → `fee`;
+  beyond → `beyond` (the `beyondFeeAmount` is added to `total`). There is no
+  minimum-order rejection; collection is exempt. Address without GPS →
+  `unverified` with the `feeAmount` applied; no address/coords → `collection`.
 - **Admin Shop tab (admin-only)**: toggle delivery on/off, shop centre lat/lng
   (default Worcester CBD `-33.646, 19.448`), free radius (default 3 km),
   standard-fee radius (default 10 km), standard fee (default R85), beyond fee
-  (default R95) and the delivery minimum (default R200). The same tab holds the
+  (default R95) and the free-delivery food threshold (default R200). The same tab holds the
   **Shop** hours panel — daily open/close (`10:00`–`21:00`), online ordering
   on/off and a force-open override, with a live OPEN/CLOSED badge. Settings are
   stored in a `Setting` key/value table; invalid values are rejected with 400.

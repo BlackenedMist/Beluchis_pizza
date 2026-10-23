@@ -324,7 +324,7 @@
         <label>Delivery address</label>
         <input name="deliveryAddress" placeholder="House no &amp; street, suburb, Worcester" />
         <button type="button" class="ghost" data-action="use-location" style="margin-top:6px;padding:6px 12px;font-size:12.5px;">&#128205; Use my current location</button>
-        <div class="hint" id="geo-hint">Free delivery within 3km &middot; R85 3&ndash;10km &middot; R95 beyond &middot; R200 minimum delivery order. No address = collection.</div>
+        <div class="hint" id="geo-hint">Free within 3km on food orders from R200 &middot; R85 to 10km &middot; R95 beyond &middot; No address = collection.</div>
         <div class="hint" id="geo-status" hidden></div>
       </div>
       <div class="field"><label>Notes (optional)</label><textarea name="notes" rows="2" placeholder="e.g. call on arrival, extra napkins"></textarea></div>
@@ -384,6 +384,17 @@ function classifyGeo(lat, lng) {
   return { status: "beyond", km, fee: deliveryCfg.beyondFeeAmount };
 }
 
+// The free radius alone is not enough: the food subtotal must also reach the
+// free-delivery threshold. Otherwise the standard fee applies inside 3km too.
+function classifyGeoForCart(lat, lng) {
+  const g = classifyGeo(lat, lng);
+  const threshold = Number(deliveryCfg?.minOrderAmount || 0);
+  if (g.status === "free" && threshold > 0 && Shop.gross() < threshold) {
+    return { ...g, status: "fee", fee: deliveryCfg.feeAmount, reason: "threshold" };
+  }
+  return g;
+}
+
 // Refresh the delivery hint + status block under the address field, and flip
 // the "collection vs delivery" copy depending on what we know.
 function refreshDeliveryHint() {
@@ -395,24 +406,32 @@ function refreshDeliveryHint() {
     return;
   }
   hint.textContent =
-    "Free delivery within " + deliveryCfg.freeRadiusKm + "km" +
-    (deliveryCfg.maxRadiusKm ? " \u00b7 R" + deliveryCfg.feeAmount + " delivery to " + deliveryCfg.maxRadiusKm + "km" : "") +
+    "Free within " + deliveryCfg.freeRadiusKm + "km" +
+    (deliveryCfg.minOrderAmount ? " on orders from R" + deliveryCfg.minOrderAmount : "") +
+    (deliveryCfg.maxRadiusKm ? " \u00b7 R" + deliveryCfg.feeAmount + " to " + deliveryCfg.maxRadiusKm + "km" : "") +
     (deliveryCfg.beyondFeeAmount != null ? " \u00b7 R" + deliveryCfg.beyondFeeAmount + " beyond" : "") +
-    (deliveryCfg.minOrderAmount ? " \u00b7 R" + deliveryCfg.minOrderAmount + " minimum delivery order" : "") +
     " \u00b7 No address = collection.";
   if (!status) return;
+  const addr = $("#checkout-form input[name=deliveryAddress]")?.value.trim();
   if (geo.lat == null || geo.lng == null) {
-    status.hidden = true;
+    if (addr && deliveryCfg.enabled !== false) {
+      status.hidden = false;
+      status.className = "hint";
+      status.textContent = "Delivery fee R" + deliveryCfg.feeAmount + " applies \u2014 share your location to confirm free delivery within " + deliveryCfg.freeRadiusKm + "km" +
+        (deliveryCfg.minOrderAmount > 0 ? " on orders from R" + deliveryCfg.minOrderAmount : "") + ".";
+    } else {
+      status.hidden = true;
+    }
     return;
   }
-  const g = classifyGeo(geo.lat, geo.lng);
-  const addr = $("#checkout-form input[name=deliveryAddress]")?.value.trim();
+  const g = classifyGeoForCart(geo.lat, geo.lng);
   let text = "";
   if (g.status === "beyond") {
     text = "\ud83d\ude9a " + g.km.toFixed(1) + " km \u00b7 R" + deliveryCfg.beyondFeeAmount + " delivery fee applies";
     status.className = "hint";
   } else if (g.status === "fee") {
-    text = "\ud83d\ude9a " + g.km.toFixed(1) + " km \u00b7 R" + deliveryCfg.feeAmount + " delivery fee applies";
+    text = "\ud83d\ude9a " + g.km.toFixed(1) + " km \u00b7 R" + deliveryCfg.feeAmount + " delivery fee applies" +
+      (g.reason === "threshold" ? " (free from R" + deliveryCfg.minOrderAmount + ")" : "");
     status.className = "hint";
   } else if (g.status === "free") {
     text = "\ud83d\ude9a " + g.km.toFixed(1) + " km from us \u00b7 free delivery \u2713";
@@ -993,20 +1012,23 @@ $("#checkout-modal").addEventListener("click", (e) => {
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       geo = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      const g = classifyGeo(geo.lat, geo.lng);
+      const g = classifyGeoForCart(geo.lat, geo.lng);
       geoStatus = g.status;
       loc.disabled = false;
       loc.textContent = "\ud83d\udccd Use my current location";
       $("#geo-hint").textContent = "Location captured (" + pos.coords.latitude.toFixed(4) + ", " + pos.coords.longitude.toFixed(4) + ")";
       refreshDeliveryHint();
+      refreshCheckoutSummary();
     },
     () => {
       geo = { lat: null, lng: null };
-      geoStatus = null;
+      const typedAddr = $("#checkout-form input[name=deliveryAddress]")?.value.trim();
+      geoStatus = typedAddr ? "unverified" : null;
       loc.disabled = false;
       loc.textContent = "\ud83d\udccd Use my current location";
       $("#geo-hint").textContent = "Couldn\u2019t get your location \u2014 please type your address instead (delivery is confirmed by the shop).";
       $("#geo-status").hidden = true;
+      refreshCheckoutSummary();
     },
     { timeout: 8000 }
   );
@@ -1015,12 +1037,16 @@ $("#checkout-modal").addEventListener("click", (e) => {
 // Keep the delivery status honest as the address is typed/cleared.
 $("#checkout-modal").addEventListener("input", (e) => {
   if (!e.target.matches("#checkout-form input[name=deliveryAddress]")) return;
+  const typed = e.target.value.trim();
   // Typing a different address invalidates the saved/captured coordinates.
-  if (CUSTOMER && e.target.value.trim() !== String(CUSTOMER.addressLabel || "").trim()) {
+  if (CUSTOMER && typed !== String(CUSTOMER.addressLabel || "").trim()) {
     geo = { lat: null, lng: null };
-    geoStatus = null;
   }
+  geoStatus = geo.lat != null && geo.lng != null
+    ? classifyGeoForCart(geo.lat, geo.lng).status
+    : typed ? "unverified" : null;
   refreshDeliveryHint();
+  refreshCheckoutSummary();
 });
 
 document.addEventListener("click", (e) => {
@@ -1072,7 +1098,9 @@ function fillCheckoutAccount() {
     geo = Number.isFinite(savedLat) && Number.isFinite(savedLng)
       ? { lat: savedLat, lng: savedLng }
       : { lat: null, lng: null };
-    geoStatus = geo.lat != null && geo.lng != null ? classifyGeo(geo.lat, geo.lng).status : null;
+    geoStatus = geo.lat != null && geo.lng != null
+      ? classifyGeoForCart(geo.lat, geo.lng).status
+      : addr?.value.trim() ? "unverified" : null;
 
     if (banner) {
       const name = `${CUSTOMER.firstName || ""} ${CUSTOMER.lastName || ""}`.trim();
@@ -1105,6 +1133,23 @@ function fillCheckoutAccount() {
   }
 }
 
+function checkoutSummaryText() {
+  const gross = Shop.gross();
+  const dealSaving = Shop.deals().saving;
+  const count = CART.reduce((s, l) => s + l.qty, 0);
+  let summary = count + " item" + (count === 1 ? "" : "s") + " \u00b7 " + money(gross);
+  if (dealSaving > 0) summary += " \u2212 deal saving " + money(dealSaving) + " = " + money(gross - dealSaving);
+  if (geoStatus === "fee" && deliveryCfg) summary += " + R" + deliveryCfg.feeAmount + " delivery";
+  if (geoStatus === "beyond" && deliveryCfg) summary += " + R" + deliveryCfg.beyondFeeAmount + " delivery";
+  if (geoStatus === "unverified" && deliveryCfg) summary += " + R" + deliveryCfg.feeAmount + " delivery (to confirm)";
+  return summary;
+}
+
+function refreshCheckoutSummary() {
+  const el = $("#checkout-summary");
+  if (el) el.textContent = checkoutSummaryText();
+}
+
 function openCheckout() {
   if (!CART.length) { toast("Your cart is empty"); return; }
   if (shopCfg && shopCfg.onlineEnabled === false) { toast("Online ordering is paused right now \u2014 please call us."); return; }
@@ -1120,15 +1165,6 @@ function openCheckout() {
   $("#checkout-overlay").hidden = false;
   fillCheckoutAccount();
 
-  const gross = Shop.gross();
-  const dealSaving = Shop.deals().saving;
-  const count = CART.reduce((s, l) => s + l.qty, 0);
-  let summary = count + " item" + (count === 1 ? "" : "s") + " \u00b7 " + money(gross);
-  if (dealSaving > 0) summary += " \u2212 deal saving " + money(dealSaving) + " = " + money(gross - dealSaving);
-  if (geoStatus === "fee" && deliveryCfg) summary += " + R" + deliveryCfg.feeAmount + " delivery";
-  if (geoStatus === "beyond" && deliveryCfg) summary += " + R" + deliveryCfg.beyondFeeAmount + " delivery";
-  $("#checkout-summary").textContent = summary;
-
   // Unregistered (guest) customers may only place collection orders.
   const addr = $("#checkout-form input[name=deliveryAddress]");
   const loc = $("#checkout-form button[data-action=\"use-location\"]");
@@ -1143,6 +1179,7 @@ function openCheckout() {
     if (addr) { addr.disabled = false; addr.placeholder = "House no & street, suburb, Worcester"; }
     if (loc) loc.disabled = false;
   }
+  refreshCheckoutSummary();
 }
 
 $("#checkout-overlay").addEventListener("change", (e) => {
@@ -1188,17 +1225,6 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
   btn.textContent = "Placing\u2026";
   const errEl = $("#checkout-error");
   errEl.hidden = true;
-
-  // Client-side delivery guard (server enforces this too).
-  const wantsDelivery = Boolean(payload.deliveryAddress) || (geo.lat != null && geo.lng != null);
-  const minDelivery = Number(deliveryCfg?.minOrderAmount || 0);
-  if (wantsDelivery && deliveryCfg?.enabled && minDelivery > 0 && Shop.gross() < minDelivery) {
-    errEl.textContent = "Delivery orders require a minimum food order of R" + minDelivery + ". Please add more items or choose collection.";
-    errEl.hidden = false;
-    btn.disabled = false;
-    btn.textContent = "Place Order";
-    return;
-  }
 
   try {
     const res = await fetch("/api/orders", {

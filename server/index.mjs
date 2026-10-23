@@ -221,37 +221,44 @@ const getShopStatus = async (now = new Date()) => {
 };
 
 // Decide how a delivery request should be handled. Returns:
-//   { ok, status, distanceKm, fee, minOrderAmount, reason }
-// 0..freeRadiusKm          -> free
+//   { ok, status, distanceKm, fee, minOrderAmount, standardFee, reason }
+// <=freeRadiusKm            -> free *only* when the food subtotal meets
+//                              minOrderAmount; below that the standard fee
+//                              applies even inside the free radius.
 // freeRadiusKm..maxRadiusKm -> feeAmount
 // beyond maxRadiusKm        -> beyondFeeAmount (there is no hard cutoff)
+// No GPS                    -> unverified; the standard fee applies and the
+//                              shop confirms the address/rate with the caller.
 const classifyDelivery = async ({ deliveryAddress, lat, lng }) => {
   const cfg = await getDeliveryConfig();
   const hasCoords = Number.isFinite(nOr(lat)) && Number.isFinite(nOr(lng));
   const wantsDelivery = Boolean(deliveryAddress?.trim()) || hasCoords;
   const minOrderAmount = cfg.enabled ? cfg.minOrderAmount : 0;
+  const standardFee = cfg.enabled ? cfg.feeAmount : 0;
   if (!wantsDelivery)
-    return { ok: true, status: "collection", distanceKm: null, fee: 0, minOrderAmount, reason: null };
+    return { ok: true, status: "collection", distanceKm: null, fee: 0, minOrderAmount, standardFee, reason: null };
 
-  // Address only (no GPS captured): can't verify distance - treated as
-  // unverified delivery, but the R200 minimum still applies. The restaurant
-  // may still send a driver.
+  // Address only (no GPS captured): can't prove the free radius, so the
+  // standard fee applies. The shop confirms the address and rate by phone.
   if (!hasCoords)
-    return { ok: true, status: "unverified", distanceKm: null, fee: 0, minOrderAmount, reason: null };
+    return { ok: true, status: "unverified", distanceKm: null, fee: standardFee, minOrderAmount, standardFee, reason: null };
 
-  if (!cfg.enabled || cfg.shop.lat == null || cfg.shop.lng == null)
-    return { ok: true, status: "unverified", distanceKm: null, fee: 0, minOrderAmount, reason: "delivery not configured" };
+  if (!cfg.enabled)
+    return { ok: true, status: "unverified", distanceKm: null, fee: 0, minOrderAmount, standardFee, reason: "delivery disabled" };
+
+  if (cfg.shop.lat == null || cfg.shop.lng == null)
+    return { ok: true, status: "unverified", distanceKm: null, fee: standardFee, minOrderAmount, standardFee, reason: "delivery not configured" };
 
   const dist = distanceKm(cfg.shop.lat, cfg.shop.lng, lat, lng);
   if (dist == null)
-    return { ok: true, status: "unverified", distanceKm: null, fee: 0, minOrderAmount, reason: "delivery not configured" };
+    return { ok: true, status: "unverified", distanceKm: null, fee: standardFee, minOrderAmount, standardFee, reason: "delivery not configured" };
 
   const rounded = Math.round(dist * 100) / 100;
   if (dist <= cfg.freeRadiusKm)
-    return { ok: true, status: "free", distanceKm: rounded, fee: 0, minOrderAmount, reason: null };
+    return { ok: true, status: "free", distanceKm: rounded, fee: 0, minOrderAmount, standardFee, reason: null };
   if (dist <= cfg.maxRadiusKm)
-    return { ok: true, status: "fee", distanceKm: rounded, fee: cfg.feeAmount, minOrderAmount, reason: null };
-  return { ok: true, status: "beyond", distanceKm: rounded, fee: cfg.beyondFeeAmount, minOrderAmount, reason: null };
+    return { ok: true, status: "fee", distanceKm: rounded, fee: cfg.feeAmount, minOrderAmount, standardFee, reason: null };
+  return { ok: true, status: "beyond", distanceKm: rounded, fee: cfg.beyondFeeAmount, minOrderAmount, standardFee, reason: null };
 };
 
 // Validate + normalize a settings payload, throwing an HTTP 400 on bad values.
@@ -1572,9 +1579,11 @@ app.post(
       }
     }
 
-    // Delivery pricing: a free circle, a standard-fee band, then a "beyond"
-    // fee with no hard cutoff. No GPS captured means "unverified" - the
-    // restaurant confirms the address and fee with the customer.
+    // Delivery pricing: free inside the free radius only when the food
+    // subtotal meets the threshold; otherwise the standard-fee band applies,
+    // then a "beyond" fee with no hard cutoff. No GPS captured means
+    // "unverified" - the standard fee applies and the restaurant confirms the
+    // address and rate with the customer.
     const delivery = await classifyDelivery({ deliveryAddress, lat, lng });
 
     // Unregistered (guest) customers may only place collection orders.
@@ -1775,15 +1784,12 @@ app.post(
     }
 
     const foodSubtotal = rows.reduce((sum, r) => sum + r.total, 0);
-    // Delivery minimum is enforced against the food value before the delivery
-    // fee. Collection is exempt.
-    if (delivery.status !== "collection" && delivery.minOrderAmount > 0 && foodSubtotal < delivery.minOrderAmount) {
-      return res.status(400).json({
-        error: `Delivery orders require a minimum food order of R${delivery.minOrderAmount}. Please add more items or choose collection.`,
-        code: "delivery_minimum",
-        minOrderAmount: delivery.minOrderAmount,
-        foodSubtotal,
-      });
+    // Free delivery needs both: a food subtotal at least minOrderAmount and an
+    // address inside the free radius. Below the threshold, the standard fee
+    // applies even inside the free radius. There is no minimum-order block.
+    if (delivery.status === "free" && delivery.minOrderAmount > 0 && foodSubtotal < delivery.minOrderAmount) {
+      delivery.status = "fee";
+      delivery.fee = delivery.standardFee;
     }
     const deliveryFee = delivery.fee;
     // "Was" price - what the order costs with no deal and no coupon. Stored as
