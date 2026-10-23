@@ -324,7 +324,7 @@
         <label>Delivery address</label>
         <input name="deliveryAddress" placeholder="House no &amp; street, suburb, Worcester" />
         <button type="button" class="ghost" data-action="use-location" style="margin-top:6px;padding:6px 12px;font-size:12.5px;">&#128205; Use my current location</button>
-        <div class="hint" id="geo-hint">Free delivery within 3km &middot; R150 minimum order. No address = collection.</div>
+        <div class="hint" id="geo-hint">Free delivery within 3km &middot; R85 3&ndash;10km &middot; R95 beyond &middot; R200 minimum delivery order. No address = collection.</div>
         <div class="hint" id="geo-status" hidden></div>
       </div>
       <div class="field"><label>Notes (optional)</label><textarea name="notes" rows="2" placeholder="e.g. call on arrival, extra napkins"></textarea></div>
@@ -339,7 +339,6 @@
           <label class="pay-opt"><input type="radio" name="paymentMethod" value="cod_cash" checked /><span>Cash on delivery</span></label>
           <label class="pay-opt"><input type="radio" name="paymentMethod" value="cod_card" /><span>Card on delivery</span></label>
           <label class="pay-opt" data-pay="paygate" hidden><input type="radio" name="paymentMethod" value="paygate" /><span>Paid online now (PayGate)</span></label>
-          <label class="pay-opt" data-pay="payfast" hidden><input type="radio" name="paymentMethod" value="payfast" /><span>Paid online now (PayFast)</span></label>
         </div>
         <div class="hint" id="pay-hint">Pay cash when your order arrives.</div>
       </div>
@@ -380,9 +379,9 @@ function classifyGeo(lat, lng) {
     return { status: "unverified", km: null, fee: 0 };
   }
   const km = Math.round(distanceKm(deliveryCfg.shop.lat, deliveryCfg.shop.lng, lat, lng) * 100) / 100;
-  if (km > deliveryCfg.maxRadiusKm) return { status: "out", km, fee: 0 };
-  if (km > deliveryCfg.freeRadiusKm) return { status: "fee", km, fee: deliveryCfg.feeAmount };
-  return { status: "free", km, fee: 0 };
+  if (km <= deliveryCfg.freeRadiusKm) return { status: "free", km, fee: 0 };
+  if (km <= deliveryCfg.maxRadiusKm) return { status: "fee", km, fee: deliveryCfg.feeAmount };
+  return { status: "beyond", km, fee: deliveryCfg.beyondFeeAmount };
 }
 
 // Refresh the delivery hint + status block under the address field, and flip
@@ -397,7 +396,9 @@ function refreshDeliveryHint() {
   }
   hint.textContent =
     "Free delivery within " + deliveryCfg.freeRadiusKm + "km" +
-    (deliveryCfg.maxRadiusKm ? " \u00b7 R" + deliveryCfg.feeAmount + " delivery fee to " + deliveryCfg.maxRadiusKm + "km" : "") +
+    (deliveryCfg.maxRadiusKm ? " \u00b7 R" + deliveryCfg.feeAmount + " delivery to " + deliveryCfg.maxRadiusKm + "km" : "") +
+    (deliveryCfg.beyondFeeAmount != null ? " \u00b7 R" + deliveryCfg.beyondFeeAmount + " beyond" : "") +
+    (deliveryCfg.minOrderAmount ? " \u00b7 R" + deliveryCfg.minOrderAmount + " minimum delivery order" : "") +
     " \u00b7 No address = collection.";
   if (!status) return;
   if (geo.lat == null || geo.lng == null) {
@@ -407,9 +408,9 @@ function refreshDeliveryHint() {
   const g = classifyGeo(geo.lat, geo.lng);
   const addr = $("#checkout-form input[name=deliveryAddress]")?.value.trim();
   let text = "";
-  if (g.status === "out") {
-    text = "\u26a0\ufe0f " + g.km.toFixed(1) + " km from us \u2014 outside our " + deliveryCfg.maxRadiusKm + " km range. Please choose collection.";
-    status.className = "hint warn";
+  if (g.status === "beyond") {
+    text = "\ud83d\ude9a " + g.km.toFixed(1) + " km \u00b7 R" + deliveryCfg.beyondFeeAmount + " delivery fee applies";
+    status.className = "hint";
   } else if (g.status === "fee") {
     text = "\ud83d\ude9a " + g.km.toFixed(1) + " km \u00b7 R" + deliveryCfg.feeAmount + " delivery fee applies";
     status.className = "hint";
@@ -436,7 +437,7 @@ let specQty = new Map();
 let geo = { lat: null, lng: null };
 let deliveryCfg = null;
 let shopCfg = null;
-let geoStatus = null; // "free" | "fee" | "out" | "unverified" | null
+let geoStatus = null; // "free" | "fee" | "beyond" | "unverified" | null
 
 const CART = Shop.cart;
 const lineKey = Shop.lineKey;
@@ -487,7 +488,7 @@ function renderMenu() {
   }
 
   if (SPECIALS.length) {
-    parts.push('<h2 style="margin:0 0 10px;font-size:18px;">Specials</h2>');
+    parts.push('<h2 style="margin:0 0 10px;font-size:18px;">Deals</h2>');
     parts.push('<div class="specials">' + SPECIALS.map((s) => {
       const bogo = s.kind === "bogo";
       // Fixed-price deals are never added as a cart line - they price
@@ -996,13 +997,8 @@ $("#checkout-modal").addEventListener("click", (e) => {
       geoStatus = g.status;
       loc.disabled = false;
       loc.textContent = "\ud83d\udccd Use my current location";
-      if (g.status === "out") {
-        $("#geo-hint").textContent = "You\u2019re " + g.km.toFixed(1) + " km away \u2014 outside our " + deliveryCfg.maxRadiusKm + " km range. Please choose collection.";
-        $("#geo-status").hidden = true;
-      } else {
-        $("#geo-hint").textContent = "Location captured (" + pos.coords.latitude.toFixed(4) + ", " + pos.coords.longitude.toFixed(4) + ")";
-        refreshDeliveryHint();
-      }
+      $("#geo-hint").textContent = "Location captured (" + pos.coords.latitude.toFixed(4) + ", " + pos.coords.longitude.toFixed(4) + ")";
+      refreshDeliveryHint();
     },
     () => {
       geo = { lat: null, lng: null };
@@ -1130,7 +1126,7 @@ function openCheckout() {
   let summary = count + " item" + (count === 1 ? "" : "s") + " \u00b7 " + money(gross);
   if (dealSaving > 0) summary += " \u2212 deal saving " + money(dealSaving) + " = " + money(gross - dealSaving);
   if (geoStatus === "fee" && deliveryCfg) summary += " + R" + deliveryCfg.feeAmount + " delivery";
-  if (geoStatus === "out" && deliveryCfg) summary += " \u00b7 \u26a0\ufe0f outside delivery range";
+  if (geoStatus === "beyond" && deliveryCfg) summary += " + R" + deliveryCfg.beyondFeeAmount + " delivery";
   $("#checkout-summary").textContent = summary;
 
   // Unregistered (guest) customers may only place collection orders.
@@ -1155,7 +1151,6 @@ $("#checkout-overlay").addEventListener("change", (e) => {
     cod_cash: "Pay cash when your order arrives.",
     cod_card: "Bring your card - we\u2019ll swipe or tap it on delivery.",
     paygate: "You\u2019ll be redirected to PayGate\u2019s secure page to pay now.",
-    payfast: "You\u2019ll be redirected to PayFast\u2019s secure page to pay now.",
   };
   $("#pay-hint").textContent = hints[e.target.value] || "";
 });
@@ -1195,9 +1190,10 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
   errEl.hidden = true;
 
   // Client-side delivery guard (server enforces this too).
-  const g = geo.lat != null && geo.lng != null ? classifyGeo(geo.lat, geo.lng) : null;
-  if (g && g.status === "out") {
-    errEl.textContent = "Your location is " + g.km.toFixed(1) + " km from Beluchis \u2014 outside our " + deliveryCfg.maxRadiusKm + " km delivery range. Please choose collection, or clear the delivery address.";
+  const wantsDelivery = Boolean(payload.deliveryAddress) || (geo.lat != null && geo.lng != null);
+  const minDelivery = Number(deliveryCfg?.minOrderAmount || 0);
+  if (wantsDelivery && deliveryCfg?.enabled && minDelivery > 0 && Shop.gross() < minDelivery) {
+    errEl.textContent = "Delivery orders require a minimum food order of R" + minDelivery + ". Please add more items or choose collection.";
     errEl.hidden = false;
     btn.disabled = false;
     btn.textContent = "Place Order";
@@ -1222,7 +1218,7 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
     $("#cart-drawer").classList.remove("open");
     const pay = data.grandTotal != null ? data.grandTotal : data.total;
     if (data.redirect) {
-      const providerName = data.redirect.provider === "paygate" ? "PayGate" : "PayFast";
+      const providerName = data.redirect.provider === "paygate" ? "PayGate" : "our secure payment provider";
       $("#checkout-modal").innerHTML =
         '<div class="success-box"><div class="big">&#128274;</div>' +
         "<h3>Redirecting to secure payment\u2026</h3>" +

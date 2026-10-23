@@ -117,8 +117,11 @@ npm run seed         # load the demo catalog (idempotent)
   `PUBLIC_BASE_URL/paygate/notify` and redirect the customer to
   `PUBLIC_BASE_URL/paygate/return`.
 - PayFast is **legacy and dormant**. Its callbacks remain so historical
-  `payfast` orders can still be reconciled, but it is only offered if PayGate
-  is not configured and PayFast credentials are present.
+  `payfast` orders can still be reconciled, but it is never offered at checkout.
+- Online orders are saved as `awaiting_payment` and stay out of the staff queue
+  until PayGate confirms the money. The confirmation email is held too. Unpaid
+  orders auto-cancel after 30 minutes; a late approval re-queues the order with
+  a staff-visible review note instead of dropping the payment.
 
 #### PayGate troubleshooting
 
@@ -191,30 +194,34 @@ or mark delivered, and the kitchen daemon (`kitchen/`) holds just the
   only usable by that logged-in customer. Discount: percent → `round(subtotal×v/100)`;
   rand → `min(v, subtotal)`; `grandTotal = subtotal − discount`.
 
-Delivery radius (added day 6):
+Delivery pricing (Shop tab):
 
-- **Storefront**: the checkout delivery-address field shows a live hint — free
-  delivery inside the free radius, the flat fee + estimated km between radii, or
-  an out-of-range warning that blocks the order. If the browser shares location
-  (> 8s timeout), the estimate uses GPS; otherwise it falls back to plain
-  address mode. Address without GPS is accepted as "unverified" (treated as
-  collection), never blocked.
+- **Storefront**: the checkout address field shows a live hint and estimated
+  fee. Free inside the free radius, the standard fee up to the standard-fee
+  radius, and the "beyond" fee after that (there is no hard cutoff). If the
+  browser shares location (> 8s timeout), the estimate uses GPS; otherwise it
+  falls back to plain address mode. Address without GPS is accepted as
+  "unverified" — the shop confirms the distance and fee with the customer.
 - **Server**: `POST /api/orders` takes `deliveryLat`/`deliveryLng` (legacy
   `lat`/`lng` also accepted) and runs Haversine against the shop centre.
-  ≤ `freeRadiusKm` → `free` (no fee); between radii → `fee` (added to `total`);
-  beyond `maxRadiusKm` → HTTP 400 `{ code: "delivery_out_of_range", distanceKm }`.
-  Address without GPS → `unverified`; no address/coords → `collection`.
-- **Admin Delivery tab (admin-only)**: toggle delivery on/off, shop centre
-  lat/lng (default Worcester CBD `-33.646, 19.448`), free radius (default 3 km),
-  max radius (default 10 km), flat fee between radii (default R30). The same tab
-  holds the **Shop** hours panel — daily open/close (`10:00`–`21:00`), online
-  ordering on/off and a force-open override, with a live OPEN/CLOSED badge.
-  Settings are stored in a `Setting` key/value table; invalid values are rejected
-  with 400. Orders with a delivery status show a Free-delivery / fee / unverified
+  ≤ `freeRadiusKm` → `free`; up to `maxRadiusKm` → `fee`; beyond →
+  `beyond` (the `beyondFeeAmount` is added to `total`). The food subtotal
+  (before the delivery fee) must meet `minOrderAmount` for delivery orders;
+  collection is exempt. Address without GPS → `unverified`; no address/coords →
+  `collection`.
+- **Admin Shop tab (admin-only)**: toggle delivery on/off, shop centre lat/lng
+  (default Worcester CBD `-33.646, 19.448`), free radius (default 3 km),
+  standard-fee radius (default 10 km), standard fee (default R85), beyond fee
+  (default R95) and the delivery minimum (default R200). The same tab holds the
+  **Shop** hours panel — daily open/close (`10:00`–`21:00`), online ordering
+  on/off and a force-open override, with a live OPEN/CLOSED badge. Settings are
+  stored in a `Setting` key/value table; invalid values are rejected with 400.
+  Orders with a delivery status show a Free-delivery / fee / beyond / unverified
   badge.
 
-Order statuses: `placed`, `preparing`, `out_for_delivery`, `delivered`, `cancelled`.
-Status changes append an `OrderStatusEvent` (shown as a timeline to the customer).
+Order statuses: `awaiting_payment`, `placed`, `preparing`, `out_for_delivery`,
+`delivered`, `cancelled`. Status changes append an `OrderStatusEvent` (shown as
+a timeline to the customer).
 Role-gating in the UI matches the server (`requireRole`); storefront ordering is public.
 
 ## Phase 2 — shoppable home, seasonal swaps, hours, BOGO & favourites
@@ -345,8 +352,9 @@ relations. Menu migrations used: `init`, `add_customers_orders`, `add_specials`,
 `payRequestId`, `txnId`, `resultCode`, `resultDesc`,
 plus the delivery fields `deliveryLat`, `deliveryLng`, `deliveryAddress`,
 `deliveryDistance`, `deliveryFee`, `deliveryStatus`. `Setting` holds the
-delivery radius policy (`shop.lat`, `shop.lng`, `delivery.freeRadiusKm`,
-`delivery.maxRadiusKm`, `delivery.feeAmount`, `delivery.enabled`) plus the
+delivery pricing policy (`shop.lat`, `shop.lng`, `delivery.freeRadiusKm`,
+`delivery.maxRadiusKm`, `delivery.feeAmount`, `delivery.beyondFeeAmount`,
+`delivery.minOrderAmount`, `delivery.enabled`) plus the
 trading-hours policy (`shop.openTime`, `shop.closeTime`, `shop.onlineEnabled`,
 `shop.forceOpen`), seeded with Worcester-CBD defaults and recreated by the seeder
 (upsert preserves admin edits on re-seed).

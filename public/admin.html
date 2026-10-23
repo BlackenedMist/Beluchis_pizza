@@ -193,6 +193,7 @@
     display: inline-block; border-radius: 20px; padding: 3px 10px;
     font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; color: #fff;
   }
+  .s-awaiting_payment{ background: #9a6700; }
   .s-placed          { background: #ef6c00; }
   .s-preparing       { background: #1976d2; }
   .s-out_for_delivery{ background: #6a1b9a; }
@@ -225,6 +226,7 @@
   }
   .status-tally button.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+  .dot.awaiting_payment { background: #9a6700; }
   .dot.placed           { background: #ef6c00; }
   .dot.preparing        { background: #1976d2; }
   .dot.out_for_delivery { background: #6a1b9a; }
@@ -317,8 +319,9 @@ const ROLES = {
   cashier: "Cashier",
   driver: "Driver",
 };
-const STATUSES = ["placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
+const STATUSES = ["awaiting_payment", "placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
 const STATUS_NAMES = {
+  awaiting_payment: "Awaiting payment",
   placed: "Placed",
   preparing: "Preparing",
   out_for_delivery: "Out for delivery",
@@ -326,6 +329,7 @@ const STATUS_NAMES = {
   cancelled: "Cancelled",
 };
 const STATUS_FLOW = {
+  awaiting_payment: [],
   placed: ["preparing"],
   preparing: ["out_for_delivery"],
   out_for_delivery: ["delivered"],
@@ -420,7 +424,8 @@ function orderActions(order) {
 
 async function loadOrders() {
   try {
-    const orders = await api("/api/orders");
+    const includePending = state.me?.role === "admin" || state.me?.role === "orders";
+    const orders = await api(`/api/orders${includePending ? "?includePending=1" : ""}`);
     state.orders = orders;
     renderOrders();
   } catch (e) {
@@ -471,6 +476,8 @@ function renderOrders() {
       chip = `<span class="tag ok">Free delivery${o.deliveryDistance != null ? " \u00b7 " + o.deliveryDistance.toFixed(1) + "km" : ""}</span>`;
     else if (o.deliveryStatus === "fee")
       chip = `<span class="tag warn">R${o.deliveryFee} delivery${o.deliveryDistance != null ? " \u00b7 " + o.deliveryDistance.toFixed(1) + "km" : ""}</span>`;
+    else if (o.deliveryStatus === "beyond")
+      chip = `<span class="tag warn">R${o.deliveryFee} delivery beyond zone${o.deliveryDistance != null ? " \u00b7 " + o.deliveryDistance.toFixed(1) + "km" : ""}</span>`;
     else if (o.deliveryStatus === "unverified")
       chip = `<span class="tag off">Delivery unverified \u2014 confirm range</span>`;
     if (!o.deliveryAddress) return `<span class="dot placed" style="background:#616161"></span>Collection <span class='muted'>(call to collect)</span> ${chip}`;
@@ -1933,7 +1940,7 @@ async function loadSettings() {
   } catch (e) { toast(e.message, true); }
 }
 
-const ringSVG = (freeKm, maxKm) => {
+const ringSVG = (freeKm, maxKm, fee) => {
   const size = 180, cx = 90, cy = 90, r = 80;
   const safeMax = Math.max(maxKm, 0.1);
   const inner = freeKm > 0 ? Math.min(r - 4, (freeKm / safeMax) * r) : r - 4;
@@ -1942,7 +1949,7 @@ const ringSVG = (freeKm, maxKm) => {
     <circle cx="${cx}" cy="${cy}" r="${inner}" fill="#e6f4ea" stroke="#2e7d32" stroke-width="2"/>
     <circle cx="${cx}" cy="${cy}" r="5" fill="#b3351f"/>
     <text x="${cx}" y="${cy - inner - 8}" text-anchor="middle" font-size="11" fill="#2e7d32">Free ${freeKm}km</text>
-    <text x="${cx}" y="${cy + r + 16}" text-anchor="middle" font-size="11" fill="#9a6a00">Max ${maxKm}km</text>
+    <text x="${cx}" y="${cy + r + 16}" text-anchor="middle" font-size="11" fill="#9a6a00">R${fee} to ${maxKm}km</text>
   </svg>`;
 };
 
@@ -1953,7 +1960,9 @@ function renderDelivery() {
   const get = (k, fb) => (k in s ? s[k] : fb);
   const freeKm = Number(get("delivery.freeRadiusKm", 3)) || 0;
   const maxKm = Number(get("delivery.maxRadiusKm", 10)) || 0;
-  const fee = Number(get("delivery.feeAmount", 30)) || 0;
+  const fee = Number(get("delivery.feeAmount", 85)) || 0;
+  const beyondFee = Number(get("delivery.beyondFeeAmount", 95)) || 0;
+  const minOrder = Number(get("delivery.minOrderAmount", 200)) || 0;
   const enabled = state.delivery ? Boolean(state.delivery.enabled) : true;
   const batch = enabled && Number(get("shop.lat", 0)) && Number(get("shop.lng", 0));
   const shop = state.shop || {};
@@ -1984,11 +1993,11 @@ function renderDelivery() {
       </div>
       <div class="card" style="padding:14px;text-align:center;align-self:flex-start">
         <h3 style="margin:0 0 6px;font-size:14px">Radius preview</h3>
-        ${ringSVG(freeKm, maxKm)}
-        <div class="muted" style="font-size:12px">Inner: free ${freeKm}km &middot; Outer: max ${maxKm}km</div>
+        ${ringSVG(freeKm, maxKm, fee)}
+        <div class="muted" style="font-size:12px">Free ${freeKm}km &middot; R${fee} to ${maxKm}km &middot; R${beyondFee} beyond</div>
       </div>
     </div>
-    <p class="hint" style="margin:14px 0 12px">Beluchis delivers inside a fixed radius around the shop. ${batch ? "Delivery is currently <b>on</b> for the storefront." : "Delivery is currently <b>paused</b>/unset &mdash; orders without an address fall back to collection."}</p>
+    <p class="hint" style="margin:14px 0 12px">Delivery is available at the rates below around the shop. ${batch ? "Delivery is currently <b>on</b> for the storefront." : "Delivery is currently <b>paused</b>/unset &mdash; orders without an address fall back to collection."}</p>
     <div class="row" style="align-items:flex-start;gap:20px">
       <div class="card" style="padding:16px;flex:1;min-width:300px">
         <label style="display:flex;align-items:center;gap:8px;font-weight:600"><input type="checkbox" id="f-del-enabled" ${enabled ? "checked" : ""} /> Delivery enabled</label>
@@ -1998,10 +2007,14 @@ function renderDelivery() {
         </div>
         <div class="row">
           <div class="field"><label>Free delivery radius (km)</label><input id="f-free-km" type="number" step="0.1" min="0.1" value="${freeKm}" /></div>
-          <div class="field"><label>Max delivery radius (km)</label><input id="f-max-km" type="number" step="0.1" min="0.1" value="${maxKm}" /></div>
+          <div class="field"><label>Standard-fee radius (km)</label><input id="f-max-km" type="number" step="0.1" min="0.1" value="${maxKm}" /></div>
         </div>
-        <div class="field"><label>Delivery fee (R) between radii</label><input id="f-fee" type="number" step="1" min="0" value="${fee}" /></div>
-        <div class="hint" style="margin-bottom:10px">Within the free radius &rarr; free. Between free and max radius &rarr; flat fee above. Beyond max radius &rarr; checkout is blocked with a "choose collection" message. No GPS captured &rarr; treated as collection ("unverified"), the shop may still send a driver.</div>
+        <div class="row">
+          <div class="field"><label>Delivery fee (R) from free radius to standard radius</label><input id="f-fee" type="number" step="1" min="0" value="${fee}" /></div>
+          <div class="field"><label>Fee (R) beyond standard radius</label><input id="f-beyond-fee" type="number" step="1" min="0" value="${beyondFee}" /></div>
+        </div>
+        <div class="field"><label>Minimum food order for delivery (R)</label><input id="f-min-order" type="number" step="1" min="0" value="${minOrder}" /></div>
+        <div class="hint" style="margin-bottom:10px">0&ndash;free radius &rarr; free. Free&ndash;standard radius &rarr; standard fee. Beyond the standard radius &rarr; the "beyond" fee (delivery still available). The minimum applies to food before the delivery fee; collection is exempt. No GPS captured &rarr; delivery is unverified, so the shop confirms the address and fee with the customer.</div>
         <button class="primary" onclick="saveSettings()">Save settings</button>
       </div>
       <div class="card" style="padding:16px;flex:1;min-width:300px">
@@ -2053,6 +2066,8 @@ window.saveSettings = async () => {
   settings["delivery.freeRadiusKm"] = $("#f-free-km").value.trim();
   settings["delivery.maxRadiusKm"] = $("#f-max-km").value.trim();
   settings["delivery.feeAmount"] = $("#f-fee").value.trim();
+  settings["delivery.beyondFeeAmount"] = $("#f-beyond-fee").value.trim();
+  settings["delivery.minOrderAmount"] = $("#f-min-order").value.trim();
   settings["mail.inviteSubject"] = $("#f-invite-subject").value.trim();
   settings["mail.inviteBody"] = $("#f-invite-body").value;
   const btn = event?.target;

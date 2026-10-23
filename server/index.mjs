@@ -43,10 +43,10 @@ const PAYFAST_ENABLED = Boolean(PAYFAST_ID && PAYFAST_KEY);
 const PAYFAST_PAYMENT_METHOD = process.env.PAYFAST_PAYMENT_METHOD || "";
 const payfastPassphrase = () => PAYFAST_PASSPHRASE;
 
-// PayGate PayWeb3 is the active online provider. PayFast remains available as
-// a dormant fallback for historical orders and is only offered if PayGate is
-// not configured and PayFast credentials are present.
-const onlinePaymentProvider = () => (PAYGATE_ENABLED ? "paygate" : PAYFAST_ENABLED ? "payfast" : null);
+// PayGate PayWeb3 is the active online provider. PayFast remains in the server
+// only so historical PayFast orders and callbacks can still be reconciled - it
+// is never offered to customers.
+const onlinePaymentProvider = () => (PAYGATE_ENABLED ? "paygate" : null);
 
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
 const PUBLIC_ORIGIN = (PUBLIC_BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
@@ -137,7 +137,9 @@ const DEFAULT_SETTINGS = {
   "shop.lng": "19.448",
   "delivery.freeRadiusKm": "3",
   "delivery.maxRadiusKm": "10",
-  "delivery.feeAmount": "30",
+  "delivery.feeAmount": "85",
+  "delivery.beyondFeeAmount": "95",
+  "delivery.minOrderAmount": "200",
   "delivery.enabled": "true",
   "shop.openTime": "10:00",
   "shop.closeTime": "21:00",
@@ -165,7 +167,9 @@ const getDeliveryConfig = async () => {
   const shopLng = await numSetting("shop.lng", null);
   const freeRadiusKm = await numSetting("delivery.freeRadiusKm", 3);
   const maxRadiusKm = await numSetting("delivery.maxRadiusKm", 10);
-  const feeAmount = await numSetting("delivery.feeAmount", 30);
+  const feeAmount = await numSetting("delivery.feeAmount", 85);
+  const beyondFeeAmount = await numSetting("delivery.beyondFeeAmount", 95);
+  const minOrderAmount = await numSetting("delivery.minOrderAmount", 200);
   const enabled = (await getSetting("delivery.enabled", "true")).toLowerCase() === "true";
   return {
     enabled,
@@ -173,14 +177,9 @@ const getDeliveryConfig = async () => {
     freeRadiusKm,
     maxRadiusKm,
     feeAmount: Math.max(0, feeAmount),
+    beyondFeeAmount: Math.max(0, beyondFeeAmount),
+    minOrderAmount: Math.max(0, minOrderAmount),
   };
-};
-
-// Distance (km) from the shop to a location, null when the shop isn't configured.
-const shopDistanceKm = async (lat, lng) => {
-  const cfg = await getDeliveryConfig();
-  if (!cfg.enabled || cfg.shop.lat == null || cfg.shop.lng == null) return null;
-  return distanceKm(cfg.shop.lat, cfg.shop.lng, lat, lng);
 };
 
 // Shop opening hours (single daily window, shop-local time). South Africa is
@@ -222,36 +221,37 @@ const getShopStatus = async (now = new Date()) => {
 };
 
 // Decide how a delivery request should be handled. Returns:
-//   { ok, status, distanceKm, fee, reason }
+//   { ok, status, distanceKm, fee, minOrderAmount, reason }
+// 0..freeRadiusKm          -> free
+// freeRadiusKm..maxRadiusKm -> feeAmount
+// beyond maxRadiusKm        -> beyondFeeAmount (there is no hard cutoff)
 const classifyDelivery = async ({ deliveryAddress, lat, lng }) => {
+  const cfg = await getDeliveryConfig();
   const hasCoords = Number.isFinite(nOr(lat)) && Number.isFinite(nOr(lng));
   const wantsDelivery = Boolean(deliveryAddress?.trim()) || hasCoords;
-  if (!wantsDelivery) return { ok: true, status: "collection", distanceKm: null, fee: 0, reason: null };
+  const minOrderAmount = cfg.enabled ? cfg.minOrderAmount : 0;
+  if (!wantsDelivery)
+    return { ok: true, status: "collection", distanceKm: null, fee: 0, minOrderAmount, reason: null };
 
-  // Address only (no GPS captured): can't verify range — treated as collection,
-  // the restaurant may still send a driver.
-  if (!hasCoords) return { ok: true, status: "unverified", distanceKm: null, fee: 0, reason: null };
+  // Address only (no GPS captured): can't verify distance - treated as
+  // unverified delivery, but the R200 minimum still applies. The restaurant
+  // may still send a driver.
+  if (!hasCoords)
+    return { ok: true, status: "unverified", distanceKm: null, fee: 0, minOrderAmount, reason: null };
 
-  const dist = await shopDistanceKm(lat, lng);
+  if (!cfg.enabled || cfg.shop.lat == null || cfg.shop.lng == null)
+    return { ok: true, status: "unverified", distanceKm: null, fee: 0, minOrderAmount, reason: "delivery not configured" };
+
+  const dist = distanceKm(cfg.shop.lat, cfg.shop.lng, lat, lng);
   if (dist == null)
-    return { ok: true, status: "unverified", distanceKm: null, fee: 0, reason: "delivery not configured" };
-
-  const cfg = await getDeliveryConfig();
-  if (!cfg.enabled)
-    return { ok: true, status: "unverified", distanceKm: null, fee: 0, reason: "delivery disabled" };
+    return { ok: true, status: "unverified", distanceKm: null, fee: 0, minOrderAmount, reason: "delivery not configured" };
 
   const rounded = Math.round(dist * 100) / 100;
-  if (dist > cfg.maxRadiusKm)
-    return {
-      ok: false,
-      status: "out_of_range",
-      distanceKm: rounded,
-      fee: 0,
-      reason: `Your address is ${rounded.toFixed(1)} km away - outside our ${cfg.maxRadiusKm} km delivery range. Please choose collection, or call us.`,
-    };
-  if (dist > cfg.freeRadiusKm)
-    return { ok: true, status: "fee", distanceKm: rounded, fee: cfg.feeAmount, reason: null };
-  return { ok: true, status: "free", distanceKm: rounded, fee: 0, reason: null };
+  if (dist <= cfg.freeRadiusKm)
+    return { ok: true, status: "free", distanceKm: rounded, fee: 0, minOrderAmount, reason: null };
+  if (dist <= cfg.maxRadiusKm)
+    return { ok: true, status: "fee", distanceKm: rounded, fee: cfg.feeAmount, minOrderAmount, reason: null };
+  return { ok: true, status: "beyond", distanceKm: rounded, fee: cfg.beyondFeeAmount, minOrderAmount, reason: null };
 };
 
 // Validate + normalize a settings payload, throwing an HTTP 400 on bad values.
@@ -273,6 +273,8 @@ const normalizeSettingsPayload = (raw) => {
     "delivery.freeRadiusKm",
     "delivery.maxRadiusKm",
     "delivery.feeAmount",
+    "delivery.beyondFeeAmount",
+    "delivery.minOrderAmount",
   ];
   for (const key of [...numKeys, ...boolKeys, ...timeKeys, ...textKeys]) {
     if (!(key in s)) continue;
@@ -299,6 +301,8 @@ const normalizeSettingsPayload = (raw) => {
     if ((key === "delivery.freeRadiusKm" || key === "delivery.maxRadiusKm") && n <= 0)
       throw badRequest(`${key} must be greater than 0`);
     if (key === "delivery.feeAmount" && n < 0) throw badRequest("delivery.feeAmount cannot be negative");
+    if (key === "delivery.beyondFeeAmount" && n < 0) throw badRequest("delivery.beyondFeeAmount cannot be negative");
+    if (key === "delivery.minOrderAmount" && n < 0) throw badRequest("delivery.minOrderAmount cannot be negative");
     out[key] = v;
   }
   if ("delivery.freeRadiusKm" in out && "delivery.maxRadiusKm" in out && nOr(out["delivery.maxRadiusKm"]) < nOr(out["delivery.freeRadiusKm"])) {
@@ -1122,6 +1126,8 @@ app.get(
       freeRadiusKm: cfg.freeRadiusKm,
       maxRadiusKm: cfg.maxRadiusKm,
       feeAmount: cfg.feeAmount,
+      beyondFeeAmount: cfg.beyondFeeAmount,
+      minOrderAmount: cfg.minOrderAmount,
     });
   })
 );
@@ -1157,6 +1163,8 @@ app.put("/api/settings", requireRole("admin"), asyncHandler(async (req, res) => 
     freeRadiusKm: cfg.freeRadiusKm,
     maxRadiusKm: cfg.maxRadiusKm,
     feeAmount: cfg.feeAmount,
+    beyondFeeAmount: cfg.beyondFeeAmount,
+    minOrderAmount: cfg.minOrderAmount,
   }, shop: await getShopStatus() });
 }));
 
@@ -1301,40 +1309,81 @@ const applyPaygateResult = async ({ params, rawBody = null, source }) => {
   }
 
   const outcome = paygateOutcome(params.get("TRANSACTION_STATUS"));
-  const alreadyPaid = order.paymentStatus === "paid";
-  const paymentStatus = alreadyPaid ? "paid" : outcome;
+  const result = await prisma.$transaction(async (tx) => {
+    const fresh = await tx.order.findUnique({ where: { id: order.id } });
+    if (!fresh) return null;
 
-  await prisma.order.update({
-    where: { id: order.id },
-    data: {
-      paymentStatus,
-      payRequestId: payRequestId || order.payRequestId,
-      txnId: params.get("TRANSACTION_ID") || order.txnId,
-      resultCode: params.get("RESULT_CODE") || order.resultCode,
-      resultDesc: params.get("RESULT_DESC") || order.resultDesc,
-    },
+    const alreadyPaid = fresh.paymentStatus === "paid";
+    const paymentStatus = alreadyPaid ? "paid" : outcome;
+    let nextStatus = fresh.status;
+    let queued = false;
+    let latePayment = false;
+    let cancelled = false;
+
+    if (!alreadyPaid && outcome === "paid") {
+      if (fresh.status === "awaiting_payment") {
+        nextStatus = "placed";
+        queued = true;
+      } else if (fresh.status === "cancelled") {
+        // A payment can arrive after the 30-minute expiry. Never drop money:
+        // re-queue it and leave a staff-visible note.
+        nextStatus = "placed";
+        queued = true;
+        latePayment = true;
+      }
+    } else if (!alreadyPaid && outcome === "failed" && fresh.status === "awaiting_payment") {
+      nextStatus = "cancelled";
+      cancelled = true;
+    }
+
+    const updated = await tx.order.update({
+      where: { id: fresh.id },
+      data: {
+        paymentStatus,
+        status: nextStatus,
+        payRequestId: payRequestId || fresh.payRequestId,
+        txnId: params.get("TRANSACTION_ID") || fresh.txnId,
+        resultCode: params.get("RESULT_CODE") || fresh.resultCode,
+        resultDesc: params.get("RESULT_DESC") || fresh.resultDesc,
+      },
+      include: orderIncludes,
+    });
+
+    if (queued) {
+      await tx.orderStatusEvent.create({
+        data: {
+          orderId: fresh.id,
+          status: "placed",
+          note: latePayment
+            ? "Payment confirmed after order was cancelled - review before preparing"
+            : "Payment confirmed",
+        },
+      });
+    } else if (cancelled) {
+      await tx.orderStatusEvent.create({
+        data: { orderId: fresh.id, status: "cancelled", note: "Payment failed" },
+      });
+    }
+
+    return { alreadyPaid, justPaid: !alreadyPaid && outcome === "paid", queued, latePayment, updated };
   });
 
-  // Best-effort payment confirmation, exactly once (a notify and return can
-  // both arrive for the same order).
-  if (outcome === "paid" && !alreadyPaid && order.customer?.email && mailEnabled()) {
-    const cust = order.customer;
-    const total = Number(order.grandTotal ?? order.total).toFixed(2);
-    sendMail({
-      to: cust.email,
-      subject: `Payment received for Beluchis order #${order.id}`,
-      text:
-        `Hi ${cust.firstName || "there"},\n\n` +
-        `We received your payment of R${total} for order #${order.id}.\n\n` +
-        `— The Beluchis team`,
-    }).catch(() => {});
+  if (!result) return { ok: false, reason: "unknown order" };
+  const { justPaid, updated } = result;
+
+  // The order-received email is held until an online payment is confirmed.
+  // Notify and return can both arrive; the transaction above makes this once.
+  if (justPaid && updated.customer?.email && mailEnabled()) {
+    const { subject, text, html } = buildOrderConfirmation(updated);
+    sendMail({ to: updated.customer.email, subject, text, html }).catch(() => {});
   }
 
   return {
     ok: true,
-    approved: paymentStatus === "paid",
-    pending: paymentStatus === "pending",
-    order: { ...order, paymentStatus },
+    approved: updated.paymentStatus === "paid",
+    pending: updated.paymentStatus === "pending",
+    latePayment: result.latePayment,
+    order: updated,
   };
 };
 
@@ -1379,8 +1428,20 @@ app.get(
   "/api/orders",
   requireAuth,
   requireRole("admin", "orders", "kitchen", "cashier", "driver"),
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    // Unpaid online orders are deliberately kept out of the kitchen/cashier/
+    // driver queue - including ones that failed and were cancelled. Admin/orders
+    // can opt in to see them for support, but the standalone kitchen poller
+    // calls this endpoint without the flag.
+    const canSeePending = req.session?.role === "admin" || req.session?.role === "orders";
+    const includePending = canSeePending && String(req.query.includePending || "") === "1";
     const rows = await prisma.order.findMany({
+      where: includePending ? {} : {
+        OR: [
+          { paymentMethod: { notIn: ["paygate", "payfast"] } },
+          { paymentStatus: "paid" },
+        ],
+      },
       orderBy: { createdAt: "desc" },
       include: orderIncludes,
     });
@@ -1486,13 +1547,13 @@ app.post(
     if (!PAYMENT_METHODS.has(paymentMethod))
       return res.status(400).json({ error: `paymentMethod must be one of ${[...PAYMENT_METHODS].join(", ")}` });
 
-    // Only the one configured online provider may be used. PayGate is the
-    // active provider; PayFast is a dormant fallback for old orders.
+    // Only PayGate may be used for new online orders. PayFast remains parseable
+    // for historical callbacks, but is not offered or accepted at checkout.
     const activeOnline = onlinePaymentProvider();
     if ((paymentMethod === "paygate" || paymentMethod === "payfast") && paymentMethod !== activeOnline) {
       return res.status(activeOnline ? 400 : 503).json({
         error: activeOnline
-          ? `Online payment is only available through ${activeOnline === "payfast" ? "PayFast" : "PayGate"}.`
+          ? "Online payment is only available through PayGate."
           : "Online payment is not configured on this server. Please choose cash or card on delivery.",
       });
     }
@@ -1511,12 +1572,10 @@ app.post(
       }
     }
 
-    // Delivery radius check: our policy is a free circle, a fee band up to a
-    // hard max radius, and "unverified" (treated as collection) when no GPS was
-    // captured - the restaurant can still send a driver for those.
+    // Delivery pricing: a free circle, a standard-fee band, then a "beyond"
+    // fee with no hard cutoff. No GPS captured means "unverified" - the
+    // restaurant confirms the address and fee with the customer.
     const delivery = await classifyDelivery({ deliveryAddress, lat, lng });
-    if (!delivery.ok)
-      return res.status(400).json({ error: delivery.reason, code: "delivery_out_of_range", distanceKm: delivery.distanceKm });
 
     // Unregistered (guest) customers may only place collection orders.
     const wantsDelivery = Boolean(deliveryAddress?.trim()) || Number.isFinite(nOr(lat)) || Number.isFinite(nOr(lng));
@@ -1716,6 +1775,16 @@ app.post(
     }
 
     const foodSubtotal = rows.reduce((sum, r) => sum + r.total, 0);
+    // Delivery minimum is enforced against the food value before the delivery
+    // fee. Collection is exempt.
+    if (delivery.status !== "collection" && delivery.minOrderAmount > 0 && foodSubtotal < delivery.minOrderAmount) {
+      return res.status(400).json({
+        error: `Delivery orders require a minimum food order of R${delivery.minOrderAmount}. Please add more items or choose collection.`,
+        code: "delivery_minimum",
+        minOrderAmount: delivery.minOrderAmount,
+        foodSubtotal,
+      });
+    }
     const deliveryFee = delivery.fee;
     // "Was" price - what the order costs with no deal and no coupon. Stored as
     // Order.total and shown struck through on every surface.
@@ -1761,7 +1830,11 @@ app.post(
     // Build the gateway request BEFORE the order is persisted so a gateway
     // failure leaves no orphan order. A fully-discounted order has nothing to
     // charge: mark it paid.
-    const onlineFree = (paymentMethod === "paygate" || paymentMethod === "payfast") && grandTotal <= 0;
+    const isOnlinePayment = paymentMethod === "paygate" || paymentMethod === "payfast";
+    const onlineFree = isOnlinePayment && grandTotal <= 0;
+    // A paid online order only joins the kitchen queue after PayGate confirms
+    // it. The row must exist before the redirect so callbacks can find it.
+    const orderStatus = isOnlinePayment && !onlineFree ? "awaiting_payment" : status;
     let payRef = null;
     let payRequestId = null;
     let payRedirect = null;
@@ -1815,7 +1888,7 @@ app.post(
       const created = await tx.order.create({
         data: {
           customerId: customer.id,
-          status,
+          status: orderStatus,
           paymentMethod,
           paymentStatus: onlineFree ? "paid" : "pending",
           payRef,
@@ -1833,7 +1906,11 @@ app.post(
           deliveryStatus: delivery.status,
           notes,
           items: { create: rows },
-          events: { create: [{ status: "placed", note: "Order received" }] },
+          events: {
+            create: [orderStatus === "awaiting_payment"
+              ? { status: "awaiting_payment", note: "Awaiting online payment" }
+              : { status: "placed", note: "Order received" }],
+          },
         },
       });
       if (coupon) {
@@ -1875,7 +1952,9 @@ app.post(
     const payload = publicOrder(full);
     if (payRedirect) payload.redirect = payRedirect;
     // Best-effort order confirmation email (never blocks checkout; fire & forget).
-    if (full.customer?.email && mailEnabled()) {
+    // Online orders wait for payment confirmation so an abandoned PayGate page
+    // does not email a customer an "order received" message.
+    if (full.customer?.email && mailEnabled() && full.status !== "awaiting_payment") {
       const { subject, text, html } = buildOrderConfirmation(full);
       sendMail({ to: full.customer.email, subject, text, html }).catch(() => {});
     }
@@ -1953,44 +2032,59 @@ const applyPayfastResult = async (params, rawBody = null) => {
   const status = String(payfastParam(params, "payment_status") || "").toUpperCase();
   const approved = status === "COMPLETE";
   const failed = status === "FAILED" || status === "CANCELLED";
-  const wasPaid = order.paymentStatus === "paid";
-  // Never downgrade a paid order. PayFast may send duplicate or late ITNs;
-  // once the money is in, only another COMPLETE may update the txn details.
-  const paymentStatus = wasPaid ? "paid" : approved ? "paid" : failed ? "failed" : order.paymentStatus || "pending";
-  const txnId = (approved || !order.txnId) ? (payfastParam(params, "pf_payment_id") || order.txnId) : order.txnId;
-  const resultCode = wasPaid && !approved ? order.resultCode : status || order.resultCode;
-  const resultDesc = wasPaid && !approved ? order.resultDesc : `PayFast ${status || "notification"}`;
 
-  await prisma.order.update({
-    where: { id: order.id },
-    data: {
-      paymentStatus,
-      txnId,
-      resultCode,
-      resultDesc,
-    },
+  const result = await prisma.$transaction(async (tx) => {
+    const fresh = await tx.order.findUnique({ where: { id: order.id } });
+    if (!fresh) return null;
+    const wasPaid = fresh.paymentStatus === "paid";
+    // Never downgrade a paid order. PayFast may send duplicate or late ITNs;
+    // once the money is in, only another COMPLETE may update the txn details.
+    const paymentStatus = wasPaid ? "paid" : approved ? "paid" : failed ? "failed" : fresh.paymentStatus || "pending";
+    const txnId = (approved || !fresh.txnId) ? (payfastParam(params, "pf_payment_id") || fresh.txnId) : fresh.txnId;
+    const resultCode = wasPaid && !approved ? fresh.resultCode : status || fresh.resultCode;
+    const resultDesc = wasPaid && !approved ? fresh.resultDesc : `PayFast ${status || "notification"}`;
+    let nextStatus = fresh.status;
+    let queued = false;
+    let cancelled = false;
+
+    if (!wasPaid && approved && (fresh.status === "awaiting_payment" || fresh.status === "cancelled")) {
+      nextStatus = "placed";
+      queued = true;
+    } else if (!wasPaid && failed && fresh.status === "awaiting_payment") {
+      nextStatus = "cancelled";
+      cancelled = true;
+    }
+
+    const updated = await tx.order.update({
+      where: { id: fresh.id },
+      data: { paymentStatus, status: nextStatus, txnId, resultCode, resultDesc },
+      include: orderIncludes,
+    });
+    if (queued) {
+      await tx.orderStatusEvent.create({
+        data: { orderId: fresh.id, status: "placed", note: "Payment confirmed" },
+      });
+    } else if (cancelled) {
+      await tx.orderStatusEvent.create({
+        data: { orderId: fresh.id, status: "cancelled", note: "Payment failed" },
+      });
+    }
+    return { wasPaid, justPaid: !wasPaid && approved, updated };
   });
 
-  // Best-effort payment confirmation when the gateway approves and we have an
-  // email. Only send it on the pending -> paid transition.
-  if (approved && !wasPaid && order.customer?.email && mailEnabled()) {
-    const cust = order.customer;
-    const total = Number(order.grandTotal ?? order.total).toFixed(2);
-    sendMail({
-      to: cust.email,
-      subject: `Payment received for Beluchis order #${order.id}`,
-      text:
-        `Hi ${cust.firstName || "there"},\n\n` +
-        `We received your payment of R${total} for order #${order.id}.\n\n` +
-        `— The Beluchis team`,
-    }).catch(() => {});
+  if (!result) return { ok: false, reason: "unknown order" };
+  const { updated } = result;
+  // Online order confirmations are held until payment is confirmed.
+  if (result.justPaid && updated.customer?.email && mailEnabled()) {
+    const { subject, text, html } = buildOrderConfirmation(updated);
+    sendMail({ to: updated.customer.email, subject, text, html }).catch(() => {});
   }
 
   return {
     ok: true,
-    approved: paymentStatus === "paid",
-    pending: paymentStatus === "pending",
-    order: { ...order, paymentStatus, txnId, resultCode, resultDesc },
+    approved: updated.paymentStatus === "paid",
+    pending: updated.paymentStatus === "pending",
+    order: updated,
   };
 };
 
@@ -2839,6 +2933,53 @@ app.get(
 );
 
 const HOST = process.env.HOST || "0.0.0.0";
+const UNPAID_ORDER_TIMEOUT_MS = 30 * 60 * 1000;
+
+// Unpaid online orders are invisible to the queue and are cancelled after
+// 30 minutes. A late PayGate approval still re-queues the order (see
+// applyPaygateResult) so a real payment is never lost.
+const expireUnpaidOrders = async () => {
+  const cutoff = new Date(Date.now() - UNPAID_ORDER_TIMEOUT_MS);
+  const stale = await prisma.order.findMany({
+    where: {
+      createdAt: { lt: cutoff },
+      paymentMethod: { in: ["paygate", "payfast"] },
+      paymentStatus: { not: "paid" },
+      status: { in: ["awaiting_payment", "placed"] },
+    },
+    select: { id: true },
+  });
+  let changed = 0;
+  for (const { id } of stale) {
+    const result = await prisma.$transaction(async (tx) => {
+      const fresh = await tx.order.findUnique({ where: { id } });
+      if (!fresh || !["awaiting_payment", "placed"].includes(fresh.status)) return null;
+      if (fresh.paymentStatus === "paid") {
+        if (fresh.status === "awaiting_payment") {
+          await tx.order.update({ where: { id }, data: { status: "placed" } });
+          await tx.orderStatusEvent.create({ data: { orderId: id, status: "placed", note: "Payment confirmed" } });
+        }
+        return "placed";
+      }
+      await tx.order.update({
+        where: { id },
+        data: {
+          status: "cancelled",
+          paymentStatus: "failed",
+          resultDesc: fresh.resultDesc || "Payment not received within 30 minutes.",
+        },
+      });
+      await tx.orderStatusEvent.create({
+        data: { orderId: id, status: "cancelled", note: "Payment not received within 30 minutes" },
+      });
+      return "cancelled";
+    });
+    if (result) changed += 1;
+  }
+  if (changed) console.log(`[paygate] expired ${changed} unpaid order(s)`);
+  return changed;
+};
+
 const publicOriginIsHttps = /^https:\/\//i.test(PUBLIC_ORIGIN) && !/localhost|127\.0\.0\.1/i.test(PUBLIC_ORIGIN);
 app.listen(PORT, HOST, () => {
   console.log(`Beluchis menu admin running at http://${HOST}:${PORT}`);
@@ -2861,4 +3002,9 @@ app.listen(PORT, HOST, () => {
   } else {
     console.log("[payfast] disabled (PAYFAST_ID / PAYFAST_KEY not set)");
   }
+  expireUnpaidOrders().catch((err) => console.error(`[paygate] expiry sweep failed: ${err.message}`));
+  const expiryTimer = setInterval(() => {
+    expireUnpaidOrders().catch((err) => console.error(`[paygate] expiry sweep failed: ${err.message}`));
+  }, 60_000);
+  expiryTimer.unref?.();
 });

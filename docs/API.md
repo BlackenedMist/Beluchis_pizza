@@ -9,7 +9,7 @@ Every HTTP endpoint served by the Express backend in `server/index.mjs`.
   - Customer portal: `beluchis_customer`
   - Sessions are in-memory, 12-hour TTL, reset on server restart.
 - **Errors**: non-2xx responses return `{ "error": "human message" }`. Common statuses: `400` bad input, `401` not authenticated, `403` authenticated but insufficient role, `404` not found, `429` login throttled (10 attempts / 15 min per IP; loopback exempt), `502`/`503` payment-provider upstream/configuration failures.
-- **Delivery block**: `POST /api/orders` returns `400` with `{ error, code: "delivery_out_of_range", distanceKm }` when the address is beyond the configured max radius.
+- **Delivery minimum**: `POST /api/orders` returns `400` with `{ error, code: "delivery_minimum", minOrderAmount, foodSubtotal }` when a delivery order's food value (before the delivery fee) is below the configured minimum. Collection is exempt.
 - **Shop-closed block**: `POST /api/orders` returns `403` with `{ error, code: "shop_closed", openTime, closeTime, forceOpen }` when online ordering is off or the shop is outside its trading hours. Staff sessions bypass this check.
 
 ## Who is who
@@ -87,9 +87,9 @@ Body:
 
 - A logged-in `beluchis_customer` session attaches the order to that account and ignores the guest identity fields; otherwise guest lookup is by `cellphone` (or `email`), creating a `customer` row if new. A delivery order from a signed-in customer also refreshes their saved `addressLabel`/`lat`/`lng` for the next checkout.
 - `status` defaults to `placed` (also accept `preparing`/`out_for_delivery`/`delivered`/`cancelled`).
-- Delivery: distance from the shop centre (Haversine). ≤ `freeRadiusKm` → `deliveryStatus: "free"` (fee 0); between radii → `"fee"` (fee added to `total`/`grandTotal`); > `maxRadiusKm` → `400 delivery_out_of_range`. Address without GPS → `"unverified"` (accepted, treated as collection); no address/coords → `"collection"`.
+- Delivery: distance from the shop centre (Haversine). ≤ `freeRadiusKm` → `deliveryStatus: "free"` (fee 0); `freeRadiusKm`–`maxRadiusKm` → `"fee"` (`feeAmount` added to `total`/`grandTotal`); beyond `maxRadiusKm` → `"beyond"` (`beyondFeeAmount` added). There is no hard cutoff. Address without GPS → `"unverified"` (accepted; fee confirmed by the shop); no address/coords → `"collection"`. Delivery orders must meet `minOrderAmount` on the food subtotal (before the delivery fee).
 - Coupon validated server-side: active, unexpired, under usage limit, subtotal ≥ minSpend, customer-linked coupons need that customer logged in.
-- `paygate` flow: the server calls PayGate `/payweb3/initiate.trans`, creates the order, then the response includes `redirect: { url, provider: "paygate", fields }` for the browser to auto-submit to `/payweb3/process.trans`. A fully-discounted order skips the gateway and is recorded as paid. The legacy `payfast` method is rejected while PayGate is the active provider.
+- `paygate` flow: the server calls PayGate `/payweb3/initiate.trans`, creates the order as `status: "awaiting_payment"` / `paymentStatus: "pending"`, then the response includes `redirect: { url, provider: "paygate", fields }` for the browser to auto-submit to `/payweb3/process.trans`. The order is hidden from the staff queue and its "order received" email is held until PayGate confirms payment. A fully-discounted order skips the gateway and is recorded as paid. `payfast` is no longer offered or accepted at checkout; its callback routes remain only for historical orders.
 - **BOGO lines** (`special.kind === "bogo"`): send exactly one entry per pizza under `pizzas`, and the array length must equal the special's `count`. Every `itemId` must belong to the special's `categoryId` (and match `sizeLabel` when the special pins one). The server sorts base prices descending, charges only the higher half, and keeps extras payable. It writes one `OrderItem` per pizza and records the saving on `Order.discountAmount`. Invalid picks → `400`.
 - **Automatic fixed-price deals** (`special.kind === "deal"`, e.g. *any 2 Large Traditional pizzas for R200*): these have **no line of their own** — the customer just adds the pizzas and the server prices them. Send the qualifying pizzas as ordinary `itemId` lines and never send the deal's `specialId`; doing so returns `400` (`… is an automatic deal - send its pizzas as normal item lines`).
 
@@ -106,7 +106,8 @@ Body: `{ name, message, email?, cellphone? }` (name + message required; email **
 `GET /api/delivery/config` — the live delivery policy the storefront uses for hints:
 ```json
 { "enabled": true, "shop": { "lat": -33.646, "lng": 19.448 },
-  "freeRadiusKm": 3, "maxRadiusKm": 10, "feeAmount": 30 }
+  "freeRadiusKm": 3, "maxRadiusKm": 10,
+  "feeAmount": 85, "beyondFeeAmount": 95, "minOrderAmount": 200 }
 ```
 
 ### Shop status
@@ -141,7 +142,7 @@ storefront and homepage poll this on load.
 
 | Endpoint | Auth | Purpose |
 |----------|------|---------|
-| `GET /api/orders` | admin/orders/kitchen/cashier | All orders, newest first, with items + customer |
+| `GET /api/orders` | admin/orders/kitchen/cashier/driver | Orders newest first, with items + customer. Unpaid online orders are hidden by default; `admin`/`orders` can add `?includePending=1` to include them. |
 | `GET /api/orders/:id` | admin/orders/kitchen/cashier | Single order |
 | `GET /api/customers/:id/orders` | admin/orders/kitchen/cashier | Orders for one customer |
 | `PUT /api/orders/:id` | admin/orders+kitchen+cashier | `{ status }` flow transition |
@@ -229,7 +230,7 @@ Delivery settings (`admin`):
 | `GET /api/settings` | All settings as `{ settings: { key: value } }` |
 | `PUT /api/settings` | Upsert `{ settings: { "shop.lat": "-33.646", … } }`; validates ranges (400 on bad values). Returns settings + resolved delivery config |
 
-Settings keys: `shop.lat`, `shop.lng`, `delivery.freeRadiusKm`, `delivery.maxRadiusKm`, `delivery.feeAmount`, `delivery.enabled` (`true|false`), `shop.openTime` (`HH:MM`), `shop.closeTime` (`HH:MM`), `shop.onlineEnabled` (`true|false`), `shop.forceOpen` (`true|false`). Constraints: lat ∈ [-90,90], lng ∈ [-180,180], radii > 0, maxRadius ≥ freeRadius, fee ≥ 0, times a valid 24-hour `HH:MM`.
+Settings keys: `shop.lat`, `shop.lng`, `delivery.freeRadiusKm`, `delivery.maxRadiusKm`, `delivery.feeAmount`, `delivery.beyondFeeAmount`, `delivery.minOrderAmount`, `delivery.enabled` (`true|false`), `shop.openTime` (`HH:MM`), `shop.closeTime` (`HH:MM`), `shop.onlineEnabled` (`true|false`), `shop.forceOpen` (`true|false`). Constraints: lat ∈ [-90,90], lng ∈ [-180,180], radii > 0, maxRadius ≥ freeRadius, fees ≥ 0, minimum ≥ 0, times a valid 24-hour `HH:MM`. `maxRadiusKm` is the boundary between the standard and "beyond" fee, not a hard cutoff.
 
 `PUT /api/settings` also returns the resolved `shop` block from `GET /api/shop/config` so the admin UI can re-render the open/closed badge after a save.
 
@@ -239,7 +240,7 @@ Settings keys: `shop.lat`, `shop.lng`, `delivery.freeRadiusKm`, `delivery.maxRad
 
 | Endpoint | Caller | Purpose |
 |----------|--------|---------|
-| `POST /paygate/notify` | PayGate server | Notify (server-to-server). Verifies the checksum over the raw posted fields, the merchant ID and `AMOUNT`; updates the matched order (`paymentStatus paid/failed/pending`, txn fields) and replies `OK` (HTTP 200). Transient failures reply `500` so PayGate retries. |
+| `POST /paygate/notify` | PayGate server | Notify (server-to-server). Verifies the checksum over the raw posted fields, the merchant ID and `AMOUNT`; updates the matched order (`paymentStatus paid/failed/pending`, txn fields), moves a paid order from `awaiting_payment` to `placed`, and replies `OK` (HTTP 200). Transient failures reply `500` so PayGate retries. |
 | `POST/GET /paygate/return` | Customer browser | Redirect after payment. Looks up the order by `PAY_REQUEST_ID` (fallback `REFERENCE`), validates the return checksum, and renders its stored status. Pending orders show "being confirmed", not failed. |
 
 Checkout is a server-side call to
@@ -268,15 +269,17 @@ Checksums (MD5; append the encryption key **verbatim**, never base64-decode it):
 - Return: `PAYGATE_ID + PAY_REQUEST_ID + TRANSACTION_STATUS + REFERENCE + key`.
 
 Transaction status: `1` → `paid`; `2`, `3`, `4`, `7` → `failed`; `0`, `5`, and
-unknown values stay `pending`. A paid order is never downgraded, the payment
-email is sent once, and zero-rand orders skip the gateway.
+unknown values stay `pending`. A paid order is never downgraded, the order
+confirmation email is sent once when payment is confirmed, and zero-rand orders
+skip the gateway. A definitive failure cancels the order; an order still unpaid
+after 30 minutes is auto-cancelled. If an approval arrives after expiry, the
+order is re-queued with a "review" status event rather than dropping the payment.
 
 Configuration: `PAYGATE_ID`, `PAYGATE_KEY`, `PAYGATE_ENDPOINT` (default
 `https://secure.paygate.co.za`), and `PUBLIC_BASE_URL` (must be the public HTTPS
 origin). PayGate must be able to reach `PUBLIC_BASE_URL/paygate/notify`; the
 customer must be able to reach `PUBLIC_BASE_URL/paygate/return`.
 
-PayFast (`/payfast/*`) is legacy: the routes remain so old `payfast` orders can
-be reconciled, but the storefront only offers PayFast if PayGate is not
-configured and PayFast credentials are present. See the README for the old
-signature/ITN details.
+PayFast (`/payfast/*`) is legacy and dormant: the routes remain so historical
+`payfast` orders can be reconciled, but PayFast is never offered at checkout.
+See the README for the old signature/ITN details.
