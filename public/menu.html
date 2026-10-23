@@ -338,6 +338,7 @@
         <div class="pay-options">
           <label class="pay-opt"><input type="radio" name="paymentMethod" value="cod_cash" checked /><span>Cash on delivery</span></label>
           <label class="pay-opt"><input type="radio" name="paymentMethod" value="cod_card" /><span>Card on delivery</span></label>
+          <label class="pay-opt" data-pay="paygate" hidden><input type="radio" name="paymentMethod" value="paygate" /><span>Paid online now (PayGate)</span></label>
           <label class="pay-opt" data-pay="payfast" hidden><input type="radio" name="paymentMethod" value="payfast" /><span>Paid online now (PayFast)</span></label>
         </div>
         <div class="hint" id="pay-hint">Pay cash when your order arrives.</div>
@@ -1153,6 +1154,7 @@ $("#checkout-overlay").addEventListener("change", (e) => {
   const hints = {
     cod_cash: "Pay cash when your order arrives.",
     cod_card: "Bring your card - we\u2019ll swipe or tap it on delivery.",
+    paygate: "You\u2019ll be redirected to PayGate\u2019s secure page to pay now.",
     payfast: "You\u2019ll be redirected to PayFast\u2019s secure page to pay now.",
   };
   $("#pay-hint").textContent = hints[e.target.value] || "";
@@ -1220,10 +1222,11 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
     $("#cart-drawer").classList.remove("open");
     const pay = data.grandTotal != null ? data.grandTotal : data.total;
     if (data.redirect) {
+      const providerName = data.redirect.provider === "paygate" ? "PayGate" : "PayFast";
       $("#checkout-modal").innerHTML =
         '<div class="success-box"><div class="big">&#128274;</div>' +
         "<h3>Redirecting to secure payment\u2026</h3>" +
-        '<p class="sub">Your order #' + data.id + " is saved. You\u2019ll be taken to PayFast to complete the payment.</p>" +
+        '<p class="sub">Your order #' + data.id + " is saved. You\u2019ll be taken to " + providerName + " to complete the payment.</p>" +
         '<form id="pay-redirect" action="' + esc(data.redirect.url) + '" method="POST">' +
         Object.entries(data.redirect.fields)
           .map(([k, v]) => '<input type="hidden" name="' + esc(k) + '" value="' + esc(v) + '" />')
@@ -1272,7 +1275,7 @@ function applyPaymentOptions() {
   document.querySelectorAll("[data-pay]").forEach((el) => {
     el.hidden = el.dataset.pay !== prov;
   });
-  if (prov !== "payfast") {
+  if (!prov) {
     const cash = document.querySelector('input[name=paymentMethod][value="cod_cash"]');
     if (cash) cash.checked = true;
   }

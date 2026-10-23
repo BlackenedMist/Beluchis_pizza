@@ -13,6 +13,8 @@
     "postinstall": "prisma generate",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
+    "paygate:test": "node scripts/paygate-selftest.mjs",
+    "paygate:test:live": "node scripts/paygate-selftest.mjs --live",
     "payfast:test": "node scripts/payfast-selftest.mjs",
     "payfast:test:network": "node scripts/payfast-selftest.mjs --sandbox",
     "start": "node --env-file-if-exists=.env server/index.mjs",

@@ -8,6 +8,13 @@ import bcrypt from "bcryptjs";
 import { canonicalPhone } from "./phone.mjs";
 import { buildOrderConfirmation, fill, mailEnabled, sendMail } from "./mail.mjs";
 import { payfastCheckoutFields, validPayfastSignature } from "./payfast.mjs";
+import {
+  paygateInitiateFields,
+  paygateNotifyChecksum,
+  paygateOutcome,
+  paygateRedirectChecksum,
+  paygateReturnChecksum,
+} from "./paygate.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const prisma = new PrismaClient();
@@ -36,9 +43,10 @@ const PAYFAST_ENABLED = Boolean(PAYFAST_ID && PAYFAST_KEY);
 const PAYFAST_PAYMENT_METHOD = process.env.PAYFAST_PAYMENT_METHOD || "";
 const payfastPassphrase = () => PAYFAST_PASSPHRASE;
 
-// PayFast is the single online payment provider. PayGate remains in the code
-// for historical orders but is never offered at checkout.
-const onlinePaymentProvider = () => (PAYFAST_ENABLED ? "payfast" : null);
+// PayGate PayWeb3 is the active online provider. PayFast remains available as
+// a dormant fallback for historical orders and is only offered if PayGate is
+// not configured and PayFast credentials are present.
+const onlinePaymentProvider = () => (PAYGATE_ENABLED ? "paygate" : PAYFAST_ENABLED ? "payfast" : null);
 
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
 const PUBLIC_ORIGIN = (PUBLIC_BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
@@ -47,8 +55,9 @@ const PAYMENT_METHODS = new Set(["cod_cash", "cod_card", "paygate", "payfast"]);
 const PAYMENT_STATUSES = new Set(["pending", "paid", "failed"]);
 
 app.use(express.json({ limit: "8mb" }));
-// Keep the raw form body: PayFast's ITN signature is computed over the fields
-// in the exact order they were posted, and express's parser may reorder keys.
+// Keep the raw form body: both PayFast's ITN signature and PayGate's notify
+// checksum are computed over the fields in the order they were posted, and
+// express's parser may reorder keys.
 app.use(
   express.urlencoded({
     extended: true,
@@ -1183,85 +1192,132 @@ const orderIncludes = {
 };
 
 // ------------------------------------------------------- PayGate (PayWeb3)
-// MD5 checksum over the given field values concatenated (no delimiters) with
-// the encryption key appended. PayGate verifies this server-side on both sides.
-const paygateMd5 = (...parts) => crypto.createHash("md5").update(parts.join("") + PAYGATE_KEY).digest("hex");
-
-// Initiate renders "YYYY-MM-DD HH:MM:SS" UTC (PayWeb3 TRANSACTION_DATE format).
-const paygateUtcStamp = (d) => d.toISOString().replace("T", " ").replace(/\..+$/, "");
-
-// Step 1: open a PayWeb3 transaction. Returns { payRequestId, redirectChecksum }.
-// The redirect checksum is md5(PAYGATE_ID + PAY_REQUEST_ID + REFERENCE + key).
+// Step 1: open a PayWeb3 transaction. The order is only persisted after this
+// succeeds, so a gateway failure cannot leave an orphan order. The initiate
+// response is signed with the same checksum used for the browser redirect.
 const paygateInitiate = async ({ reference, amountCents, email = "", returnUrl, notifyUrl }) => {
   if (!PAYGATE_ENABLED) {
     const err = new Error("Online payment is not configured on this server (PAYGATE_ID/PAYGATE_KEY missing)");
     err.status = 503;
     throw err;
   }
-  const fields = {
-    PAYGATE_ID,
-    REFERENCE: reference,
-    AMOUNT: String(amountCents), // cents, integer
-    CURRENCY: "ZAR",
-    RETURN_URL: returnUrl,
-    TRANSACTION_DATE: paygateUtcStamp(new Date()),
-    LOCALE: "en-za",
-    COUNTRY: "ZAF",
-    EMAIL: String(email || "").trim(),
-    NOTIFY_URL: notifyUrl,
-  };
-  const checksum = paygateMd5(...Object.values(fields));
-  const body = new URLSearchParams({ ...fields, CHECKSUM: checksum });
+  const fields = paygateInitiateFields({
+    paygateId: PAYGATE_ID,
+    key: PAYGATE_KEY,
+    reference,
+    amountCents,
+    email,
+    returnUrl,
+    notifyUrl,
+  });
   const res = await fetch(`${PAYGATE_ENDPOINT}/payweb3/initiate.trans`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
+    body: new URLSearchParams(fields).toString(),
   });
   const text = await res.text();
   const params = new URLSearchParams(text);
+  const error = params.get("ERROR") || params.get("RESULT_DESC");
   const payRequestId = params.get("PAY_REQUEST_ID");
-  if (!res.ok || !payRequestId) {
-    const err = new Error(`PayGate declined the request: ${params.get("RESULT_DESC") || `HTTP ${res.status}`}`);
+  if (!res.ok || error || !payRequestId) {
+    const err = new Error(`PayGate declined the request: ${error || `HTTP ${res.status}`}`);
     err.status = 502;
     throw err;
   }
-  return { payRequestId, redirectChecksum: paygateMd5(PAYGATE_ID, payRequestId, reference) };
+  if (
+    String(params.get("PAYGATE_ID") || "") !== String(PAYGATE_ID) ||
+    String(params.get("REFERENCE") || "") !== String(reference)
+  ) {
+    const err = new Error("PayGate returned an unexpected merchant or reference");
+    err.status = 502;
+    throw err;
+  }
+  const redirectChecksum = paygateRedirectChecksum({
+    paygateId: PAYGATE_ID,
+    key: PAYGATE_KEY,
+    payRequestId,
+    reference,
+  });
+  if (String(params.get("CHECKSUM") || "").toLowerCase() !== redirectChecksum) {
+    const err = new Error("PayGate initiate response checksum mismatch");
+    err.status = 502;
+    throw err;
+  }
+  return { payRequestId, redirectChecksum };
 };
 
-// Response (return/notify) checksum: canonical field order, only fields that
-// actually arrived are concatenated.
-const PAYGATE_RESPONSE_FIELDS = [
-  "PAYGATE_ID", "PAY_REQUEST_ID", "TRANSACTION_STATUS", "REFERENCE", "RESULT_CODE", "AUTH_CODE",
-  "CURRENCY", "AMOUNT", "RESULT_DESC", "TRANSACTION_ID", "RISK_INDICATOR", "PAY_METHOD", "PAY_METHOD_DETAIL",
-];
-
-const validPaygateChecksum = (params) => {
-  const present = PAYGATE_RESPONSE_FIELDS.filter((f) => params.get(f) !== null);
-  if (!present.length) return false;
-  return paygateMd5(...present.map((f) => params.get(f))) === String(params.get("CHECKSUM") || "").toLowerCase();
+const paygateParamsFromRequest = (req) => {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(req.query || {})) params.set(k, String(v));
+  for (const [k, v] of Object.entries(req.body || {})) params.set(k, String(v));
+  return params;
 };
 
-// Apply a verified PayWeb3 transaction result to the matching order (matched by
-// our REFERENCE, stored in Order.payRef).
-const applyPaygateResult = async (params) => {
-  if (!validPaygateChecksum(params)) return { ok: false, reason: "checksum mismatch" };
-  const ref = params.get("REFERENCE");
-  if (!ref) return { ok: false, reason: "missing REFERENCE" };
-  const order = await prisma.order.findFirst({ where: { payRef: ref }, include: { customer: true } });
+// Apply a verified PayWeb3 result. Notify is authoritative; a browser return
+// is accepted too, but never downgrades an order that is already paid.
+const applyPaygateResult = async ({ params, rawBody = null, source }) => {
+  const ref = params.get("REFERENCE") || "";
+  const payRequestId = params.get("PAY_REQUEST_ID") || "";
+  if (!ref && !payRequestId) return { ok: false, reason: "missing reference" };
+
+  const returnedId = params.get("PAYGATE_ID");
+  if (source === "notify" && String(returnedId || "") !== String(PAYGATE_ID))
+    return { ok: false, reason: "merchant mismatch" };
+  if (source === "return" && returnedId != null && String(returnedId) !== String(PAYGATE_ID))
+    return { ok: false, reason: "merchant mismatch" };
+
+  const order = await prisma.order.findFirst({
+    where: payRequestId ? { payRequestId } : { payRef: ref },
+    include: { customer: true },
+  });
   if (!order) return { ok: false, reason: "unknown order" };
-  const approved = String(params.get("TRANSACTION_STATUS")) === "1";
+  if (ref && order.payRef && ref !== order.payRef) return { ok: false, reason: "reference mismatch" };
+  if (order.payRequestId && payRequestId && order.payRequestId !== payRequestId)
+    return { ok: false, reason: "pay request mismatch" };
+
+  const expected =
+    source === "notify"
+      ? paygateNotifyChecksum(rawBody || params.toString(), PAYGATE_KEY)
+      : paygateReturnChecksum({
+          paygateId: PAYGATE_ID,
+          key: PAYGATE_KEY,
+          payRequestId: payRequestId || order.payRequestId,
+          transactionStatus: params.get("TRANSACTION_STATUS") || "",
+          reference: ref || order.payRef,
+        });
+  if (String(params.get("CHECKSUM") || "").toLowerCase() !== expected)
+    return { ok: false, reason: "checksum mismatch" };
+
+  // The notify amount is authoritative and must match what we charged.
+  if (source === "notify") {
+    const amount = Number(params.get("AMOUNT"));
+    const expectedAmount = Math.round(Number(order.grandTotal ?? order.total) * 100);
+    if (!Number.isFinite(amount) || amount !== expectedAmount) {
+      return {
+        ok: false,
+        reason: `amount mismatch (got ${params.get("AMOUNT")}, expected ${expectedAmount})`,
+      };
+    }
+  }
+
+  const outcome = paygateOutcome(params.get("TRANSACTION_STATUS"));
+  const alreadyPaid = order.paymentStatus === "paid";
+  const paymentStatus = alreadyPaid ? "paid" : outcome;
+
   await prisma.order.update({
     where: { id: order.id },
     data: {
-      paymentStatus: approved ? "paid" : "failed",
-      payRequestId: params.get("PAY_REQUEST_ID") || order.payRequestId,
+      paymentStatus,
+      payRequestId: payRequestId || order.payRequestId,
       txnId: params.get("TRANSACTION_ID") || order.txnId,
       resultCode: params.get("RESULT_CODE") || order.resultCode,
       resultDesc: params.get("RESULT_DESC") || order.resultDesc,
     },
   });
-  // Best-effort payment confirmation when the gateway approves and we have an email.
-  if (approved && order.customer?.email && mailEnabled()) {
+
+  // Best-effort payment confirmation, exactly once (a notify and return can
+  // both arrive for the same order).
+  if (outcome === "paid" && !alreadyPaid && order.customer?.email && mailEnabled()) {
     const cust = order.customer;
     const total = Number(order.grandTotal ?? order.total).toFixed(2);
     sendMail({
@@ -1273,7 +1329,13 @@ const applyPaygateResult = async (params) => {
         `— The Beluchis team`,
     }).catch(() => {});
   }
-  return { ok: true, approved, order };
+
+  return {
+    ok: true,
+    approved: paymentStatus === "paid",
+    pending: paymentStatus === "pending",
+    order: { ...order, paymentStatus },
+  };
 };
 
 // Customer-facing result page (browser lands here after the gateway redirects).
@@ -1424,8 +1486,8 @@ app.post(
     if (!PAYMENT_METHODS.has(paymentMethod))
       return res.status(400).json({ error: `paymentMethod must be one of ${[...PAYMENT_METHODS].join(", ")}` });
 
-    // Only the one configured online provider may be used. PayFast is the
-    // active provider; PayGate is kept for old orders but no longer offered.
+    // Only the one configured online provider may be used. PayGate is the
+    // active provider; PayFast is a dormant fallback for old orders.
     const activeOnline = onlinePaymentProvider();
     if ((paymentMethod === "paygate" || paymentMethod === "payfast") && paymentMethod !== activeOnline) {
       return res.status(activeOnline ? 400 : 503).json({
@@ -1695,7 +1757,7 @@ app.post(
     const discountLabel = [dealLabel, couponLabel].filter(Boolean).join(" + ") || null;
     const grandTotal = orderTotal - discountAmount;
 
-    // ----- Online (PayFast) flow ---------------------------------------------------
+    // ----- Online (PayGate / PayFast) flow -------------------------------------
     // Build the gateway request BEFORE the order is persisted so a gateway
     // failure leaves no orphan order. A fully-discounted order has nothing to
     // charge: mark it paid.
@@ -1703,7 +1765,26 @@ app.post(
     let payRef = null;
     let payRequestId = null;
     let payRedirect = null;
-    if (paymentMethod === "payfast" && !onlineFree) {
+    if (paymentMethod === "paygate" && !onlineFree) {
+      payRef = `BELU-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+      const payEmail = String(email || customer?.email || "").trim();
+      const outcome = await paygateInitiate({
+        reference: payRef,
+        amountCents: Math.round(grandTotal * 100),
+        email: payEmail,
+        returnUrl: `${PUBLIC_ORIGIN}/paygate/return`,
+        notifyUrl: `${PUBLIC_ORIGIN}/paygate/notify`,
+      });
+      payRequestId = outcome.payRequestId;
+      payRedirect = {
+        url: `${PAYGATE_ENDPOINT}/payweb3/process.trans`,
+        provider: "paygate",
+        fields: {
+          PAY_REQUEST_ID: outcome.payRequestId,
+          CHECKSUM: outcome.redirectChecksum,
+        },
+      };
+    } else if (paymentMethod === "payfast" && !onlineFree) {
       payRef = `BELU-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
       const payFirstName = String(firstName || customer?.firstName || "").trim();
       const payLastName = String(lastName || customer?.lastName || "").trim();
@@ -2684,9 +2765,12 @@ app.delete(
 app.post(
   "/paygate/notify",
   asyncHandler(async (req, res) => {
-    const params = new URLSearchParams();
-    for (const [k, v] of Object.entries(req.body || {})) params.set(k, String(v));
-    const outcome = await applyPaygateResult(params);
+    const params = paygateParamsFromRequest(req);
+    const outcome = await applyPaygateResult({
+      params,
+      rawBody: req.rawBody || params.toString(),
+      source: "notify",
+    });
     if (outcome.reason) console.warn(`[paygate] notify rejected: ${outcome.reason}`);
     // PayWeb3 requires a bare "OK" reply to acknowledge the notification.
     res.type("text/plain").send("OK");
@@ -2697,24 +2781,25 @@ app.post("/paygate/return", asyncHandler(paygateReturn));
 app.get("/paygate/return", asyncHandler(paygateReturn));
 
 async function paygateReturn(req, res) {
-  const params = new URLSearchParams();
-  for (const [k, v] of Object.entries(req.body || {})) params.set(k, String(v));
-  const outcome = await applyPaygateResult(params);
+  const params = paygateParamsFromRequest(req);
+  const outcome = await applyPaygateResult({ params, source: "return" });
   if (!outcome.ok) {
     console.warn(`[paygate] return rejected: ${outcome.reason}`);
     return renderPaymentResult(res, {
       approved: false,
       resultDesc: "We could not verify this payment. Your order was not charged.",
-      orderId: params.get("REFERENCE") || "?",
+      orderId: params.get("REFERENCE") || params.get("PAY_REQUEST_ID") || "?",
       amountCents: 0,
     });
   }
   renderPaymentResult(res, {
     approved: outcome.approved,
+    pending: outcome.pending,
     resultCode: outcome.order.resultCode,
     resultDesc: outcome.order.resultDesc,
     orderId: outcome.order.id,
-    amountCents: (outcome.order.grandTotal ?? outcome.order.total) * 100,
+    amountCents: Math.round(Number(outcome.order.grandTotal ?? outcome.order.total) * 100),
+    ref: outcome.order.payRef,
   });
 }
 
@@ -2754,14 +2839,23 @@ app.get(
 );
 
 const HOST = process.env.HOST || "0.0.0.0";
+const publicOriginIsHttps = /^https:\/\//i.test(PUBLIC_ORIGIN) && !/localhost|127\.0\.0\.1/i.test(PUBLIC_ORIGIN);
 app.listen(PORT, HOST, () => {
   console.log(`Beluchis menu admin running at http://${HOST}:${PORT}`);
+  if (PAYGATE_ENABLED) {
+    console.log(`[paygate] enabled (${PAYGATE_ENDPOINT})`);
+    if (!publicOriginIsHttps) {
+      console.warn("[paygate] PUBLIC_BASE_URL is not a public HTTPS origin; PayGate return/notify callbacks will not work.");
+    }
+  } else {
+    console.log("[paygate] disabled (PAYGATE_ID / PAYGATE_KEY not set)");
+  }
   if (PAYFAST_ENABLED) {
-    console.log(`[payfast] enabled (${PAYFAST_ENDPOINT})`);
+    console.log(`[payfast] legacy fallback enabled (${PAYFAST_ENDPOINT})`);
     if (!PAYFAST_PASSPHRASE) {
       console.warn("[payfast] PAYFAST_PASSPHRASE is empty; if the PayFast dashboard has a salt passphrase, signatures will be rejected.");
     }
-    if (!/^https:\/\//i.test(PUBLIC_ORIGIN) || /localhost|127\.0\.0\.1/i.test(PUBLIC_ORIGIN)) {
+    if (!publicOriginIsHttps) {
       console.warn("[payfast] PUBLIC_BASE_URL is not a public HTTPS origin; PayFast return/notify callbacks will not work.");
     }
   } else {

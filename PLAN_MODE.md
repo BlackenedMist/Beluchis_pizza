@@ -33,7 +33,7 @@ quickly. Keep it in sync when the architecture changes.
 | Database | SQLite (`dev.db`) |
 | Auth | bcryptjs (PIN/password hashing) |
 | Frontend | Vanilla HTML/CSS/JS (no framework) |
-| Payments | PayGate PayWeb3 (optional) |
+| Payments | PayGate PayWeb3 (active online gateway) |
 
 **Dependencies** (`package.json`):
 - `@prisma/client` ^6.2.0
@@ -313,7 +313,7 @@ Shop hours: `shop.openTime`/`shop.closeTime` (one daily window, SAST UTC+2), `sh
 3. PayGate posts to `POST /paygate/notify` (server-to-server, replies bare `OK`)
 4. PayGate redirects browser to `/paygate/return`
 5. Verify checksum (canonical field order) → mark `paid` / `failed`
-6. `TRANSACTION_STATUS=1` ≈ "Auth Done" → paid; anything else → failed
+6. `TRANSACTION_STATUS=1` → `paid`; `2/3/4/7` → `failed`; `0/5/unknown` → `pending`; paid orders are never downgraded
 7. Zero-rand orders (coupon covers total) skip gateway, recorded as paid
 
 ---
