@@ -74,9 +74,12 @@ npm run seed         # load the demo catalog (idempotent)
 | `DATABASE_URL` | `file:../dev.db` | SQLite database file (relative to `prisma/`) |
 | `PORT`       | `3100`  | HTTP listen port                               |
 | `ADMIN_PIN`  | `1234`  | Env-PIN for the built-in admin login           |
-| `PAYGATE_ID` | _(empty)_ | PayGate PayWeb3 merchant id (online payments)  |
-| `PAYGATE_KEY`| _(empty)_ | PayGate PayWeb3 checksum secret                 |
-| `PUBLIC_BASE_URL` | `http://localhost:<PORT>` | Public origin PayGate redirects your browser to (`/paygate/return`) and posts results to (`/paygate/notify`) |
+| `PAYFAST_ID` | _(empty)_ | PayFast merchant ID (online payments) |
+| `PAYFAST_KEY`| _(empty)_ | PayFast merchant key |
+| `PAYFAST_PASSPHRASE` | _(empty)_ | PayFast salt passphrase (optional) |
+| `PAYFAST_ENDPOINT` | `https://www.payfast.co.za` | Use `https://sandbox.payfast.co.za` for sandbox tests |
+| `PAYFAST_PAYMENT_METHOD` | _(empty)_ | Optional `1` (card) or `2` (EFT); empty = PayFast dashboard default |
+| `PUBLIC_BASE_URL` | `http://localhost:<PORT>` | Public HTTPS origin used in PayFast return/notify URLs |
 
 `ADMIN_PIN` only works for the built-in admin login (blank username or
 `admin`). Staff users each carry their own PIN (bcrypt-hashed in the DB).
@@ -86,35 +89,61 @@ npm run seed         # load the demo catalog (idempotent)
 - **Cash on delivery** (`cod_cash`) and **card on delivery** (`cod_card`) are
   always available. The admin Orders board shows the chosen method as a badge
   (`Cash on delivery` / `Card on delivery`) for staff, display-only.
-- **Online via PayGate** (`paygate`) is offered at checkout only when both
-  `PAYGATE_ID` and `PAYGATE_KEY` are set. On submit the server initiates a
-  PayWeb3 transaction **before** the order is written (a failed gateway call
-  leaves no orphan order) and responds with a hidden-form redirect to
-  `secure.paygate.co.za`; the storefront auto-submits it and the customer is
-  taken to PayGate to pay.
-- PayWeb3 flow: `POST /payweb3/initiate.trans` → order created + redirect →
-  PayGate posts the outcome to `POST /paygate/notify` (replies bare `OK`) and
-  redirects the browser to `/paygate/return`, where the response checksum is
-  verified server-side (canonical PayGate field order) before the order is
-  marked `paid` / `failed` and the txn fields stored.
-- `TRANSACTION_STATUS=1` (approx "Auth Done") → order `paymentStatus=paid`;
-  anything else → `failed`; checksum mismatch → ignored, order stays `pending`.
-- Test mode: use sandbox credentials from PayGate's test portal. On a local
-  machine `/paygate/notify` is **not** reachable by PayGate's servers, so the
-  status is taken from the `/paygate/return` browser POST. The shipped
-  `PAYGATE_KEY=secret` sandbox utilities are widely documented; the sandbox
-  may block some networks at the CDN level (preview shipped with local-path
-  verification + documentation).
-- An order paid online shows `Online (PayGate) · paid|failed|pending` on the
-  admin board. Zero-rand orders (e.g. coupon covers the total) skip the gateway
-  and are recorded as already paid.
+- **Online via PayFast** (`payfast`) is the only online option. It is offered
+  at checkout only when both `PAYFAST_ID` and `PAYFAST_KEY` are set. On submit
+  the server signs the checkout fields, creates the order, and responds with a
+  hidden-form redirect to PayFast; the storefront auto-submits it and the
+  customer pays on PayFast.
+- The signature is an MD5 over `key=urlencoded(value)` pairs in PayFast's
+  documented order, with the optional salt passphrase appended as
+  `&passphrase=...`. The order reference is sent as `m_payment_id`
+  (`BELU-XXXXXXXX`) and echoed back in the ITN.
+- `POST /payfast/notify` is the ITN: the signature is verified using the fields
+  in the order PayFast posted them, the merchant ID and `amount_gross` are
+  checked, and PayFast's own `/eng/query/validate` endpoint is asked to confirm
+  the payload. `payment_status=COMPLETE` → `paid`; `FAILED`/`CANCELLED` →
+  `failed`; `PENDING` → the order stays pending. Expected rejections reply
+  `OK`; a transient database/network error (or a temporarily failed PayFast
+  validation) replies `500` so PayFast retries.
+- `GET/POST /payfast/return` is the browser redirect. It shows the order's
+  stored status, so a customer who returns before the ITN arrives sees
+  "Payment is being confirmed" rather than a false failure.
+- An order paid online shows `Online (PayFast) · paid|failed|pending` on the
+  admin board, cashier, driver page and kitchen receipt. Zero-rand orders
+  (e.g. a coupon covers the total) skip the gateway and are recorded as paid.
+- Sandbox: set `PAYFAST_ENDPOINT=https://sandbox.payfast.co.za` and use
+  PayFast's public test merchant (`PAYFAST_ID=10004002`,
+  `PAYFAST_KEY=q1cd2rdny4a53`, `PAYFAST_PASSPHRASE=payfast`). Run
+  `npm run payfast:test` for offline checks and `npm run payfast:test:network`
+  to POST a signed test checkout to the sandbox. PayFast cannot reach
+  `localhost`, so use a tunnel or the deployed server for the full
+  notify/return flow. Production credentials are different and must be copied
+  from the PayFast dashboard.
+- PayGate is no longer offered at checkout. The legacy `/paygate/*` routes stay
+  in the server so old `paygate` orders can still be reconciled, but the
+  storefront no longer shows the option.
+
+#### PayFast troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| `Generated signature does not match submitted signature` | `PAYFAST_KEY` or `PAYFAST_PASSPHRASE` is wrong (or a passphrase is set in the dashboard but missing from `.env`). Run `npm run payfast:test`. |
+| `Merchant ID is invalid` | `PAYFAST_ID` is wrong, or `PAYFAST_ENDPOINT` points at the wrong environment (sandbox vs live). |
+| Payment succeeds at PayFast but the order stays `pending` | PayFast cannot reach `PUBLIC_BASE_URL/payfast/notify`. Use the public HTTPS domain, not `localhost`; check `journalctl -u beluchis -g payfast`. |
+| Customer sees "Payment is being confirmed" | Normal if the browser returns before the ITN. The ITN updates the order shortly afterwards; refresh the page. |
+
+A base64 string that decodes to a human-looking value (uppercase letters, a
+dot, a year) is almost certainly the **passphrase**, not a merchant key.
+PayFast merchant keys are issued in the dashboard (Settings → Merchant
+Details); the salt passphrase is separate (Settings → Account Information).
+Never put the passphrase in `PAYFAST_KEY`.
 
 ## Components
 
 | Path | What |
 |------|------|
 | `public/home.html` | Marketing homepage. Served at `/`. Hero + a shoppable dish wall (owner-picked `showOnHome` items/specials, falling back to signature-dish photos; simple dishes get a one-tap **Add**, others deep-link into `/order`), the live shop status (open/closed + hours), an auth-aware header (**SIGN IN** or **MY ORDERS**), and a shared mini-cart bar (`View full menu` / `Go to checkout`). Contact form posts to `POST /api/contact`. No external credit text. |
-| `public/menu.html` | Customer storefront — menu by category, specials, pizza customization (bases/toppings by size), quantity steppers on items/specials/in the customize dialog, ♥ favourite toggles on every dish and special, a weekly **BOGO** builder, a **seasonal swap** prompt when a dish has an out-of-season topping (e.g. avocado), a closed-shop banner + checkout guard, cart (reconciled against the live menu on load so stale item/special ids are pruned), checkout & place order (optional coupon-code field + payment method: cash or card on delivery, or online PayGate when enabled; PayGate orders auto-redirect to the secure portal). Served at `/order`. Uses the shared `public/shop.js` cart. Supports deep links: `?item=<slug>` (flashes the item + opens its customize dialog) and `?cat=<slug>` (scrolls to the category). After an order it stores `beluchis-recent-order` in localStorage and links to `/portal`. |
+| `public/menu.html` | Customer storefront — menu by category, specials, pizza customization (bases/toppings by size), quantity steppers on items/specials/in the customize dialog, ♥ favourite toggles on every dish and special, a weekly **BOGO** builder, a **seasonal swap** prompt when a dish has an out-of-season topping (e.g. avocado), a closed-shop banner + checkout guard, cart (reconciled against the live menu on load so stale item/special ids are pruned), checkout & place order (optional coupon-code field + payment method: cash or card on delivery, or online PayFast when enabled; PayFast orders auto-redirect to the secure portal). Served at `/order`. Uses the shared `public/shop.js` cart. Supports deep links: `?item=<slug>` (flashes the item + opens its customize dialog) and `?cat=<slug>` (scrolls to the category). After an order it stores `beluchis-recent-order` in localStorage and links to `/portal`. |
 | `public/customer.html` | Customer portal — logged-out login / "First time? Set your password" forms; logged-in dashboard with a **Favourites** panel (picture, price-from, Order/View + Remove) and order history (expandable rows showing items + a full status timeline from `OrderStatusEvent`s) where every past order has a one-tap **Reorder** button that rebuilds the cart at today's prices, plus "Offers for you" coupon cards (Copy code). Served at `/portal`, authed by the `beluchis_customer` cookie. |
 | `public/shop.js` | Shared storefront module (`window.Shop`) — the single cart implementation used by the homepage and the menu page: cart persistence (`localStorage["beluchis-cart-v1"]`), pricing helpers (base/topping by size), seasonal + BOGO helpers, drawer rendering, `load()`/`reconcile()`, and the `onCheckout` / `onCartChange` hooks. See **Storefront cart (`public/shop.js`)** below. |
 | `public/preview-mobile.html` | Storefront documentation page served at `/preview/mobile` — a live same-origin iframe of `/order` inside a device frame (small phone / standard phone / tablet / desktop selector). Geolocation is blocked in iframes, so the delivery hint runs in address-only mode. |
@@ -286,9 +315,9 @@ Menu & admin:
 - `PUT /api/settings` (admin) — also validates/returns the `shop.*` hours policy; `GET /api/settings` reads it back.
 - `POST /api/upload` (admin) — base64 data URL → `{ ok, url }` stored under `public/uploads/`.
 - `GET /api/settings` (admin) and `PUT /api/settings` (admin) — read/upsert the `Setting` table (delivery radius policy); `PUT` validates ranges and returns both settings and the resolved delivery config.
-- `POST /api/orders` — public; validates items/sizes/toppings/bases/specials and re-prices server-side. BOGO specials take a `pizzas[]` array (one per pizza, `count` of them) priced server-side. Optional `couponCode` validated + applied server-side; `paymentMethod` (`cod_cash` default | `cod_card` | `paygate`) chosen at checkout; a logged-in customer session attaches the order to their account. Optional `deliveryLat`/`deliveryLng` (legacy `lat`/`lng`) plus `deliveryAddress` drive the delivery-radius policy above — `deliveryDistance`, `deliveryFee` and `deliveryStatus` are stored on the order. Returns **403 `shop_closed`** for guests while the shop is closed. For `paygate` it first initiates the PayWeb3 transaction and responds with `{ order, redirect: { url, fields } }` for the storefront to auto-submit.
-- `POST /paygate/notify` — PayGate server-to-server result post; replies bare `OK`.
-- `POST/GET /paygate/return` — PayGate browser redirect after payment; verifies the response checksum and records `paid` / `failed` on the matched order (by `REFERENCE`/`payRef`), then renders a receipt-style result page.
+- `POST /api/orders` — public; validates items/sizes/toppings/bases/specials and re-prices server-side. BOGO specials take a `pizzas[]` array (one per pizza, `count` of them) priced server-side. Optional `couponCode` validated + applied server-side; `paymentMethod` (`cod_cash` default | `cod_card` | `payfast`) chosen at checkout; a logged-in customer session attaches the order to their account. Optional `deliveryLat`/`deliveryLng` (legacy `lat`/`lng`) plus `deliveryAddress` drive the delivery-radius policy above — `deliveryDistance`, `deliveryFee` and `deliveryStatus` are stored on the order. Returns **403 `shop_closed`** for guests while the shop is closed. For `payfast` it first signs the checkout fields and responds with `{ order, redirect: { url, provider: "payfast", fields } }` for the storefront to auto-submit.
+- `POST /payfast/notify` - PayFast ITN (server-to-server); verifies the signature, merchant ID and amount, updates the matched order (`paymentStatus paid/failed/pending`, txn fields), and replies `OK` (HTTP 200); transient failures reply `500` so PayFast retries.
+- `POST/GET /payfast/return` — PayFast browser redirect after payment; looks up the order by `m_payment_id` (`payRef`) and renders its stored status, applying the signed result if the redirect carries one. A pending order is shown as "being confirmed", not failed.
 - `PUT /api/orders/:id` — `{ status }` flow transition or `cancel`; cancel restricted to admin/orders. Kitchen may set `preparing`/`out_for_delivery`/`delivered`; cashier may only set `out_for_delivery`. Status changes append an `OrderStatusEvent`.
 - `/api/users` CRUD + `POST /api/users/:id/reset-pin` (admin-only). `pinHash` never serialized.
 
@@ -320,8 +349,8 @@ relations. Menu migrations used: `init`, `add_customers_orders`, `add_specials`,
 `add_staff_users`, `add_contact_messages`, `add_customer_portal_loyalty`,
 `add_order_payment`, `add_delivery_settings`,
 `add_phase2_home_seasonal_bogo_favorites`. `Order` carries
-`paymentMethod`/`paymentStatus` and the
-PayGate fields `payRef`, `payRequestId`, `txnId`, `resultCode`, `resultDesc`,
+`paymentMethod`/`paymentStatus` and the payment fields `payRef`,
+`payRequestId`, `txnId`, `resultCode`, `resultDesc`,
 plus the delivery fields `deliveryLat`, `deliveryLng`, `deliveryAddress`,
 `deliveryDistance`, `deliveryFee`, `deliveryStatus`. `Setting` holds the
 delivery radius policy (`shop.lat`, `shop.lng`, `delivery.freeRadiusKm`,

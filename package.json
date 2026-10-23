@@ -13,6 +13,8 @@
     "postinstall": "prisma generate",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
+    "payfast:test": "node scripts/payfast-selftest.mjs",
+    "payfast:test:network": "node scripts/payfast-selftest.mjs --sandbox",
     "start": "node --env-file-if-exists=.env server/index.mjs",
     "import:customers": "node --env-file-if-exists=.env scripts/import-wp-customers.mjs",
     "invites:dry-run": "node --env-file-if-exists=.env scripts/export-invites.mjs --dry-run",

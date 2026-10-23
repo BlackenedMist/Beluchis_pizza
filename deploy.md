@@ -4,7 +4,7 @@ Current goal:
 - **Preview / display:** IBM Cloud **Code Engine** (serverless, near-zero cost) in region **eu-gb (London)**, resource group **Turbomonics**.
 - **Production:** **xneelo Cloud** VM (not purchased yet — see Part B "what to buy").
 
-> 🔧 **Replace placeholders before running:** `YOUR-DOMAIN`, `beluchis-preview`, `PREVIEW_ADMIN_PIN`, `PROD_ADMIN_PIN`, `PROD_PAYGATE_ID`, `PROD_PAYGATE_KEY`.
+> 🔧 **Replace placeholders before running:** `YOUR-DOMAIN`, `beluchis-preview`, `PREVIEW_ADMIN_PIN`, `PROD_ADMIN_PIN`, `PROD_PAYFAST_ID`, `PROD_PAYFAST_KEY`, `PROD_PAYFAST_PASSPHRASE`.
 
 ---
 
@@ -24,7 +24,7 @@ Current goal:
 - Server entry: `server/index.mjs`, listens on `PORT` (default 3100; **8080** in containers).
 - Front-ends: static HTML in `public/` (home, menu, login, admin, customer, `/preview/*`).
 - Sessions: **in-memory** (cookies `beluchis_admin`, `beluchis_customer`) → **must run single instance** (`min-scale=max-scale=1` on Code Engine).
-- Payments: PayGate. Webhook endpoints `POST/GET /paygate/return` (+ `/paygate/notify`) must be reachable over **public HTTPS**.
+- Payments: PayFast. The ITN/return endpoints `POST /payfast/notify` and `POST/GET /payfast/return` must be reachable over **public HTTPS**.
 - DB bootstrap: `prisma migrate deploy` at boot; demo `prisma db seed` on first boot / `PREVIEW_RESEED=1`.
 - Menu source: `catalog/` (committed; 5 JSON files, ~104 KB) — read by `prisma/seed.ts`.
 
@@ -36,8 +36,10 @@ Current goal:
 | `DATABASE_URL` | `file:/data/beluchis.db` (ephemeral) | `file:/var/lib/beluchis/dev.db` |
 | `ADMIN_PIN` | `PREVIEW_ADMIN_PIN` | `PROD_ADMIN_PIN` |
 | `PUBLIC_BASE_URL` | `https://beluchis-preview.<hash>.eu-gb.codeengine.appdomain.cloud` | `https://YOUR-DOMAIN` |
-| `PAYGATE_ID` | *(empty for preview)* | `PROD_PAYGATE_ID` |
-| `PAYGATE_KEY` | *(empty for preview)* | `PROD_PAYGATE_KEY` |
+| `PAYFAST_ID` | *(empty for preview)* | `PROD_PAYFAST_ID` |
+| `PAYFAST_KEY` | *(empty for preview)* | `PROD_PAYFAST_KEY` |
+| `PAYFAST_PASSPHRASE` | *(empty for preview)* | `PROD_PAYFAST_PASSPHRASE` |
+| `PAYFAST_ENDPOINT` | `https://sandbox.payfast.co.za` | `https://www.payfast.co.za` |
 | `PREVIEW_RESEED` | `1` | unset |
 
 ---
@@ -171,8 +173,10 @@ sudo -u beluchis sh -c 'cat > /opt/beluchis/.env <<EOF
 PORT=3100
 DATABASE_URL=file:/var/lib/beluchis/dev.db
 ADMIN_PIN=PROD_ADMIN_PIN
-PAYGATE_ID=PROD_PAYGATE_ID
-PAYGATE_KEY=PROD_PAYGATE_KEY
+PAYFAST_ID=PROD_PAYFAST_ID
+PAYFAST_KEY=PROD_PAYFAST_KEY
+PAYFAST_PASSPHRASE=PROD_PAYFAST_PASSPHRASE
+PAYFAST_ENDPOINT=https://www.payfast.co.za
 PUBLIC_BASE_URL=https://YOUR-DOMAIN
 EOF'
 sudo chmod 600 /opt/beluchis/.env
@@ -221,12 +225,29 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d YOUR-DOMAIN          # obtains HTTPS + auto-renews
 ```
 
-### B8. PayGate configuration
-In the PayGate merchant portal, set the **return/notify URLs** to:
-- `https://YOUR-DOMAIN/paygate/return`
-- `https://YOUR-DOMAIN/paygate/notify`
+### B8. PayFast configuration
+In the PayFast dashboard → **Settings → Merchant Details**, confirm the
+**Merchant ID** and **Merchant Key**. Under **Settings → Account Information**,
+set or copy the **Salt Passphrase**. Put them in `/opt/beluchis/.env`:
 
-Set `PAYGATE_ID` / `PAYGATE_KEY` in `/opt/beluchis/.env` and restart `beluchis`.
+```bash
+PAYFAST_ID=...
+PAYFAST_KEY=...
+PAYFAST_PASSPHRASE=...
+PAYFAST_ENDPOINT=https://www.payfast.co.za
+PUBLIC_BASE_URL=https://YOUR-DOMAIN
+```
+
+`PUBLIC_BASE_URL` must be the public HTTPS origin: PayFast posts the ITN to
+`https://YOUR-DOMAIN/payfast/notify` and redirects the browser to
+`https://YOUR-DOMAIN/payfast/return`. Restart `beluchis` after changing the
+file. Use the sandbox endpoint (`https://sandbox.payfast.co.za`) plus sandbox
+credentials for the first test, then switch both to live.
+
+Note: PayFast builds the `return_url`/`notify_url` from what the server sends,
+so a wrong `PUBLIC_BASE_URL` makes a payment succeed at PayFast while the order
+stays pending in our database. Check `journalctl -u beluchis` for
+`[payfast]` lines after a test payment.
 
 ### B9. Nightly backup (SQLite file copy)
 `/etc/cron.d/beluchis-backup` (or a systemd timer):
@@ -254,7 +275,7 @@ curl -fsS  https://YOUR-DOMAIN/preview/mobile   -o /dev/null -w "%{http_code}\n"
 curl -fsS  https://YOUR-DOMAIN/api/categories  -o /dev/null -w "%{http_code}\n"     # 200
 curl -fsS  https://YOUR-DOMAIN/api/specials      -o /dev/null -w "%{http_code}\n"     # 200
 ```
-Browser: place an order → PayGate test payment → confirm `OrderStatusEvent` timeline inside the portal.
+Browser: place an order → PayFast test payment → confirm the order is marked paid in the admin Orders board and the `OrderStatusEvent` timeline is intact.
 
 ---
 
@@ -263,10 +284,11 @@ Browser: place an order → PayGate test payment → confirm `OrderStatusEvent` 
 - [ ] `/api/categories`, `/api/specials` return 200.
 - [ ] Customer login with Zanele (`+27 60 555 0000` / `beluchis123`) → order history shows event timelines.
 - [ ] Admin login with `ADMIN_PIN` works.
-- [ ] PayGate return → order marked paid → timeline updated.
+- [ ] PayFast return → order marked paid → timeline updated.
+- [ ] PayFast ITN received (check `journalctl -u beluchis -g payfast`).
 
 ## 10. Go-live hardening checklist
-- [ ] Use real `PAYGATE_ID/KEY`, real domain, tested `PUBLIC_BASE_URL`.
+- [ ] Use real `PAYFAST_ID` / `PAYFAST_KEY` / `PAYFAST_PASSPHRASE`, real domain, tested `PUBLIC_BASE_URL`.
 - [ ] Strong `ADMIN_PIN`, rotate if it ever appeared in chat/logs.
 - [ ] Make GitHub repo **private** → Code Engine builds then need a repo-write secret (fine-grained PAT) in the project; xneelo deploys use SSH deploy key or a dedicated PAT.
 - [ ] Backups restored once in a dry-run.

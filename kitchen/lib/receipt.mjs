@@ -1,4 +1,5 @@
 const WIDTH = 32;
+const SHOP_TZ = 'Africa/Johannesburg';
 
 function money(v) {
   return `R${Number(v || 0).toFixed(2)}`.replace(/\.00$/, '');
@@ -9,7 +10,7 @@ function fmtTime(input) {
   if (Number.isNaN(d.getTime())) return String(input);
   try {
     return d.toLocaleString('en-ZA', {
-      day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      timeZone: SHOP_TZ, day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
     });
   } catch {
     return String(input);
@@ -44,7 +45,7 @@ function wrap(text, width = WIDTH, indent = '') {
 function paymentLabel(order) {
   if (order.paymentMethod === 'cod_cash') return 'CASH ON DELIVERY';
   if (order.paymentMethod === 'cod_card') return 'CARD ON DELIVERY';
-  if (order.paymentMethod === 'paygate') {
+  if (order.paymentMethod === 'payfast' || order.paymentMethod === 'paygate') {
     if (order.paymentStatus === 'paid') return 'PAID ONLINE';
     if (order.paymentStatus === 'failed') return 'PAYMENT FAILED';
     return 'PAYMENT PENDING';

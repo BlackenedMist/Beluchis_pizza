@@ -30,7 +30,7 @@ export function testPage() {
   return buildEscpos([
     { text: 'BELUCHIS KITCHEN', align: 'center', bold: true, size: 2 },
     { text: 'Printer test OK', align: 'center' },
-    { text: String(new Date().toLocaleString()), align: 'center' },
+    { text: String(new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })), align: 'center' },
     { text: 'If you can read this line,', align: 'center' },
     { text: 'everything is working.', align: 'center' }
   ]);

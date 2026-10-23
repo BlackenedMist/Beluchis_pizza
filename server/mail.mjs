@@ -54,19 +54,21 @@ export async function sendMail({ to, subject, text, html }) {
 // the plain-text body; HTML is a small inline-styled email.
 export function buildOrderConfirmation(order) {
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  // Prices are stored in Rand, not cents.
+  const rand = (v) => Number(v || 0).toFixed(2);
   const items = Array.isArray(order.items) ? order.items : [];
   const name = order.customer?.firstName || order.customer?.lastName || "there";
   const pickup = !order.deliveryAddress;
   const paid = order.paymentStatus === "paid";
   const payLabel =
-    order.paymentMethod === "paygate" ? (paid ? "Paid online" : "Payment pending — complete at checkout")
+    (order.paymentMethod === "payfast" || order.paymentMethod === "paygate") ? (paid ? "Paid online" : "Payment pending — complete at checkout")
     : order.paymentMethod === "cod_card" ? "Card on delivery"
     : "Cash on delivery";
 
   const lines = items.map((it) => {
     const extras = it.extras ? JSON.parse(it.extras || "[]") : [];
     const extraTxt = extras.length ? ` (${extras.map((e) => e.name ?? e).join(", ")})` : "";
-    return `${it.quantity}x ${it.itemName}${it.sizeLabel ? ` (${it.sizeLabel})` : ""}${extraTxt} — R${((it.total) / 100).toFixed(2)}`;
+    return `${it.quantity}x ${it.itemName}${it.sizeLabel ? ` (${it.sizeLabel})` : ""}${extraTxt} — R${rand(it.total)}`;
   });
 
   const text = [
@@ -77,9 +79,9 @@ export function buildOrderConfirmation(order) {
     "",
     ...lines,
     "",
-    ...(order.discountLabel ? [`Discount (${order.discountLabel}): -R${((order.discountAmount) / 100).toFixed(2)}`, ""] : []),
-    ...(order.deliveryFee ? [`Delivery fee: R${((order.deliveryFee) / 100).toFixed(2)}`, ""] : []),
-    `Total: R${((order.grandTotal ?? order.total) / 100).toFixed(2)}`,
+    ...(order.discountLabel ? [`Discount (${order.discountLabel}): -R${rand(order.discountAmount)}`, ""] : []),
+    ...(order.deliveryFee ? [`Delivery fee: R${rand(order.deliveryFee)}`, ""] : []),
+    `Total: R${rand(order.grandTotal ?? order.total)}`,
     `Payment: ${payLabel}`,
     "",
     "We'll let the kitchen know straight away.",
@@ -94,9 +96,9 @@ export function buildOrderConfirmation(order) {
     <h2 style="margin:0 0 4px;font-size:18px">Hi ${esc(name)},</h2>
     <p style="margin:0 0 14px;color:#6d6d6d">Thanks — your order <strong>#${esc(order.id)}</strong> has been received. ${pickup ? "We'll have it ready for collection." : "We're preparing your delivery."}</p>
     <table style="width:100%;border-collapse:collapse">${itemRows}</table>
-    ${order.discountLabel ? `<p style="margin:10px 0 0">Discount (${esc(order.discountLabel)}): <strong>-R${((order.discountAmount) / 100).toFixed(2)}</strong></p>` : ""}
-    ${order.deliveryFee ? `<p style="margin:4px 0 0">Delivery fee: <strong>R${((order.deliveryFee) / 100).toFixed(2)}</strong></p>` : ""}
-    <p style="margin:12px 0 0;font-size:16px">Total: <strong>R${((order.grandTotal ?? order.total) / 100).toFixed(2)}</strong></p>
+    ${order.discountLabel ? `<p style="margin:10px 0 0">Discount (${esc(order.discountLabel)}): <strong>-R${rand(order.discountAmount)}</strong></p>` : ""}
+    ${order.deliveryFee ? `<p style="margin:4px 0 0">Delivery fee: <strong>R${rand(order.deliveryFee)}</strong></p>` : ""}
+    <p style="margin:12px 0 0;font-size:16px">Total: <strong>R${rand(order.grandTotal ?? order.total)}</strong></p>
     <p style="margin:4px 0 0;color:#6d6d6d">Payment: ${esc(payLabel)}</p>
     <p style="margin-top:18px;color:#9a8f80;font-size:13px">— The Beluchis team</p>
   </div>

@@ -171,6 +171,11 @@
 
 <script>
 const $ = (s, el = document) => el.querySelector(s);
+
+// Shop times are South African (CAT, UTC+2) regardless of the device timezone.
+const SHOP_TZ = "Africa/Johannesburg";
+const shopDate = (d) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: SHOP_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const state = {
@@ -206,9 +211,9 @@ function toast(msg, isErr = false) {
 
 function orderTime(iso) {
   const d = new Date(iso);
-  const today = new Date().toDateString() === d.toDateString();
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return today ? time : `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
+  const today = shopDate(new Date()) === shopDate(d);
+  const time = d.toLocaleTimeString([], { timeZone: SHOP_TZ, hour: "2-digit", minute: "2-digit" });
+  return today ? time : `${d.toLocaleDateString([], { timeZone: SHOP_TZ, month: "short", day: "numeric" })} ${time}`;
 }
 
 function orderLine(line) {
@@ -230,8 +235,8 @@ function orderLine(line) {
 }
 
 function orderHead(o) {
-  const payLabels = { cod_cash: "Cash on delivery", cod_card: "Card on delivery", paygate: "Online (PayGate)" };
-  const payChip = o.paymentMethod === "paygate"
+  const payLabels = { cod_cash: "Cash on delivery", cod_card: "Card on delivery", payfast: "Online (PayFast)", paygate: "Online (PayGate)" };
+  const payChip = (o.paymentMethod === "payfast" || o.paymentMethod === "paygate")
     ? `<span class="pay-chip p${o.paymentStatus}">${payLabels[o.paymentMethod] || o.paymentMethod} · ${o.paymentStatus}</span>`
     : `<span class="pay-chip">${payLabels[o.paymentMethod] || o.paymentMethod}</span>`;
   return `
@@ -303,7 +308,7 @@ function render() {
     `${state.orders.filter((o) => o.status === "placed").length} new · ` +
     `${state.orders.filter((o) => o.status === "preparing").length} preparing · ` +
     `${state.orders.filter((o) => o.status === "out_for_delivery").length} out for delivery`;
-  $("#updated").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  $("#updated").textContent = new Date().toLocaleTimeString([], { timeZone: SHOP_TZ, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 function checkNewOrders(orders) {

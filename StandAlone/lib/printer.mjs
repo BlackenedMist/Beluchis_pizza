@@ -148,7 +148,7 @@ export async function send(printer, segments, text) {
 }
 
 export async function testPrinter(printer) {
-  const text = ['.BELUCHIS KITCHEN.', 'Printer test OK', String(new Date().toLocaleString()), 'If you can read this line,', 'everything is working.'].join('\n');
+  const text = ['.BELUCHIS KITCHEN.', 'Printer test OK', String(new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })), 'If you can read this line,', 'everything is working.'].join('\n');
   if (printer.type === 'file') {
     return { ok: true, ms: 0, ...writeFile(printer, text) };
   }

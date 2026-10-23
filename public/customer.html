@@ -266,6 +266,9 @@
 "use strict";
 const $ = (s) => document.querySelector(s);
 
+// Shop times are South African (CAT, UTC+2) regardless of the device timezone.
+const SHOP_TZ = "Africa/Johannesburg";
+
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const money = (n) => "R" + Number(n || 0).toLocaleString("en-ZA");
 
@@ -362,7 +365,7 @@ function timelineHtml(events) {
     const done = reached.has(s) || (FLOW.slice(0, i + 1).some((x) => reached.has(x)));
     const ev = events.find((e) => e.status === s);
     const when = ev
-      ? new Date(ev.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      ? new Date(ev.createdAt).toLocaleTimeString([], { timeZone: SHOP_TZ, hour: "2-digit", minute: "2-digit" })
       : "";
     return `<div class="step ${done ? "done" : ""}"><span class="dot"></span><div class="lbl">${esc(STATUS_NAMES[s])}</div><div class="when">${when}</div></div>`;
   }).join("");
@@ -384,6 +387,7 @@ function orderCard(o) {
     .join("");
   const hasDiscount = o.discountAmount > 0;
   const date = new Date(o.createdAt).toLocaleString([], {
+    timeZone: SHOP_TZ,
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -425,7 +429,7 @@ function renderOffers(rows) {
   el.innerHTML = rows
     .map((c) => {
       const when = c.expiresAt
-        ? ` · valid until ${new Date(c.expiresAt).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}`
+        ? ` · valid until ${new Date(c.expiresAt).toLocaleDateString([], { timeZone: SHOP_TZ, day: "numeric", month: "short", year: "numeric" })}`
         : "";
       const min = c.minSpend ? ` · minimum order ${money(c.minSpend)}` : "";
       return `<div class="offer">

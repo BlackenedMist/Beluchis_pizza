@@ -3,12 +3,12 @@
 Every HTTP endpoint served by the Express backend in `server/index.mjs`.
 
 - **Base URL**: `http://localhost:<PORT>` — `PORT` from `.env`, default `3100`.
-- **Format**: JSON request/response bodies (`Content-Type: application/json`). The PayGate callbacks are the exception (form-encoded).
+- **Format**: JSON request/response bodies (`Content-Type: application/json`). The PayFast and legacy PayGate callbacks are the exception (form-encoded).
 - **Auth**: httpOnly, SameSite=Strict cookies set by login endpoints.
   - Staff: `beluchis_admin`
   - Customer portal: `beluchis_customer`
   - Sessions are in-memory, 12-hour TTL, reset on server restart.
-- **Errors**: non-2xx responses return `{ "error": "human message" }`. Common statuses: `400` bad input, `401` not authenticated, `403` authenticated but insufficient role, `404` not found, `429` login throttled (10 attempts / 15 min per IP; loopback exempt), `503`/`502` PayGate-upstream failures.
+- **Errors**: non-2xx responses return `{ "error": "human message" }`. Common statuses: `400` bad input, `401` not authenticated, `403` authenticated but insufficient role, `404` not found, `429` login throttled (10 attempts / 15 min per IP; loopback exempt), `502`/`503` payment-provider upstream/configuration failures.
 - **Delivery block**: `POST /api/orders` returns `400` with `{ error, code: "delivery_out_of_range", distanceKm }` when the address is beyond the configured max radius.
 - **Shop-closed block**: `POST /api/orders` returns `403` with `{ error, code: "shop_closed", openTime, closeTime, forceOpen }` when online ordering is off or the shop is outside its trading hours. Staff sessions bypass this check.
 
@@ -80,7 +80,7 @@ Body:
   "deliveryAddress": "1 Long St, Worcester",
   "deliveryLat": -33.646, "deliveryLng": 19.448,   // legacy lat/lng also accepted
   "couponCode": "BELU-XXXX",
-  "paymentMethod": "cod_cash",     // cod_cash | cod_card | paygate
+  "paymentMethod": "cod_cash",     // cod_cash | cod_card | payfast
   "notes": "Ring the side gate"
 }
 ```
@@ -89,14 +89,14 @@ Body:
 - `status` defaults to `placed` (also accept `preparing`/`out_for_delivery`/`delivered`/`cancelled`).
 - Delivery: distance from the shop centre (Haversine). ≤ `freeRadiusKm` → `deliveryStatus: "free"` (fee 0); between radii → `"fee"` (fee added to `total`/`grandTotal`); > `maxRadiusKm` → `400 delivery_out_of_range`. Address without GPS → `"unverified"` (accepted, treated as collection); no address/coords → `"collection"`.
 - Coupon validated server-side: active, unexpired, under usage limit, subtotal ≥ minSpend, customer-linked coupons need that customer logged in.
-- `paygate` flow: first initiates PayWeb3; on success the response includes `redirect: { url, fields }` for the browser to auto-submit. Orders never persisted upstream of a gateway failure.
+- `payfast` flow: the server signs the checkout fields and creates the order, then the response includes `redirect: { url, provider: "payfast", fields }` for the browser to auto-submit to PayFast. A fully-discounted order skips the gateway and is recorded as paid.
 - **BOGO lines** (`special.kind === "bogo"`): send exactly one entry per pizza under `pizzas`, and the array length must equal the special's `count`. Every `itemId` must belong to the special's `categoryId` (and match `sizeLabel` when the special pins one). The server sorts base prices descending, charges only the higher half, and keeps extras payable. It writes one `OrderItem` per pizza and records the saving on `Order.discountAmount`. Invalid picks → `400`.
 - **Automatic fixed-price deals** (`special.kind === "deal"`, e.g. *any 2 Large Traditional pizzas for R200*): these have **no line of their own** — the customer just adds the pizzas and the server prices them. Send the qualifying pizzas as ordinary `itemId` lines and never send the deal's `specialId`; doing so returns `400` (`… is an automatic deal - send its pizzas as normal item lines`).
 
   The server groups the ordered units by size, takes `floor(n / count)` groups cheapest-first, and charges `count ×` the deal's flat `price` per group. A group only earns the discount when it actually beats the normal base total, so two R90 Margheritas stay at R180 rather than being pushed **up** to R200. Extras never qualify and stay payable — the discount is computed on base price only, so the saving is clamped at 0 and can never make an order cost more. Overlapping deals can't discount the same pizza twice.
 
   The units keep their normal base price on their `OrderItem`s; the saving is folded into `Order.discountAmount` alongside any coupon, and named in `Order.discountLabel` (`"2 L Traditional Pizzas"`, or `"<deal> + <coupon>"` when both apply). `Order.total` stays the gross charged price, so `total - discountAmount = grandTotal` holds on every surface — receipt, cashier board, portal and confirmation email need no changes.
-- Response `201`: the full order (`OrderItem`s, `customer`, `deliveryDistance`, `deliveryFee`, `deliveryStatus`, `total`, `discount*`, `grandTotal`).
+- Response `201`: the full order (`OrderItem`s, `customer`, `deliveryDistance`, `deliveryFee`, `deliveryStatus`, `total`, `discount*`, `grandTotal`), plus `redirect` for `payfast` orders that need payment.
 
 ### Contact
 `POST /api/contact` — submit the homepage contact form.
@@ -228,11 +228,32 @@ Settings keys: `shop.lat`, `shop.lng`, `delivery.freeRadiusKm`, `delivery.maxRad
 
 ---
 
-## 6. PayGate (PayWeb3 online payments)
+## 6. PayFast online payments
 
 | Endpoint | Caller | Purpose |
 |----------|--------|---------|
-| `POST /paygate/notify` | PayGate server | Server-to-server result post; verifies checksum, updates the matched order (`paymentStatus paid/failed`, txn fields), replies bare `OK` |
-| `POST /paygate/return` | PayGate | Browser redirect after payment; verifies checksum, records result, renders a receipt-style page |
+| `POST /payfast/notify` | PayFast server | ITN (server-to-server). Verifies the signature, merchant ID, `amount_gross` and PayFast's `/eng/query/validate` response; updates the matched order (`paymentStatus paid/failed/pending`, txn fields) and replies `OK` (HTTP 200). Transient failures reply `500` so PayFast retries. |
+| `POST/GET /payfast/return` | Customer browser | Redirect after payment. Looks up the order by `m_payment_id` (`Order.payRef`) and renders its stored status; applies the signed result if the redirect carries one. Pending orders show "being confirmed", not failed. |
 
-Matches orders by the `REFERENCE` (stored as `Order.payRef`, `BELU-…` generated at order time).
+Checkout is a form POST from the storefront to
+`https://www.payfast.co.za/eng/process` (or `https://sandbox.payfast.co.za/eng/process`)
+with these signed fields: `merchant_id`, `merchant_key`, `return_url`,
+`cancel_url`, `notify_url`, `name_first`, `name_last`, `email_address`,
+`m_payment_id`, `amount`, `item_name`, optional `payment_method`, and
+`signature`.
+
+Signature: URL-encode each value (space → `+`), join `key=value` pairs with `&`
+in PayFast's documented order, append `&passphrase=<urlencoded passphrase>` if
+one is configured, then MD5. The order reference (`BELU-XXXXXXXX`) is sent as
+`m_payment_id`, which PayFast echoes back in the ITN. `payment_status` values:
+`COMPLETE` → `paid`, `FAILED`/`CANCELLED` → `failed`, `PENDING` → stays
+`pending`.
+
+Configuration: `PAYFAST_ID`, `PAYFAST_KEY`, `PAYFAST_PASSPHRASE` (optional),
+`PAYFAST_ENDPOINT` (default `https://www.payfast.co.za`),
+`PAYFAST_PAYMENT_METHOD` (optional), and `PUBLIC_BASE_URL` (must be the public
+HTTPS origin). PayFast must be able to reach `PUBLIC_BASE_URL/payfast/notify`
+and the customer must be able to reach `PUBLIC_BASE_URL/payfast/return`.
+
+PayGate (`/paygate/*`) is legacy: the routes remain so old `paygate` orders can
+be reconciled, but the storefront no longer offers PayGate.

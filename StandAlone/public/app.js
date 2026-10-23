@@ -10,7 +10,7 @@ function money(v) {
 }
 
 function payLabel(order) {
-  if (order.paymentMethod === 'paygate') {
+  if (order.paymentMethod === 'payfast' || order.paymentMethod === 'paygate') {
     if (order.paymentStatus === 'paid') return 'Paid online';
     if (order.paymentStatus === 'failed') return 'Payment failed';
     return 'Payment pending';
@@ -23,7 +23,7 @@ function payLabel(order) {
 function fmtTime(input) {
   const d = new Date(input);
   if (Number.isNaN(d.getTime())) return String(input);
-  return d.toLocaleString('en-ZA', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 // ---------- tabs ----------

@@ -23,9 +23,10 @@ const PAYGATE_KEY = process.env.PAYGATE_KEY || "";
 const PAYGATE_ENABLED = Boolean(PAYGATE_ID && PAYGATE_KEY);
 
 // PayFast online payment config. Stays disabled until both PAYFAST_ID and
-// PAYFAST_KEY are present in the environment. PAYFAST_PASSPHRASE is optional:
-// PayFast falls back to the merchant key when the merchant set no passphrase.
-const PAYFAST_ENDPOINT = process.env.PAYFAST_ENDPOINT || "https://www.payfast.co.za";
+// PAYFAST_KEY are present in the environment. PAYFAST_PASSPHRASE is the
+// "Salt Passphrase" from the PayFast dashboard and is optional: if it is not
+// set, PayFast signs without a passphrase. Never substitute the merchant key.
+const PAYFAST_ENDPOINT = (process.env.PAYFAST_ENDPOINT || "https://www.payfast.co.za").replace(/\/+$/, "");
 const PAYFAST_ID = process.env.PAYFAST_ID || "";
 const PAYFAST_KEY = process.env.PAYFAST_KEY || "";
 const PAYFAST_PASSPHRASE = process.env.PAYFAST_PASSPHRASE || "";
@@ -33,26 +34,29 @@ const PAYFAST_ENABLED = Boolean(PAYFAST_ID && PAYFAST_KEY);
 // Which PayFast payment method to offer ("1" = card, "2" = EFT, ...). Empty
 // means "whatever the merchant has enabled in the PayFast dashboard".
 const PAYFAST_PAYMENT_METHOD = process.env.PAYFAST_PAYMENT_METHOD || "";
-// The passphrase PayFast signs with - the merchant key unless one was set.
-const payfastPassphrase = () => PAYFAST_PASSPHRASE || PAYFAST_KEY;
+const payfastPassphrase = () => PAYFAST_PASSPHRASE;
 
-// Which online payment provider the storefront should offer. PayFast wins when
-// it is configured; PayGate stays available by leaving its credentials in the
-// environment. With neither configured the checkout shows cash/card only.
-const onlinePaymentProvider = () => {
-  if (PAYFAST_ENABLED) return "payfast";
-  if (PAYGATE_ENABLED) return "paygate";
-  return null;
-};
+// PayFast is the single online payment provider. PayGate remains in the code
+// for historical orders but is never offered at checkout.
+const onlinePaymentProvider = () => (PAYFAST_ENABLED ? "payfast" : null);
 
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
-const PUBLIC_ORIGIN = PUBLIC_BASE_URL || `http://localhost:${PORT}`;
+const PUBLIC_ORIGIN = (PUBLIC_BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
 
 const PAYMENT_METHODS = new Set(["cod_cash", "cod_card", "paygate", "payfast"]);
 const PAYMENT_STATUSES = new Set(["pending", "paid", "failed"]);
 
 app.use(express.json({ limit: "8mb" }));
-app.use(express.urlencoded({ extended: true }));
+// Keep the raw form body: PayFast's ITN signature is computed over the fields
+// in the exact order they were posted, and express's parser may reorder keys.
+app.use(
+  express.urlencoded({
+    extended: true,
+    verify: (req, _res, buf) => {
+      req.rawBody = buf.toString("utf8");
+    },
+  })
+);
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 // -------------------------------------------------------------------- Routes
@@ -1212,7 +1216,7 @@ const applyPaygateResult = async (params) => {
   // Best-effort payment confirmation when the gateway approves and we have an email.
   if (approved && order.customer?.email && mailEnabled()) {
     const cust = order.customer;
-    const total = ((order.grandTotal ?? order.total) / 100).toFixed(2);
+    const total = Number(order.grandTotal ?? order.total).toFixed(2);
     sendMail({
       to: cust.email,
       subject: `Payment received for Beluchis order #${order.id}`,
@@ -1226,11 +1230,19 @@ const applyPaygateResult = async (params) => {
 };
 
 // Customer-facing result page (browser lands here after the gateway redirects).
-const renderPaymentResult = (res, { approved, resultCode, resultDesc, orderId, amountCents, ref }) => {
+const renderPaymentResult = (res, { approved, pending = false, resultCode, resultDesc, orderId, amountCents, ref }) => {
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const heading = approved ? "Payment successful" : "Payment not completed";
-  const color = approved ? "#1c7c3e" : "#b3351f";
+  const heading = approved ? "Payment successful" : pending ? "Payment is being confirmed" : "Payment not completed";
+  const color = approved ? "#1c7c3e" : pending ? "#a36a00" : "#b3351f";
+  const badge = approved ? "\u2713" : pending ? "\u2026" : "\u2717";
   const desc = approved && resultDesc === "Auth Done" ? "Your payment was authorised." : esc(resultDesc || "");
+  const refSuffix = ref ? ` &middot; ${esc(ref)}` : "";
+  const amount = `R${(Number(amountCents || 0) / 100).toFixed(2)}`;
+  const detail = approved
+    ? `Order #${esc(orderId)} &middot; ${amount} paid${refSuffix}`
+    : pending
+      ? `Order #${esc(orderId)} &middot; ${amount} &middot; awaiting confirmation`
+      : `Order #${esc(orderId)}`;
   res.type("html").send(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${heading} - Beluchis</title>
@@ -1244,10 +1256,10 @@ const renderPaymentResult = (res, { approved, resultCode, resultDesc, orderId, a
   .btn{display:inline-block;margin-top:18px;background:#b3351f;color:#fff;border-radius:8px;padding:11px 22px;text-decoration:none;font-weight:600;font-size:14px}
   .btn.ghost{background:transparent;color:#2a2520;border:1px solid #e8e0d5;margin-left:8px}
 </style></head><body><div class="card">
-  <div class="badge">${approved ? "\u2713" : "\u2717"}</div>
+  <div class="badge">${badge}</div>
   <h1>${heading}</h1>
   <p class="sub">${desc}</p>
-  <div class="id">Order #${esc(orderId)} ${approved ? `&middot; R${((amountCents) / 100).toFixed(2)} paid ${esc(ref ? "&middot; " + ref : "")}` : ""}</div>
+  <div class="id">${detail}</div>
   <a class="btn" href="/order">Back to menu</a>
   <a class="btn ghost" href="/portal">My orders</a>
 </div></body></html>`);
@@ -1364,6 +1376,17 @@ app.post(
     if (!allowedStatuses.includes(status)) return res.status(400).json({ error: `status must be one of ${allowedStatuses.join(", ")}` });
     if (!PAYMENT_METHODS.has(paymentMethod))
       return res.status(400).json({ error: `paymentMethod must be one of ${[...PAYMENT_METHODS].join(", ")}` });
+
+    // Only the one configured online provider may be used. PayFast is the
+    // active provider; PayGate is kept for old orders but no longer offered.
+    const activeOnline = onlinePaymentProvider();
+    if ((paymentMethod === "paygate" || paymentMethod === "payfast") && paymentMethod !== activeOnline) {
+      return res.status(activeOnline ? 400 : 503).json({
+        error: activeOnline
+          ? `Online payment is only available through ${activeOnline === "payfast" ? "PayFast" : "PayGate"}.`
+          : "Online payment is not configured on this server. Please choose cash or card on delivery.",
+      });
+    }
 
     // Storefront hours: online ordering pauses outside the owner-set window,
     // unless the owner has forced "still open". Staff orders bypass the check.
@@ -1625,41 +1648,32 @@ app.post(
     const discountLabel = [dealLabel, couponLabel].filter(Boolean).join(" + ") || null;
     const grandTotal = orderTotal - discountAmount;
 
-    // ----- Online (PayGate / PayFast) flow ---------------------------------------------------
-    // Initiate BEFORE the order is persisted so a gateway failure leaves no
-    // orphan order. A fully-discounted order has nothing to charge: mark it paid.
+    // ----- Online (PayFast) flow ---------------------------------------------------
+    // Build the gateway request BEFORE the order is persisted so a gateway
+    // failure leaves no orphan order. A fully-discounted order has nothing to
+    // charge: mark it paid.
     const onlineFree = (paymentMethod === "paygate" || paymentMethod === "payfast") && grandTotal <= 0;
     let payRef = null;
     let payRequestId = null;
     let payRedirect = null;
-    if (paymentMethod === "paygate" && !onlineFree) {
+    if (paymentMethod === "payfast" && !onlineFree) {
       payRef = `BELU-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
-      const outcome = await paygateInitiate({
-        reference: payRef,
-        amountCents: grandTotal * 100,
-        email,
-        returnUrl: `${PUBLIC_ORIGIN}/paygate/return`,
-        notifyUrl: `${PUBLIC_ORIGIN}/paygate/notify`,
-      });
-      payRequestId = outcome.payRequestId;
-      payRedirect = {
-        url: `${PAYGATE_ENDPOINT}/payweb3/process.trans`,
-        provider: "paygate",
-        fields: { PAY_REQUEST_ID: outcome.payRequestId, CHECKSUM: outcome.redirectChecksum },
-      };
-    } else if (paymentMethod === "payfast" && !onlineFree) {
-      if (!PAYFAST_ENABLED) throw new Error("PayFast is not configured on this server");
-      payRef = `BELU-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+      const payFirstName = String(firstName || customer?.firstName || "").trim();
+      const payLastName = String(lastName || customer?.lastName || "").trim();
+      const payEmail = String(email || customer?.email || "").trim();
       const fields = payfastCheckoutFields({
         merchantId: PAYFAST_ID,
         merchantKey: PAYFAST_KEY,
         passphrase: payfastPassphrase(),
         returnUrl: `${PUBLIC_ORIGIN}/payfast/return`,
+        cancelUrl: `${PUBLIC_ORIGIN}/order?payment=cancelled`,
         notifyUrl: `${PUBLIC_ORIGIN}/payfast/notify`,
         reference: payRef,
-        amount: grandTotal / 100,
-        name: `${firstName} ${lastName}`.trim() || customerName,
-        email,
+        amount: grandTotal,
+        firstName: payFirstName,
+        lastName: payLastName,
+        email: payEmail,
+        itemName: `Beluchis order ${payRef}`,
         paymentMethod: PAYFAST_PAYMENT_METHOD,
       });
       payRedirect = {
@@ -1674,12 +1688,11 @@ app.post(
         data: {
           customerId: customer.id,
           status,
-          paymentMethod: onlineFree ? paymentMethod : paymentMethod,
+          paymentMethod,
           paymentStatus: onlineFree ? "paid" : "pending",
           payRef,
           payRequestId,
           total: orderTotal,
-          discountCode: coupon ? coupon.code : null,
           discountCode: coupon ? coupon.code : null,
           discountLabel: discountLabel || null,
           discountAmount,
@@ -1717,25 +1730,98 @@ app.post(
 );
 
 // --------------------------------------------------------- PayFast callbacks
-const applyPayfastResult = async (params) => {
+const payfastParam = (params, key) =>
+  (params?.get ? params.get(key) : params?.[key]) ?? "";
+
+// Rebuild the posted fields in the order PayFast signed them. The global
+// urlencoded parser keeps the raw body in req.rawBody, which is the only
+// reliable way to preserve that order.
+const payfastParamsFromRequest = (req) => {
+  if (req.rawBody) return new URLSearchParams(req.rawBody);
+  const qs = req.originalUrl && req.originalUrl.includes("?")
+    ? req.originalUrl.slice(req.originalUrl.indexOf("?") + 1)
+    : "";
+  if (qs) return new URLSearchParams(qs);
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(req.body || {})) params.set(k, String(v));
+  return params;
+};
+
+// PayFast's own server-to-server check. The signature already proves the
+// notification came from PayFast; this catches replay/forged payloads that
+// reuse a valid signature. Only a definitive "INVALID" rejects the ITN - a
+// network failure must not lose a real payment.
+const payfastValidateItn = async (rawBody) => {
+  try {
+    const res = await fetch(`${PAYFAST_ENDPOINT}/eng/query/validate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: rawBody,
+      signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
+    });
+    const text = (await res.text()).trim().toUpperCase();
+    if (text === "VALID") return "VALID";
+    if (text === "INVALID") return "INVALID";
+    console.warn(`[payfast] unexpected validation response: ${res.status} ${text.slice(0, 80)}`);
+    return "UNKNOWN";
+  } catch (err) {
+    console.warn(`[payfast] server validation unavailable: ${err.message}`);
+    return "UNKNOWN";
+  }
+};
+
+// Apply a verified PayFast ITN to the matching order (matched by our reference
+// in m_payment_id, stored in Order.payRef).
+const applyPayfastResult = async (params, rawBody = null) => {
   if (!PAYFAST_ENABLED) return { ok: false, reason: "PayFast not configured" };
-  if (!validPayfastSignature(params, payfastPassphrase())) return { ok: false, reason: "checksum mismatch" };
-  const ref = params.get ? params.get("m_payment_id") || params.get("custom_str1") : params.m_payment_id || params.custom_str1;
+  if (!validPayfastSignature(params, payfastPassphrase())) return { ok: false, reason: "signature mismatch" };
+  if (payfastParam(params, "merchant_id") !== PAYFAST_ID) return { ok: false, reason: "merchant mismatch" };
+
+  if (rawBody) {
+    const validation = await payfastValidateItn(rawBody);
+    if (validation === "INVALID")
+      return { ok: false, retry: true, reason: "PayFast server validation failed" };
+  }
+
+  const ref = payfastParam(params, "m_payment_id") || payfastParam(params, "custom_str1");
   if (!ref) return { ok: false, reason: "missing m_payment_id" };
   const order = await prisma.order.findFirst({ where: { payRef: ref }, include: { customer: true } });
   if (!order) return { ok: false, reason: "unknown order" };
-  const status = params.get ? params.get("payment_status") : params.payment_status;
-  const approved = String(status || "").toLowerCase() === "complete";
+
+  // PayFast sends amount_gross in Rand on the ITN; the browser return may use
+  // `amount` instead. Reject a notification that does not match what we charged.
+  const gross = Number(payfastParam(params, "amount_gross") || payfastParam(params, "amount"));
+  const expectedAmount = order.grandTotal ?? order.total;
+  if (!Number.isFinite(gross) || Math.abs(gross - expectedAmount) > 0.01) {
+    return { ok: false, reason: `amount mismatch (got ${gross}, expected ${expectedAmount})` };
+  }
+
+  const status = String(payfastParam(params, "payment_status") || "").toUpperCase();
+  const approved = status === "COMPLETE";
+  const failed = status === "FAILED" || status === "CANCELLED";
+  const wasPaid = order.paymentStatus === "paid";
+  // Never downgrade a paid order. PayFast may send duplicate or late ITNs;
+  // once the money is in, only another COMPLETE may update the txn details.
+  const paymentStatus = wasPaid ? "paid" : approved ? "paid" : failed ? "failed" : order.paymentStatus || "pending";
+  const txnId = (approved || !order.txnId) ? (payfastParam(params, "pf_payment_id") || order.txnId) : order.txnId;
+  const resultCode = wasPaid && !approved ? order.resultCode : status || order.resultCode;
+  const resultDesc = wasPaid && !approved ? order.resultDesc : `PayFast ${status || "notification"}`;
+
   await prisma.order.update({
     where: { id: order.id },
     data: {
-      paymentStatus: approved ? "paid" : "failed",
-      txnId: (params.get ? params.get("pf_payment_id") : params.pf_payment_id) || order.txnId,
+      paymentStatus,
+      txnId,
+      resultCode,
+      resultDesc,
     },
   });
-  if (approved && order.customer?.email && mailEnabled()) {
+
+  // Best-effort payment confirmation when the gateway approves and we have an
+  // email. Only send it on the pending -> paid transition.
+  if (approved && !wasPaid && order.customer?.email && mailEnabled()) {
     const cust = order.customer;
-    const total = ((order.grandTotal ?? order.total) / 100).toFixed(2);
+    const total = Number(order.grandTotal ?? order.total).toFixed(2);
     sendMail({
       to: cust.email,
       subject: `Payment received for Beluchis order #${order.id}`,
@@ -1745,44 +1831,95 @@ const applyPayfastResult = async (params) => {
         `— The Beluchis team`,
     }).catch(() => {});
   }
-  return { ok: true, approved, order };
+
+  return {
+    ok: true,
+    approved: paymentStatus === "paid",
+    pending: paymentStatus === "pending",
+    order: { ...order, paymentStatus, txnId, resultCode, resultDesc },
+  };
 };
 
 app.post(
   "/payfast/notify",
-  express.urlencoded({ extended: true }),
   asyncHandler(async (req, res) => {
-    const params = new URLSearchParams();
-    for (const [k, v] of Object.entries(req.body || {})) params.set(k, String(v));
-    const outcome = await applyPayfastResult(params);
-    if (outcome.reason) console.warn(`[payfast] notify rejected: ${outcome.reason}`);
-    res.type("text/plain").send("OK");
+    const params = payfastParamsFromRequest(req);
+    let acknowledged = true;
+    try {
+      const outcome = await applyPayfastResult(params, req.rawBody || null);
+      if (!outcome.ok) {
+        console.warn(`[payfast] notify rejected: ${outcome.reason}`);
+        // A failed PayFast server validation may be transient; let PayFast
+        // retry it instead of dropping a possibly real payment.
+        if (outcome.retry) acknowledged = false;
+      } else
+        console.log(`[payfast] notify: order #${outcome.order.id} ${outcome.approved ? "paid" : outcome.pending ? "pending" : "failed"}`);
+    } catch (err) {
+      // A transient database/network error should make PayFast retry. Expected
+      // rejections (bad signature, unknown order, amount mismatch) return 200
+      // above so PayFast does not keep retrying a notification we cannot use.
+      acknowledged = false;
+      console.error(`[payfast] notify failed: ${err.message}`);
+    }
+    // PayFast only needs a 200; anything else makes it retry the notification.
+    if (acknowledged) res.type("text/plain").status(200).send("OK");
+    else res.type("text/plain").status(500).send("ERROR");
   })
 );
 
+// PayFast redirects the customer's browser here after payment. The ITN may not
+// have arrived yet, so show the order's stored status instead of claiming the
+// payment failed. If the redirect itself carries a valid signed result, apply it.
 async function payfastReturn(req, res) {
-  const params = new URLSearchParams();
-  for (const [k, v] of Object.entries(req.body || {})) params.set(k, String(v));
-  const outcome = await applyPayfastResult(params);
-  if (!outcome.ok) {
-    console.warn(`[payfast] return rejected: ${outcome.reason}`);
+  const params = payfastParamsFromRequest(req);
+  const ref = payfastParam(params, "m_payment_id") || payfastParam(params, "custom_str1");
+  if (!ref) {
     return renderPaymentResult(res, {
       approved: false,
-      resultDesc: "We could not verify this payment. Your order was not charged.",
-      orderId: params.get ? params.get("m_payment_id") || "?" : "?",
+      resultDesc: "We could not match this payment to an order. If you were charged, please contact us.",
+      orderId: "?",
       amountCents: 0,
     });
   }
+
+  const existing = await prisma.order.findFirst({ where: { payRef: ref } });
+  let outcome = existing
+    ? { ok: true, approved: existing.paymentStatus === "paid", pending: existing.paymentStatus !== "paid" && existing.paymentStatus !== "failed", order: existing }
+    : null;
+
+  if (!existing) {
+    console.warn(`[payfast] return: unknown order for ${ref}`);
+  } else if (payfastParam(params, "signature") && payfastParam(params, "payment_status")) {
+    const applied = await applyPayfastResult(params, req.rawBody || null);
+    if (applied.ok) outcome = applied;
+    else console.warn(`[payfast] return not applied: ${applied.reason}`);
+  }
+
+  if (!outcome) {
+    return renderPaymentResult(res, {
+      approved: false,
+      resultDesc: "We could not find that order. If you were charged, please contact us.",
+      orderId: ref,
+      amountCents: 0,
+    });
+  }
+
+  const order = outcome.order;
   renderPaymentResult(res, {
-    approved: outcome.approved,
-    resultDesc: outcome.approved ? "Payment received" : "Payment not completed",
-    orderId: outcome.order.id,
-    amountCents: (outcome.order.grandTotal ?? outcome.order.total) * 100,
-    ref: params.get ? params.get("pf_payment_id") : null,
+    approved: Boolean(outcome.approved),
+    pending: Boolean(outcome.pending) && !outcome.approved,
+    resultDesc: outcome.approved
+      ? "Payment received"
+      : outcome.pending
+        ? "PayFast is confirming your payment. This page will show the final status once the notification arrives."
+        : "Payment not completed",
+    orderId: order.id,
+    amountCents: (order.grandTotal ?? order.total) * 100,
+    ref: payfastParam(params, "pf_payment_id") || order.txnId || null,
   });
 }
 
-app.post("/payfast/return", express.urlencoded({ extended: true }), asyncHandler(payfastReturn));
+app.post("/payfast/return", asyncHandler(payfastReturn));
 app.get("/payfast/return", asyncHandler(payfastReturn));
 
 app.put(
@@ -2492,14 +2629,14 @@ async function paygateReturn(req, res) {
   const outcome = await applyPaygateResult(params);
   if (!outcome.ok) {
     console.warn(`[paygate] return rejected: ${outcome.reason}`);
-    return renderPaygateResult(res, {
+    return renderPaymentResult(res, {
       approved: false,
       resultDesc: "We could not verify this payment. Your order was not charged.",
       orderId: params.get("REFERENCE") || "?",
       amountCents: 0,
     });
   }
-  renderPaygateResult(res, {
+  renderPaymentResult(res, {
     approved: outcome.approved,
     resultCode: outcome.order.resultCode,
     resultDesc: outcome.order.resultDesc,
@@ -2546,4 +2683,15 @@ app.get(
 const HOST = process.env.HOST || "0.0.0.0";
 app.listen(PORT, HOST, () => {
   console.log(`Beluchis menu admin running at http://${HOST}:${PORT}`);
+  if (PAYFAST_ENABLED) {
+    console.log(`[payfast] enabled (${PAYFAST_ENDPOINT})`);
+    if (!PAYFAST_PASSPHRASE) {
+      console.warn("[payfast] PAYFAST_PASSPHRASE is empty; if the PayFast dashboard has a salt passphrase, signatures will be rejected.");
+    }
+    if (!/^https:\/\//i.test(PUBLIC_ORIGIN) || /localhost|127\.0\.0\.1/i.test(PUBLIC_ORIGIN)) {
+      console.warn("[payfast] PUBLIC_BASE_URL is not a public HTTPS origin; PayFast return/notify callbacks will not work.");
+    }
+  } else {
+    console.log("[payfast] disabled (PAYFAST_ID / PAYFAST_KEY not set)");
+  }
 });

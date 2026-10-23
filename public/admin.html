@@ -289,6 +289,11 @@
 <script>
 const $ = (s, el=document) => el.querySelector(s);
 const $$ = (s, el=document) => [...el.querySelectorAll(s)];
+
+// Shop times are South African (CAT, UTC+2) regardless of the device timezone.
+const SHOP_TZ = "Africa/Johannesburg";
+const shopDate = (d) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: SHOP_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const state = {
@@ -377,9 +382,9 @@ window.setOrderStatus = async (id, status) => {
 
 function orderTime(iso) {
   const d = new Date(iso);
-  const today = new Date().toDateString() === d.toDateString();
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return today ? time : `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
+  const today = shopDate(new Date()) === shopDate(d);
+  const time = d.toLocaleTimeString([], { timeZone: SHOP_TZ, hour: "2-digit", minute: "2-digit" });
+  return today ? time : `${d.toLocaleDateString([], { timeZone: SHOP_TZ, month: "short", day: "numeric" })} ${time}`;
 }
 
 function orderLine(line) {
@@ -436,8 +441,8 @@ function renderOrders() {
   const tally = (s) => state.orders.filter((o) => o.status === s).length;
 
   const head = (o) => {
-    const payLabels = { cod_cash: "Cash on delivery", cod_card: "Card on delivery", paygate: "Online (PayGate)" };
-    const payChip = o.paymentMethod === "paygate"
+    const payLabels = { cod_cash: "Cash on delivery", cod_card: "Card on delivery", payfast: "Online (PayFast)", paygate: "Online (PayGate)" };
+    const payChip = (o.paymentMethod === "payfast" || o.paymentMethod === "paygate")
       ? `<span class="pay-chip p${o.paymentStatus}">${payLabels[o.paymentMethod] || o.paymentMethod} · ${o.paymentStatus}</span>`
       : `<span class="pay-chip">${payLabels[o.paymentMethod] || o.paymentMethod}</span>`;
     return `
@@ -1646,7 +1651,7 @@ const tierBadge = (t) => {
 };
 const loyMoney = (n) => "R" + Number(n || 0).toLocaleString("en-ZA");
 const loyDate = (iso) =>
-  iso ? new Date(iso).toLocaleDateString([], { day: "numeric", month: "short" }) : "—";
+  iso ? new Date(iso).toLocaleDateString([], { timeZone: SHOP_TZ, day: "numeric", month: "short" }) : "—";
 
 async function loadLoyalty() {
   try {
@@ -1771,7 +1776,7 @@ function couponsTable(rows) {
             const who = c.customer
               ? `${esc(c.customer.firstName + " " + (c.customer.lastName || ""))} <span class="muted">${esc(c.customer.cellphone || "")}</span>`
               : '<span class="muted">Public code</span>';
-            const extra = [c.minSpend ? `min ${loyMoney(c.minSpend)}` : "", c.expiresAt ? `until ${new Date(c.expiresAt).toLocaleDateString([], { day: "numeric", month: "short" })}` : ""]
+            const extra = [c.minSpend ? `min ${loyMoney(c.minSpend)}` : "", c.expiresAt ? `until ${new Date(c.expiresAt).toLocaleDateString([], { timeZone: SHOP_TZ, day: "numeric", month: "short" })}` : ""]
               .filter(Boolean)
               .join(" · ");
             const canFlip = st.label === "Active" && !c.usedAt;
@@ -1781,7 +1786,7 @@ function couponsTable(rows) {
               <td>${who}</td>
               <td><span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:800;${st.style}">${st.label}</span></td>
               <td style="text-align:right">${c.usageCount}${c.usageLimit ? `/${c.usageLimit}` : ""}</td>
-              <td style="text-align:right" class="muted">${new Date(c.createdAt).toLocaleDateString([], { day: "numeric", month: "short" })}</td>
+              <td style="text-align:right" class="muted">${new Date(c.createdAt).toLocaleDateString([], { timeZone: SHOP_TZ, day: "numeric", month: "short" })}</td>
               <td style="text-align:right">${canFlip ? `<button class="ghost" onclick="deactivateCoupon(${c.id})">Deactivate</button>` : ""}</td>
             </tr>`;
           })
@@ -1872,12 +1877,12 @@ window.saveCoupon = async () => {
     $(".overlay")?.remove();
     const cust = state.loyalty?.rows.find((r) => r.id === cup.customerId);
     const phoneDigits = (cust?.cellphone || "").replace(/\D/g, "");
-    const wa = phoneDigits ? `https://wa.me/27${phoneDigits.replace(/^0/, "")}?text=${encodeURIComponent(`Hi ${cust?.firstName || ""}! Your Beluchis coupon is ${cup.code} — ${cup.label}${cup.minSpend ? ` (min order R${cup.minSpend})` : ""}${cup.expiresAt ? `, valid until ${new Date(cup.expiresAt).toLocaleDateString()}` : ""}.`)}` : null;
-    const mail = cust?.email ? `mailto:${cust.email}?subject=${encodeURIComponent("Your Beluchis coupon")}&body=${encodeURIComponent(`Hi ${cust.firstName || ""}! Use code ${cup.code} — ${cup.label}${cup.minSpend ? ` (min order R${cup.minSpend})` : ""}${cup.expiresAt ? `, valid until ${new Date(cup.expiresAt).toLocaleDateString()}.` : "."}\n\nEnter the code at checkout on beluchis.`)}` : null;
+    const wa = phoneDigits ? `https://wa.me/27${phoneDigits.replace(/^0/, "")}?text=${encodeURIComponent(`Hi ${cust?.firstName || ""}! Your Beluchis coupon is ${cup.code} — ${cup.label}${cup.minSpend ? ` (min order R${cup.minSpend})` : ""}${cup.expiresAt ? `, valid until ${new Date(cup.expiresAt).toLocaleDateString([], { timeZone: SHOP_TZ })}` : ""}.`)}` : null;
+    const mail = cust?.email ? `mailto:${cust.email}?subject=${encodeURIComponent("Your Beluchis coupon")}&body=${encodeURIComponent(`Hi ${cust.firstName || ""}! Use code ${cup.code} — ${cup.label}${cup.minSpend ? ` (min order R${cup.minSpend})` : ""}${cup.expiresAt ? `, valid until ${new Date(cup.expiresAt).toLocaleDateString([], { timeZone: SHOP_TZ })}.` : "."}\n\nEnter the code at checkout on beluchis.`)}` : null;
     openModal(`
       <h3>Coupon created</h3>
       <p>Code: <code style="font-size:18px;font-weight:800">${esc(cup.code)}</code></p>
-      <p class="muted">${esc(cup.label)}${cup.customerId ? " · single use" : " · public code"}${cup.expiresAt ? ` · expires ${new Date(cup.expiresAt).toLocaleDateString()}` : ""}</p>
+      <p class="muted">${esc(cup.label)}${cup.customerId ? " · single use" : " · public code"}${cup.expiresAt ? ` · expires ${new Date(cup.expiresAt).toLocaleDateString([], { timeZone: SHOP_TZ })}` : ""}</p>
       <div class="toolbar" style="justify-content:flex-start;">
         <button class="ghost" onclick="copyCouponCode('${esc(cup.code)}', this)">Copy code</button>
         ${wa ? `<a class="ghost" style="text-decoration:none" href="${esc(wa)}" target="_blank" rel="noopener">Send WhatsApp</a>` : ""}
