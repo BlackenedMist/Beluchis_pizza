@@ -11,6 +11,12 @@ invites.csv
 *xello.info*
 .beluchis.pid
 payfast.txt
+# deploy keys must never be committed
+id_ed25519
+id_ed25519.pub
+id_rsa
+id_rsa.pub
+*.ppk
 StandAlone/data/
 StandAlone/*.log
 StandAlone/*.pid
