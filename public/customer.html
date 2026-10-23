@@ -343,8 +343,10 @@ function nextPath() {
   if (!n) return null;
   try {
     const url = new URL(n, location.origin);
-    // Only same-origin destinations; never an open redirect.
+    // Only same-origin destinations; never an open redirect or a loop back
+    // into the portal's own login/next handler.
     if (url.origin !== location.origin) return null;
+    if (url.pathname === "/portal" || url.pathname === "/portal/") return null;
     return url.pathname + url.search + url.hash;
   } catch {
     return null;
