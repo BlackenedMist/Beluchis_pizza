@@ -308,7 +308,7 @@
     <nav class="nav-links" aria-label="Main">
       <a href="/">HOME</a>
       <a href="/order">MENU</a>
-      <a id="nav-account" href="/login">SIGN IN</a>
+      <a id="nav-account" href="/portal">SIGN IN</a>
       <a href="#contact">CONTACT US</a>
       <a class="order-btn" href="/order">ORDER NOW!</a>
     </nav>
@@ -640,7 +640,7 @@ async function loadAccount() {
     if (!res.ok) return;
     const me = await res.json();
     const link = $("#nav-account");
-    const name = String(me.name || "").trim().split(/\s+/)[0];
+    const name = String(me.firstName || "").trim();
     link.href = "/portal";
     link.textContent = name ? "MY ORDERS \u00b7 " + name.toUpperCase() : "MY ORDERS";
   } catch {}

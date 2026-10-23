@@ -167,6 +167,14 @@
   }
   .modal h3 { margin: 0 0 4px; font-size: 17px; }
   .modal .sub { font-size: 12.5px; color: var(--muted); margin: 0 0 14px; }
+  .account-banner {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    background: #f7f1e7; border: 1px solid var(--line); border-radius: 9px;
+    padding: 9px 12px; font-size: 12.5px; color: var(--muted); margin: 0 0 14px;
+  }
+  .account-banner b { color: var(--ink); }
+  .account-banner a { color: var(--accent); font-weight: 700; }
+  .field input[readonly], .field input:disabled { background: #f2ece1; color: var(--muted); }
   .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap; }
   .modal-actions .total { margin-right: auto; font-weight: 700; font-size: 15px; align-self: center; }
   .modal-actions .total small { color: var(--muted); font-weight: 400; font-size: 12px; }
@@ -262,7 +270,7 @@
     </div>
   </div>
   <div style="display:flex;gap:10px;align-items:center;flex:none;">
-    <a href="/portal" style="color:#fff;text-decoration:none;font-size:13px;opacity:.85">My orders</a>
+    <a id="nav-account" href="/portal?next=/order" style="color:#fff;text-decoration:none;font-size:13px;opacity:.85">Sign in</a>
     <button class="cart-btn" data-action="open-cart">
       <span>&#128722;</span><span>Cart</span><span class="badge" id="cart-badge">0</span>
     </button>
@@ -302,6 +310,7 @@
   <div class="modal" id="checkout-modal">
     <h3>Checkout</h3>
     <p class="sub" id="checkout-summary"></p>
+    <div class="account-banner" id="checkout-account" hidden></div>
     <form id="checkout-form">
       <div class="row">
         <div class="field"><label>First name *</label><input name="firstName" required autocomplete="given-name" /></div>
@@ -566,6 +575,7 @@ function renderMenu() {
 }
 
 /* -------------------------------------------------------- favourites (guest+) */
+let CUSTOMER = null;
 const FAVS = { items: new Set(), specials: new Set(), ready: false, loggedIn: false };
 
 const favButton = (kind, id) => {
@@ -583,13 +593,16 @@ async function loadFavorites() {
   try {
     const me = await fetch("/api/customer/auth/me");
     if (!me.ok) return;
-    FAVS.loggedIn = true;
+    CUSTOMER = await me.json();
+    FAVS.loggedIn = Boolean(CUSTOMER);
+    FAVS.ready = FAVS.loggedIn;
+    const link = $("#nav-account");
+    if (link) { link.textContent = "My orders"; link.href = "/portal"; }
     const res = await fetch("/api/customer/favorites");
     if (!res.ok) return;
     const rows = await res.json();
     FAVS.items = new Set(rows.filter((f) => f.itemId).map((f) => f.itemId));
     FAVS.specials = new Set(rows.filter((f) => f.specialId).map((f) => f.specialId));
-    FAVS.ready = true;
   } catch {}
 }
 
@@ -598,7 +611,7 @@ async function toggleFav(btn) {
   const specialId = btn.dataset.favSpecial ? Number(btn.dataset.favSpecial) : null;
   if (!FAVS.ready) {
     toast("Log in to save favourites");
-    setTimeout(() => (location.href = "/login"), 700);
+    setTimeout(() => (location.href = "/portal?next=/order"), 700);
     return;
   }
   btn.disabled = true;
@@ -1004,7 +1017,13 @@ $("#checkout-modal").addEventListener("click", (e) => {
 
 // Keep the delivery status honest as the address is typed/cleared.
 $("#checkout-modal").addEventListener("input", (e) => {
-  if (e.target.matches("#checkout-form input[name=deliveryAddress]")) refreshDeliveryHint();
+  if (!e.target.matches("#checkout-form input[name=deliveryAddress]")) return;
+  // Typing a different address invalidates the saved/captured coordinates.
+  if (CUSTOMER && e.target.value.trim() !== String(CUSTOMER.addressLabel || "").trim()) {
+    geo = { lat: null, lng: null };
+    geoStatus = null;
+  }
+  refreshDeliveryHint();
 });
 
 document.addEventListener("click", (e) => {
@@ -1022,11 +1041,88 @@ $("#checkout-overlay").addEventListener("click", (e) => {
   if (e.target === $("#checkout-overlay")) closeOverlay("#checkout-overlay");
 });
 
+function fillCheckoutAccount() {
+  const form = $("#checkout-form");
+  const banner = $("#checkout-account");
+  if (!form) return;
+
+  const setField = (name, value, locked) => {
+    const el = form.querySelector('[name="' + name + '"]');
+    if (!el) return;
+    el.value = value == null ? "" : String(value);
+    el.readOnly = Boolean(locked);
+    el.disabled = Boolean(locked);
+  };
+
+  if (CUSTOMER) {
+    // The server uses the session customer, so these are display-only and
+    // never block submission even if the account has no phone on file.
+    setField("firstName", CUSTOMER.firstName, true);
+    setField("lastName", CUSTOMER.lastName, true);
+    setField("cellphone", CUSTOMER.cellphone, true);
+    setField("email", CUSTOMER.email, true);
+
+    const addr = form.querySelector('[name="deliveryAddress"]');
+    if (addr) {
+      addr.value = CUSTOMER.addressLabel || "";
+      addr.disabled = false;
+      addr.placeholder = "House no & street, suburb, Worcester";
+    }
+
+    // Number(null) is 0, which is a valid coordinate - only treat real values as saved.
+    const savedLat = CUSTOMER.lat == null || CUSTOMER.lat === "" ? NaN : Number(CUSTOMER.lat);
+    const savedLng = CUSTOMER.lng == null || CUSTOMER.lng === "" ? NaN : Number(CUSTOMER.lng);
+    geo = Number.isFinite(savedLat) && Number.isFinite(savedLng)
+      ? { lat: savedLat, lng: savedLng }
+      : { lat: null, lng: null };
+    geoStatus = geo.lat != null && geo.lng != null ? classifyGeo(geo.lat, geo.lng).status : null;
+
+    if (banner) {
+      const name = `${CUSTOMER.firstName || ""} ${CUSTOMER.lastName || ""}`.trim();
+      banner.innerHTML =
+        "<span>Ordering as <b>" + esc(name || "your account") + "</b>" +
+        (CUSTOMER.cellphone ? " \u00b7 " + esc(CUSTOMER.cellphone) : "") +
+        "</span><a href=\"/portal#details\">Edit details</a>";
+      banner.hidden = false;
+    }
+
+    const loc = form.querySelector('button[data-action="use-location"]');
+    if (loc) loc.disabled = false;
+    refreshDeliveryHint();
+  } else {
+    // A guest session must never inherit account fields from an earlier signed-in view.
+    ["firstName", "lastName", "cellphone", "email"].forEach((name) => {
+      const el = form.querySelector('[name="' + name + '"]');
+      if (!el) return;
+      if (el.readOnly || el.disabled) el.value = "";
+      el.readOnly = false;
+      el.disabled = false;
+      el.required = name !== "email";
+    });
+    if (banner) {
+      banner.innerHTML =
+        "<span>Ordering as a guest. <b>Sign in</b> to pre-fill your details and unlock delivery.</span>" +
+        "<a href=\"/portal?next=/order\">Sign in</a>";
+      banner.hidden = false;
+    }
+  }
+}
+
 function openCheckout() {
   if (!CART.length) { toast("Your cart is empty"); return; }
   if (shopCfg && shopCfg.onlineEnabled === false) { toast("Online ordering is paused right now \u2014 please call us."); return; }
   if (shopCfg && !shopCfg.open) { toast("We\u2019re closed \u2014 checkout opens " + shopCfg.openTime + " to " + shopCfg.closeTime + "."); return; }
+  // The success screen replaces the form; restore it if a new order is started
+  // without pressing "Done".
+  if (!$("#checkout-form")) {
+    $("#checkout-modal").innerHTML = CHECKOUT_HTML;
+    applyPaymentOptions();
+  }
   $("#cart-drawer").classList.remove("open");
+  $("#checkout-error").hidden = true;
+  $("#checkout-overlay").hidden = false;
+  fillCheckoutAccount();
+
   const gross = Shop.gross();
   const dealSaving = Shop.deals().saving;
   const count = CART.reduce((s, l) => s + l.qty, 0);
@@ -1035,13 +1131,12 @@ function openCheckout() {
   if (geoStatus === "fee" && deliveryCfg) summary += " + R" + deliveryCfg.feeAmount + " delivery";
   if (geoStatus === "out" && deliveryCfg) summary += " \u00b7 \u26a0\ufe0f outside delivery range";
   $("#checkout-summary").textContent = summary;
-  $("#checkout-error").hidden = true;
-  $("#checkout-overlay").hidden = false;
+
   // Unregistered (guest) customers may only place collection orders.
   const addr = $("#checkout-form input[name=deliveryAddress]");
   const loc = $("#checkout-form button[data-action=\"use-location\"]");
   const geoHint = $("#geo-hint");
-  if (!FAVS.loggedIn) {
+  if (!CUSTOMER) {
     if (addr) { addr.value = ""; addr.disabled = true; addr.placeholder = "Collection only - sign in for delivery"; }
     if (loc) loc.disabled = true;
     geo = { lat: null, lng: null };
@@ -1120,7 +1215,7 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
     }
     if (!res.ok) throw new Error(data.error || "Something went wrong");
     Shop.clear();
-    localStorage.setItem("beluchis-recent-order", JSON.stringify({ id: data.id, phone: payload.cellphone }));
+    localStorage.setItem("beluchis-recent-order", JSON.stringify({ id: data.id, phone: payload.cellphone || CUSTOMER?.cellphone || null }));
     closeOverlay("#checkout-overlay");
     $("#cart-drawer").classList.remove("open");
     const pay = data.grandTotal != null ? data.grandTotal : data.total;
@@ -1146,7 +1241,7 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
       $("#checkout-modal").innerHTML =
         '<div class="success-box"><div class="big">&#127829;</div>' +
         "<h3>Order placed!</h3>" +
-        '<p class="sub">Thanks, ' + esc(payload.firstName) + ". We\u2019ll call to confirm your delivery.</p>" +
+        '<p class="sub">Thanks, ' + esc(CUSTOMER?.firstName || payload.firstName || "there") + ". We\u2019ll call to confirm your delivery.</p>" +
         '<div class="id">#' + data.id + "</div>" +
         totalTxt +
         '<p class="sub">Track it on your <a href="/portal" style="font-weight:700">My orders</a> page.</p>' +

@@ -85,7 +85,7 @@ Body:
 }
 ```
 
-- A logged-in `beluchis_customer` session attaches the order to that account; otherwise guest lookup is by `cellphone` (or `email`), creating a `customer` row if new.
+- A logged-in `beluchis_customer` session attaches the order to that account and ignores the guest identity fields; otherwise guest lookup is by `cellphone` (or `email`), creating a `customer` row if new. A delivery order from a signed-in customer also refreshes their saved `addressLabel`/`lat`/`lng` for the next checkout.
 - `status` defaults to `placed` (also accept `preparing`/`out_for_delivery`/`delivered`/`cancelled`).
 - Delivery: distance from the shop centre (Haversine). ≤ `freeRadiusKm` → `deliveryStatus: "free"` (fee 0); between radii → `"fee"` (fee added to `total`/`grandTotal`); > `maxRadiusKm` → `400 delivery_out_of_range`. Address without GPS → `"unverified"` (accepted, treated as collection); no address/coords → `"collection"`.
 - Coupon validated server-side: active, unexpired, under usage limit, subtotal ≥ minSpend, customer-linked coupons need that customer logged in.
@@ -133,6 +133,7 @@ storefront and homepage poll this on load.
 | `POST /api/customer/auth/login` | public | `{ cellphone, password }` — sets `beluchis_customer`. Rejects unclaimed accounts |
 | `POST /api/customer/auth/logout` | customer | Clears customer session |
 | `GET /api/customer/auth/me` | customer | Current customer profile (password hash never serialized) |
+| `PUT /api/customer/profile` | customer | Update `{ firstName?, lastName?, email?, cellphone?, addressLabel?, lat?, lng? }`. Cellphone stays required because it is the login id; duplicate cellphone/email returns `400`. Returns the updated profile |
 
 ---
 
@@ -167,6 +168,12 @@ storefront and homepage poll this on load.
 Favourites are stored server-side (`Favorite`, unique per customer+item / customer+special) so
 they follow the customer across devices. The storefront menu renders a ♥ toggle on every dish
 and special; the portal lists them with an Order/View and Remove action.
+
+The portal's **My details** panel writes through `PUT /api/customer/profile`. On the
+storefront, a signed-in customer's name, cellphone and email are shown but locked
+(edited only in the portal), while the saved delivery address and GPS coordinates
+pre-fill the checkout. A delivery order refreshes that saved address; a collection
+order leaves it intact.
 
 ---
 

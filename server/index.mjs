@@ -546,6 +546,53 @@ app.get(
   })
 );
 
+// Logged-in customers can keep their own contact and delivery details current.
+// The storefront pre-fills checkout from this profile.
+app.put(
+  "/api/customer/profile",
+  requireCustomerSession,
+  asyncHandler(async (req, res) => {
+    const customerId = req.customerSession.customerId;
+    const existing = await prisma.customer.findUnique({ where: { id: customerId } });
+    if (!existing) return res.status(401).json({ error: "not logged in" });
+
+    const { firstName, lastName, email, cellphone, addressLabel, lat, lng } = req.body || {};
+    const first = firstName !== undefined ? String(firstName ?? "").trim() : undefined;
+    const last = lastName !== undefined ? String(lastName ?? "").trim() : undefined;
+    const finalEmail = email !== undefined ? (email == null ? null : String(email).trim() || null) : existing.email;
+    const finalCell = cellphone !== undefined ? (canonicalPhone(cellphone) || null) : existing.cellphone;
+
+    if (first !== undefined && !first) return res.status(400).json({ error: "First name is required." });
+    if (last !== undefined && !last) return res.status(400).json({ error: "Last name is required." });
+    if (!finalCell)
+      return res.status(400).json({ error: "A cellphone number is required to log in." });
+    if (!validContact(finalEmail, finalCell))
+      return res.status(400).json({ error: "Please keep at least an email address or cellphone on your account." });
+
+    const latN = lat === undefined ? undefined : lat === null || lat === "" ? null : Number.isFinite(Number(lat)) ? Number(lat) : null;
+    const lngN = lng === undefined ? undefined : lng === null || lng === "" ? null : Number.isFinite(Number(lng)) ? Number(lng) : null;
+
+    const data = {
+      ...(first !== undefined ? { firstName: first } : {}),
+      ...(last !== undefined ? { lastName: last } : {}),
+      ...(email !== undefined ? { email: finalEmail } : {}),
+      ...(cellphone !== undefined ? { cellphone: finalCell } : {}),
+      ...(addressLabel !== undefined ? { addressLabel: String(addressLabel || "").trim() || null } : {}),
+      ...(latN !== undefined ? { lat: latN } : {}),
+      ...(lngN !== undefined ? { lng: lngN } : {}),
+    };
+
+    try {
+      const row = await prisma.customer.update({ where: { id: customerId }, data });
+      res.json(publicCustomer(row));
+    } catch (e) {
+      if (isUniqueViolation(e))
+        return res.status(400).json({ error: "That cellphone or email is already used by another account." });
+      throw e;
+    }
+  })
+);
+
 // ------------------------------------------------------------ Staff users
 app.get(
   "/api/users",
@@ -1716,6 +1763,32 @@ app.post(
       }
       return created;
     });
+
+    // Remember the last delivery address on the customer profile so the next
+    // checkout can pre-fill it. Collection orders never erase a saved address.
+    if (customer && wantsDelivery) {
+      const addr = String(deliveryAddress || "").trim();
+      const savedAddr = String(customer.addressLabel || "").trim();
+      const addrChanged = Boolean(addr) && addr !== savedAddr;
+      const latN = lat != null && Number.isFinite(Number(lat)) ? Number(lat) : null;
+      const lngN = lng != null && Number.isFinite(Number(lng)) ? Number(lng) : null;
+      const hasGeo = latN != null && lngN != null;
+      // Number(null) is 0, which is a valid coordinate - only treat real saved values as coordinates.
+      const savedLat = customer.lat == null || customer.lat === "" ? NaN : Number(customer.lat);
+      const savedLng = customer.lng == null || customer.lng === "" ? NaN : Number(customer.lng);
+      const geoUnchanged = hasGeo && latN === savedLat && lngN === savedLng;
+      const patch = {};
+      if (addr) patch.addressLabel = addr;
+      // A new address paired with the old coordinates means the form did not
+      // clear them; drop the stale location instead of saving a mismatch.
+      if (hasGeo && !(addrChanged && geoUnchanged)) { patch.lat = latN; patch.lng = lngN; }
+      else if (addrChanged) { patch.lat = null; patch.lng = null; }
+      if (Object.keys(patch).length) {
+        await prisma.customer.update({ where: { id: customer.id }, data: patch }).catch((e) => {
+          console.error("[customer] could not save delivery details:", e.message);
+        });
+      }
+    }
 
     const full = await prisma.order.findUnique({ where: { id: order.id }, include: orderIncludes });
     const payload = publicOrder(full);

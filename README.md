@@ -48,9 +48,12 @@ The server prints its URLs on boot:
   time you must claim your account — place an order with your cellphone, then
   "First time? Set your password". After that, log in with cellphone + password
   to view your order history (with a live status timeline) and any coupons
-  issued to you ("Offers for you"). Never re-enter a password if it was set
-  before. Guest checkout accounts are auto-created; claiming attaches past and
-  future orders to your login.
+  issued to you ("Offers for you"). The **My details** panel updates your
+  name, cellphone, email and saved delivery address/location; those details
+  pre-fill checkout, where name/phone/email stay locked to the account and are
+  edited in the portal. Never re-enter a password if it was set before. Guest
+  checkout accounts are auto-created; claiming attaches past and future orders
+  to your login.
 
 A seeded demo customer exists for portal demos — **Zanele Khumalo**
 (`+27 60 555 0000` / `beluchis123`), with order history (incl. a status-event
@@ -143,8 +146,8 @@ Never put the passphrase in `PAYFAST_KEY`.
 | Path | What |
 |------|------|
 | `public/home.html` | Marketing homepage. Served at `/`. Hero + a shoppable dish wall (owner-picked `showOnHome` items/specials, falling back to signature-dish photos; simple dishes get a one-tap **Add**, others deep-link into `/order`), the live shop status (open/closed + hours), an auth-aware header (**SIGN IN** or **MY ORDERS**), and a shared mini-cart bar (`View full menu` / `Go to checkout`). Contact form posts to `POST /api/contact`. No external credit text. |
-| `public/menu.html` | Customer storefront — menu by category, specials, pizza customization (bases/toppings by size), quantity steppers on items/specials/in the customize dialog, ♥ favourite toggles on every dish and special, a weekly **BOGO** builder, a **seasonal swap** prompt when a dish has an out-of-season topping (e.g. avocado), a closed-shop banner + checkout guard, cart (reconciled against the live menu on load so stale item/special ids are pruned), checkout & place order (optional coupon-code field + payment method: cash or card on delivery, or online PayFast when enabled; PayFast orders auto-redirect to the secure portal). Served at `/order`. Uses the shared `public/shop.js` cart. Supports deep links: `?item=<slug>` (flashes the item + opens its customize dialog) and `?cat=<slug>` (scrolls to the category). After an order it stores `beluchis-recent-order` in localStorage and links to `/portal`. |
-| `public/customer.html` | Customer portal — logged-out login / "First time? Set your password" forms; logged-in dashboard with a **Favourites** panel (picture, price-from, Order/View + Remove) and order history (expandable rows showing items + a full status timeline from `OrderStatusEvent`s) where every past order has a one-tap **Reorder** button that rebuilds the cart at today's prices, plus "Offers for you" coupon cards (Copy code). Served at `/portal`, authed by the `beluchis_customer` cookie. |
+| `public/menu.html` | Customer storefront — menu by category, specials, pizza customization (bases/toppings by size), quantity steppers on items/specials/in the customize dialog, ♥ favourite toggles on every dish and special, a weekly **BOGO** builder, a **seasonal swap** prompt when a dish has an out-of-season topping (e.g. avocado), a closed-shop banner + checkout guard, cart (reconciled against the live menu on load so stale item/special ids are pruned), checkout & place order (optional coupon-code field + payment method: cash or card on delivery, or online PayFast when enabled; PayFast orders auto-redirect to the secure portal). Signed-in customers get their name/phone/email pre-filled and locked (edit them in the portal) plus their saved delivery address/location pre-filled. Served at `/order`. Uses the shared `public/shop.js` cart. Supports deep links: `?item=<slug>` (flashes the item + opens its customize dialog) and `?cat=<slug>` (scrolls to the category). After an order it stores `beluchis-recent-order` in localStorage and links to `/portal`. |
+| `public/customer.html` | Customer portal — logged-out login / "First time? Set your password" forms; logged-in dashboard with a **Favourites** panel (picture, price-from, Order/View + Remove) and order history (expandable rows showing items + a full status timeline from `OrderStatusEvent`s) where every past order has a one-tap **Reorder** button that rebuilds the cart at today's prices, plus "Offers for you" coupon cards (Copy code) and a **My details** editor (name, cellphone, email, delivery address + captured location) used to pre-fill checkout. Served at `/portal`, authed by the `beluchis_customer` cookie. |
 | `public/shop.js` | Shared storefront module (`window.Shop`) — the single cart implementation used by the homepage and the menu page: cart persistence (`localStorage["beluchis-cart-v1"]`), pricing helpers (base/topping by size), seasonal + BOGO helpers, drawer rendering, `load()`/`reconcile()`, and the `onCheckout` / `onCartChange` hooks. See **Storefront cart (`public/shop.js`)** below. |
 | `public/preview-mobile.html` | Storefront documentation page served at `/preview/mobile` — a live same-origin iframe of `/order` inside a device frame (small phone / standard phone / tablet / desktop selector). Geolocation is blocked in iframes, so the delivery hint runs in address-only mode. |
 | `public/preview-portal.html` | Customer-portal documentation page served at `/preview/portal` — a live iframe of `/portal` with a device selector and an automatic sign-in as the seeded demo customer Zanele (when nobody is logged in), so it opens showing real order history + an offer. |
@@ -325,6 +328,7 @@ Customer portal (authed by `beluchis_customer` cookie):
 
 - `POST /api/customer/auth/set-password` — claim a guest account by cellphone (+ optional first name) and set a password; auto-login. Rejects if the account is already claimed.
 - `POST /api/customer/auth/login` / `logout` / `GET me` — cellphone + password (rejects unclaimed accounts), brute-force throttled per IP.
+- `PUT /api/customer/profile` — update the logged-in customer's name, cellphone, email, delivery address and saved GPS coordinates. Cellphone stays required because it is the portal login. Returns the updated profile.
 - `GET /api/customer/orders` and `GET /api/customer/orders/:id` — the customer's own orders (with items + status `events`); foreign ids return 404.
 - `GET /api/customer/offers` — active, unexpired, unused coupons issued to the customer.
 - `GET /api/customer/favorites` / `POST` (toggle: send exactly one of `{ itemId }` or `{ specialId }`, returns `{ ok, liked }`) / `DELETE /api/customer/favorites/:id` — the customer's saved dishes and deals.

@@ -70,10 +70,11 @@
   .col { flex: 1 1 260px; min-width: 0; }
   .field { margin-bottom: 12px; }
   .field label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 5px; }
-  input[type=text], input[type=password], input[type=tel], input[type=search], select {
+  input[type=text], input[type=password], input[type=tel], input[type=email], input[type=search], select {
     width: 100%; padding: 10px 12px; font-size: 14px;
     border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--ink);
   }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
   button {
     border: 0; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: 700; padding: 10px 16px;
   }
@@ -241,6 +242,41 @@
       </div>
     </div>
 
+    <div class="panel" id="details">
+      <h3>My details</h3>
+      <p class="muted" style="margin-top:-6px;">We use these details to pre-fill your checkout and keep your delivery address handy.</p>
+      <form id="details-form">
+        <div class="row">
+          <div class="col field">
+            <label for="det-first">First name</label>
+            <input type="text" id="det-first" autocomplete="given-name" required />
+          </div>
+          <div class="col field">
+            <label for="det-last">Last name</label>
+            <input type="text" id="det-last" autocomplete="family-name" required />
+          </div>
+        </div>
+        <div class="row">
+          <div class="col field">
+            <label for="det-phone">Cellphone (used to log in)</label>
+            <input type="tel" id="det-phone" autocomplete="tel" required />
+          </div>
+          <div class="col field">
+            <label for="det-email">Email</label>
+            <input type="email" id="det-email" autocomplete="email" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="det-address">Delivery address</label>
+          <input type="text" id="det-address" placeholder="House no &amp; street, suburb, Worcester" autocomplete="street-address" />
+          <button type="button" class="ghost mini" id="det-locate" style="margin-top:8px;">&#128205; Use my current location</button>
+          <div class="hint" id="det-geo-hint">Saved with your account and pre-filled at checkout.</div>
+        </div>
+        <div class="err" id="details-err" hidden></div>
+        <button class="primary" type="submit" id="details-save">Save details</button>
+      </form>
+    </div>
+
     <div class="panel" id="offers-panel" hidden>
       <h3>Offers for you</h3>
       <div id="offers"></div>
@@ -297,8 +333,29 @@ function setAuthMode(mode) {
 }
 
 function btnLoading(btn, load) {
+  if (!btn.dataset.label) btn.dataset.label = btn.textContent;
   btn.disabled = load;
   btn.innerHTML = load ? '<span class="spin"></span> Please wait…' : btn.dataset.label;
+}
+
+function nextPath() {
+  const n = new URLSearchParams(location.search).get("next");
+  if (!n) return null;
+  try {
+    const url = new URL(n, location.origin);
+    // Only same-origin destinations; never an open redirect.
+    if (url.origin !== location.origin) return null;
+    return url.pathname + url.search + url.hash;
+  } catch {
+    return null;
+  }
+}
+
+function goToNext() {
+  const next = nextPath();
+  if (!next) return false;
+  location.href = next;
+  return true;
 }
 
 $("#login-form").addEventListener("submit", async (e) => {
@@ -310,6 +367,7 @@ $("#login-form").addEventListener("submit", async (e) => {
       method: "POST",
       body: JSON.stringify({ cellphone: $("#login-phone").value.trim(), password: $("#login-pass").value }),
     });
+    if (goToNext()) return;
     await loadDash();
   } catch (err) {
     showErr(err.message);
@@ -331,6 +389,7 @@ $("#setpw-form").addEventListener("submit", async (e) => {
         password: $("#setpw-pass").value,
       }),
     });
+    if (goToNext()) return;
     await loadDash();
   } catch (err) {
     showErr(err.message);
@@ -343,6 +402,74 @@ async function logout() {
   await api("/api/customer/auth/logout", { method: "POST" }).catch(() => {});
   location.reload();
 }
+
+$("#details-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("#details-save");
+  const err = $("#details-err");
+  err.hidden = true;
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+  try {
+    const me = await api("/api/customer/profile", {
+      method: "PUT",
+      body: JSON.stringify({
+        firstName: $("#det-first").value.trim(),
+        lastName: $("#det-last").value.trim(),
+        cellphone: $("#det-phone").value.trim() || null,
+        email: $("#det-email").value.trim() || null,
+        addressLabel: $("#det-address").value.trim() || null,
+        lat: PROFILE_GEO.lat,
+        lng: PROFILE_GEO.lng,
+      }),
+    });
+    populateDetails(me);
+    $("#dash-name").textContent = `${me.firstName} ${me.lastName || ""}`.trim() || "Welcome back";
+    $("#dash-phone").textContent = me.cellphone || me.email || "";
+    dashNote("Your details were saved.");
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+});
+
+$("#det-locate").addEventListener("click", () => {
+  const btn = $("#det-locate");
+  if (!navigator.geolocation) {
+    $("#det-geo-hint").textContent = "Geolocation is not available on this device.";
+    return;
+  }
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "⏳ Getting location…";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      PROFILE_GEO = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      $("#det-geo-hint").textContent =
+        "Location captured (" + PROFILE_GEO.lat.toFixed(4) + ", " + PROFILE_GEO.lng.toFixed(4) + "). Save to keep it.";
+      btn.disabled = false;
+      btn.textContent = old;
+    },
+    () => {
+      PROFILE_GEO = { lat: null, lng: null };
+      $("#det-geo-hint").textContent = "Couldn't get your location — please type your address instead.";
+      btn.disabled = false;
+      btn.textContent = old;
+    },
+    { timeout: 8000 }
+  );
+});
+
+$("#det-address").addEventListener("input", () => {
+  if (PROFILE && $("#det-address").value.trim() !== String(PROFILE.addressLabel || "").trim()) {
+    PROFILE_GEO = { lat: null, lng: null };
+    $("#det-geo-hint").textContent = "Address changed — location cleared. Save to update your address.";
+  }
+});
 
 // ---------------------------------------------------------------- Dashboard
 const STATUS_NAMES = {
@@ -462,6 +589,29 @@ window.copyCode = async (code, btn) => {
   setTimeout(() => (btn.textContent = old), 1600);
 };
 
+let PROFILE = null;
+let PROFILE_GEO = { lat: null, lng: null };
+
+function populateDetails(me) {
+  PROFILE = me;
+  // Number(null) is 0, which is a valid coordinate - only treat real values as saved.
+  const lat = me.lat == null || me.lat === "" ? NaN : Number(me.lat);
+  const lng = me.lng == null || me.lng === "" ? NaN : Number(me.lng);
+  PROFILE_GEO = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : { lat: null, lng: null };
+  $("#det-first").value = me.firstName || "";
+  $("#det-last").value = me.lastName || "";
+  $("#det-phone").value = me.cellphone || "";
+  $("#det-email").value = me.email || "";
+  $("#det-address").value = me.addressLabel || "";
+  $("#details-err").hidden = true;
+  const hint = $("#det-geo-hint");
+  if (hint) {
+    hint.textContent = PROFILE_GEO.lat != null
+      ? "Location saved (" + PROFILE_GEO.lat.toFixed(4) + ", " + PROFILE_GEO.lng.toFixed(4) + ")."
+      : "Saved with your account and pre-filled at checkout.";
+  }
+}
+
 async function loadDash() {
   try {
     const me = await api("/api/customer/auth/me");
@@ -469,6 +619,7 @@ async function loadDash() {
     $("#dash-phone").textContent = me.cellphone || me.email || "";
     $("#auth-view").hidden = true;
     $("#dash").hidden = false;
+    populateDetails(me);
 
     const [orders, offers] = await Promise.all([
       api("/api/customer/orders"),
@@ -483,6 +634,9 @@ async function loadDash() {
       oel.innerHTML = orders.map(orderCard).join("");
     }
     await loadFavorites();
+    if (location.hash === "#details") {
+      setTimeout(() => $("#details")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+    }
   } catch (err) {
     $("#errors").hidden = true;
     showErr(err.message);
@@ -622,6 +776,7 @@ async function init() {
   }
   try {
     await api("/api/customer/auth/me");
+    if (goToNext()) return;
     await loadDash();
   } catch {
     $("#auth-view").hidden = false;

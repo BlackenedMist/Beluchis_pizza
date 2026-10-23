@@ -118,11 +118,13 @@ async function main() {
 
     // -------------------------------------------------------- Demo customers
     const passwordHash = await bcrypt.hash("beluchis123", 10);
+    // Phone numbers are stored in the same E.164 form the login/checkout routes
+    // use, so the demo accounts can actually sign in.
     const demoCustomers = [
       { firstName: "Nomsa", lastName: "Dlamini", email: "nomsa@example.com", cellphone: null, username: "nomsa", lat: -26.2041, lng: 28.0473, addressLabel: "Sandton" },
-      { firstName: "Thabo", lastName: "Mokoena", email: null, cellphone: "+27 82 555 0123", username: "thabo", lat: -26.1076, lng: 28.0567, addressLabel: "Rosebank" },
-      { firstName: "Priya", lastName: "Naidoo", email: "priya@example.com", cellphone: "+27 71 555 0456", username: "priya", lat: -26.1292, lng: 28.2181, addressLabel: "Benoni" },
-      { firstName: "Zanele", lastName: "Khumalo", email: "zanele@example.com", cellphone: "+27 60 555 0000", username: "zanele", lat: -33.6424, lng: 19.4501, addressLabel: "Worcester East" },
+      { firstName: "Thabo", lastName: "Mokoena", email: null, cellphone: "+27825550123", username: "thabo", lat: -26.1076, lng: 28.0567, addressLabel: "Rosebank" },
+      { firstName: "Priya", lastName: "Naidoo", email: "priya@example.com", cellphone: "+27715550456", username: "priya", lat: -26.1292, lng: 28.2181, addressLabel: "Benoni" },
+      { firstName: "Zanele", lastName: "Khumalo", email: "zanele@example.com", cellphone: "+27605550000", username: "zanele", lat: -33.6424, lng: 19.4501, addressLabel: "Worcester East" },
     ];
     const createdCustomers = [];
     for (const c of demoCustomers) {
