@@ -1206,6 +1206,20 @@ const orderIncludes = {
   events: { orderBy: { createdAt: "asc" } },
 };
 
+// SQLite uses deferred transactions, so two payment callbacks for the same
+// order (PayGate notify + the browser return) can both read and then deadlock
+// trying to upgrade to a write lock. Serialize the write transactions in this
+// process; the callback paths are low-volume and idempotent.
+let paymentWriteChain = Promise.resolve();
+const serializePaymentWrite = (fn) => {
+  const run = paymentWriteChain.then(fn, fn);
+  paymentWriteChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+};
+
 // ------------------------------------------------------- PayGate (PayWeb3)
 // Step 1: open a PayWeb3 transaction. The order is only persisted after this
 // succeeds, so a gateway failure cannot leave an orphan order. The initiate
@@ -1316,7 +1330,7 @@ const applyPaygateResult = async ({ params, rawBody = null, source }) => {
   }
 
   const outcome = paygateOutcome(params.get("TRANSACTION_STATUS"));
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await serializePaymentWrite(() => prisma.$transaction(async (tx) => {
     const fresh = await tx.order.findUnique({ where: { id: order.id } });
     if (!fresh) return null;
 
@@ -1373,7 +1387,7 @@ const applyPaygateResult = async ({ params, rawBody = null, source }) => {
     }
 
     return { alreadyPaid, justPaid: !alreadyPaid && outcome === "paid", queued, latePayment, updated };
-  });
+  }));
 
   if (!result) return { ok: false, reason: "unknown order" };
   const { justPaid, updated } = result;
@@ -2039,7 +2053,7 @@ const applyPayfastResult = async (params, rawBody = null) => {
   const approved = status === "COMPLETE";
   const failed = status === "FAILED" || status === "CANCELLED";
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await serializePaymentWrite(() => prisma.$transaction(async (tx) => {
     const fresh = await tx.order.findUnique({ where: { id: order.id } });
     if (!fresh) return null;
     const wasPaid = fresh.paymentStatus === "paid";
@@ -2076,7 +2090,7 @@ const applyPayfastResult = async (params, rawBody = null) => {
       });
     }
     return { wasPaid, justPaid: !wasPaid && approved, updated };
-  });
+  }));
 
   if (!result) return { ok: false, reason: "unknown order" };
   const { updated } = result;
@@ -2957,7 +2971,7 @@ const expireUnpaidOrders = async () => {
   });
   let changed = 0;
   for (const { id } of stale) {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await serializePaymentWrite(() => prisma.$transaction(async (tx) => {
       const fresh = await tx.order.findUnique({ where: { id } });
       if (!fresh || !["awaiting_payment", "placed"].includes(fresh.status)) return null;
       if (fresh.paymentStatus === "paid") {
@@ -2979,7 +2993,7 @@ const expireUnpaidOrders = async () => {
         data: { orderId: id, status: "cancelled", note: "Payment not received within 30 minutes" },
       });
       return "cancelled";
-    });
+    }));
     if (result) changed += 1;
   }
   if (changed) console.log(`[paygate] expired ${changed} unpaid order(s)`);
