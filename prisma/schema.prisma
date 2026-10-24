@@ -118,6 +118,22 @@ model Customer {
   orders       Order[]
   coupons      Coupon[]
   favorites    Favorite[]
+  addresses    CustomerAddress[]
+}
+
+model CustomerAddress {
+  id         Int      @id @default(autoincrement())
+  customerId Int
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  label      String
+  address    String
+  lat        Float?
+  lng        Float?
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([customerId])
 }
 
 model Order {

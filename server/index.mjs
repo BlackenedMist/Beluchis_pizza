@@ -183,7 +183,7 @@ const getDeliveryConfig = async () => {
 };
 
 // Shop opening hours (single daily window, shop-local time). South Africa is
-// UTC+2 year-round (no DST), so a fixed offset is exact.
+// Central Africa Time (CAT), year-round (no DST), so a fixed offset is exact.
 const SHOP_TZ_OFFSET_MIN = 120;
 const HHMM_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const parseHHMM = (v) => {
@@ -321,10 +321,10 @@ const normalizeSettingsPayload = (raw) => {
 // ------------------------------------------------------------------- Auth
 const ADMIN_ROLES = new Set(["admin", "orders", "kitchen", "cashier", "driver"]);
 const ORDER_ROLES = new Set(["admin", "orders"]);
-const CASHIER_STATUSES = new Set(["out_for_delivery"]);
+const CASHIER_STATUSES = new Set(["out_for_delivery", "ReadyToCollect"]);
 const DRIVER_STATUSES = new Set(["out_for_delivery", "delivered"]);
-const KITCHEN_STATUSES = new Set(["preparing", "out_for_delivery", "delivered"]);
-const ALLOWED_STATUSES = ["placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
+const KITCHEN_STATUSES = new Set(["preparing", "ReadyToCollect", "out_for_delivery", "delivered"]);
+const ALLOWED_STATUSES = ["placed", "preparing", "ReadyToCollect", "out_for_delivery", "delivered", "cancelled"];
 
 const COOKIE_NAME = "beluchis_admin";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -533,6 +533,54 @@ app.post(
 );
 
 app.post(
+  "/api/customer/auth/register",
+  asyncHandler(async (req, res) => {
+    const { firstName, lastName, cellphone, email, password } = req.body || {};
+    if (!String(firstName || "").trim()) return res.status(400).json({ error: "First name is required." });
+    if (!String(lastName || "").trim()) return res.status(400).json({ error: "Last name is required." });
+    if (!String(cellphone || "").trim()) return res.status(400).json({ error: "Cellphone is required." });
+    if (!password || String(password).length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
+    const phone = canonicalPhone(cellphone);
+    const existing = await prisma.customer.findUnique({ where: { cellphone: phone } });
+    if (existing) return res.status(400).json({ error: "An account with that cellphone already exists. Log in or reset your password." });
+    const username = "cust-" + phone.replace(/[^0-9]/g, "").slice(-8) + "-" + Math.random().toString(36).slice(2, 6);
+    const customer = await prisma.customer.create({
+      data: {
+        firstName: String(firstName).trim(),
+        lastName: String(lastName).trim(),
+        email: email ? String(email).trim() || null : null,
+        cellphone: phone,
+        username,
+        passwordHash: await bcrypt.hash(String(password), 10),
+        claimedAt: new Date(),
+      },
+    });
+    createCustomerSession(res, customer.id);
+    res.status(201).json({ ok: true, customer: publicCustomer(customer) });
+  })
+);
+
+app.post(
+  "/api/customer/auth/reset-password",
+  asyncHandler(async (req, res) => {
+    const { cellphone, firstName, password } = req.body || {};
+    if (!String(cellphone || "").trim()) return res.status(400).json({ error: "Cellphone is required." });
+    if (!password || String(password).length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
+    const phone = canonicalPhone(cellphone);
+    const customer = await prisma.customer.findUnique({ where: { cellphone: phone } });
+    if (!customer || !customer.claimedAt) return res.status(404).json({ error: "No account found for that cellphone." });
+    if (firstName && String(firstName).trim() && customer.firstName.toLowerCase() !== String(firstName).trim().toLowerCase())
+      return res.status(401).json({ error: "That name does not match this account." });
+    const updated = await prisma.customer.update({
+      where: { id: customer.id },
+      data: { passwordHash: await bcrypt.hash(String(password), 10) },
+    });
+    createCustomerSession(res, updated.id);
+    res.json({ ok: true, customer: publicCustomer(updated) });
+  })
+);
+
+app.post(
   "/api/customer/auth/login",
   asyncHandler(async (req, res) => {
     const { cellphone = null, password = null } = req.body || {};
@@ -610,6 +658,88 @@ app.put(
         return res.status(400).json({ error: "That cellphone or email is already used by another account." });
       throw e;
     }
+  })
+);
+
+// ------------------------------------------------------------ Customer addresses (multiple delivery locations)
+app.get(
+  "/api/customer/addresses",
+  requireCustomerSession,
+  asyncHandler(async (req, res) => {
+    const rows = await prisma.customerAddress.findMany({
+      where: { customerId: req.customerSession.customerId },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+    });
+    res.json(rows);
+  })
+);
+
+app.post(
+  "/api/customer/addresses",
+  requireCustomerSession,
+  asyncHandler(async (req, res) => {
+    const customerId = req.customerSession.customerId;
+    const { label, address, lat, lng, isDefault } = req.body || {};
+    if (!String(address || "").trim()) return res.status(400).json({ error: "address is required" });
+    const latN = lat == null || lat === "" ? null : Number.isFinite(Number(lat)) ? Number(lat) : null;
+    const lngN = lng == null || lng === "" ? null : Number.isFinite(Number(lng)) ? Number(lng) : null;
+    const makeDefault = Boolean(isDefault);
+    const row = await prisma.$transaction(async (tx) => {
+      if (makeDefault) await tx.customerAddress.updateMany({ where: { customerId }, data: { isDefault: false } });
+      return tx.customerAddress.create({
+        data: {
+          customerId,
+          label: String(label || "Home").trim() || "Home",
+          address: String(address).trim(),
+          lat: latN,
+          lng: lngN,
+          isDefault: makeDefault,
+        },
+      });
+    });
+    res.status(201).json(row);
+  })
+);
+
+app.put(
+  "/api/customer/addresses/:id",
+  requireCustomerSession,
+  asyncHandler(async (req, res) => {
+    const customerId = req.customerSession.customerId;
+    const id = Number(req.params.id);
+    const existing = await prisma.customerAddress.findUnique({ where: { id } });
+    if (!existing || existing.customerId !== customerId) return res.status(404).json({ error: "not found" });
+    const { label, address, lat, lng, isDefault } = req.body || {};
+    const latN = lat === undefined ? undefined : lat === null || lat === "" ? null : Number.isFinite(Number(lat)) ? Number(lat) : null;
+    const lngN = lng === undefined ? undefined : lng === null || lng === "" ? null : Number.isFinite(Number(lng)) ? Number(lng) : null;
+    const makeDefault = isDefault === undefined ? undefined : Boolean(isDefault);
+    const row = await prisma.$transaction(async (tx) => {
+      if (makeDefault) await tx.customerAddress.updateMany({ where: { customerId }, data: { isDefault: false } });
+      return tx.customerAddress.update({
+        where: { id },
+        data: {
+          ...(label !== undefined ? { label: String(label || "").trim() || existing.label } : {}),
+          ...(address !== undefined ? { address: String(address || "").trim() || existing.address } : {}),
+          ...(latN !== undefined ? { lat: latN } : {}),
+          ...(lngN !== undefined ? { lng: lngN } : {}),
+          ...(makeDefault !== undefined ? { isDefault: makeDefault } : {}),
+        },
+      });
+    });
+    res.json(row);
+  })
+);
+
+app.delete(
+  "/api/customer/addresses/:id",
+  requireCustomerSession,
+  asyncHandler(async (req, res) => {
+    const customerId = req.customerSession.customerId;
+    const id = Number(req.params.id);
+    const existing = await prisma.customerAddress.findUnique({ where: { id } });
+    if (!existing || existing.customerId !== customerId) return res.status(404).json({ error: "not found" });
+    await prisma.customerAddress.delete({ where: { id } });
+    res.json({ ok: true });
   })
 );
 
@@ -1563,7 +1693,7 @@ app.post(
 
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "items are required" });
 
-    const allowedStatuses = ["placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
+    const allowedStatuses = ["placed", "preparing", "ReadyToCollect", "out_for_delivery", "delivered", "cancelled"];
     if (!allowedStatuses.includes(status)) return res.status(400).json({ error: `status must be one of ${allowedStatuses.join(", ")}` });
     if (!PAYMENT_METHODS.has(paymentMethod))
       return res.status(400).json({ error: `paymentMethod must be one of ${[...PAYMENT_METHODS].join(", ")}` });

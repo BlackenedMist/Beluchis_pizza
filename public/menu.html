@@ -129,11 +129,21 @@
   .sizes button small { display: block; font-size: 10.5px; color: var(--muted); }
   .sizes button.in-cart { background: var(--accent); border-color: var(--accent); color: #fff; }
   .sizes button.in-cart small { color: #ffe9e2; }
-  .specials { margin-bottom: 26px; }
+  .deals-carousel { margin-bottom: 26px; }
+  .deals-track { display: flex; gap: 12px; overflow: hidden; }
+  .deals-track > .special-card { flex: 0 0 calc(50% - 6px); min-width: 260px; }
+  .deals-nav { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px; }
+  .deals-nav button { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; width: 32px; height: 32px; cursor: pointer; font-size: 18px; line-height: 1; }
+  .deals-nav button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .deals-dots { display: flex; gap: 6px; }
+  .deals-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--line); cursor: pointer; }
+  .deals-dots span.active { background: var(--accent); }
   .special-card {
     background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-    box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 12px;
+    box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 12px; overflow: hidden;
   }
+  .special-img { height: 120px; overflow: hidden; margin: -16px -18px 12px; }
+  .special-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .special-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
   .special-top h3 { margin: 0; font-size: 16px; }
   .special-top .price { color: var(--accent); font-weight: 800; font-size: 16px; }
@@ -197,7 +207,8 @@
   .hint { font-size: 12px; color: var(--muted); }
   .hint.ok { color: var(--good); font-weight: 600; }
   .hint.warn { color: var(--bad); font-weight: 600; }
-  .opt-list { max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+  .opt-list { max-height: 0; overflow: hidden; border: 0; padding: 0; margin: 0; transition: max-height .2s ease, padding .2s ease; }
+  .opt-list.expanded { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin-top: 6px; }
   .opt { display: flex; align-items: center; gap: 8px; padding: 6px 2px; font-size: 14px; border-bottom: 1px dashed var(--line); }
   .opt:last-child { border-bottom: 0; }
   .opt .cost { margin-left: auto; color: var(--muted); font-size: 12.5px; }
@@ -259,6 +270,8 @@
     .brand .sub { display: none; }
   }
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 <header>
@@ -321,11 +334,24 @@
         <div class="field"><label>Email (optional)</label><input name="email" type="email" autocomplete="email" /></div>
       </div>
       <div class="field">
-        <label>Delivery address</label>
-        <input name="deliveryAddress" placeholder="House no &amp; street, suburb, Worcester" />
+        <label>Order method</label>
+        <div class="pay-options">
+          <label class="pay-opt"><input type="radio" name="orderMethod" value="delivery" checked /><span>Delivery</span></label>
+          <label class="pay-opt"><input type="radio" name="orderMethod" value="collection" /><span>Collection</span></label>
+        </div>
+      </div>
+      <div class="field" id="delivery-block">
+        <label>Delivery location</label>
+        <select id="delivery-location" style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:14.5px;background:#fff;color:var(--ink);">
+          <option value="__pin__">Use current location (pin on map)</option>
+        </select>
+        <input name="deliveryAddress" placeholder="House no &amp; street, suburb, Worcester" style="margin-top:6px;" autocomplete="off" />
+        <div id="addr-suggest" style="position:relative;margin-top:4px;"></div>
         <button type="button" class="ghost" data-action="use-location" style="margin-top:6px;padding:6px 12px;font-size:12.5px;">&#128205; Use my current location</button>
         <div class="hint" id="geo-hint">Free within 3km on food orders from R200 &middot; R85 to 10km &middot; R95 beyond &middot; No address = collection.</div>
         <div class="hint" id="geo-status" hidden></div>
+        <div id="delivery-map" style="height:220px;border-radius:10px;border:1px solid var(--line);margin-top:8px;"></div>
+        <div class="hint" style="margin-top:4px;">Tap/click the map to drop a pin at your delivery spot. We use the pin to calculate your delivery fee.</div>
       </div>
       <div class="field"><label>Notes (optional)</label><textarea name="notes" rows="2" placeholder="e.g. call on arrival, extra napkins"></textarea></div>
       <div class="field">
@@ -508,7 +534,7 @@ function renderMenu() {
 
   if (SPECIALS.length) {
     parts.push('<h2 style="margin:0 0 10px;font-size:18px;">Deals</h2>');
-    parts.push('<div class="specials">' + SPECIALS.map((s) => {
+    parts.push('<div class="deals-carousel"><div class="deals-track">' + SPECIALS.map((s) => {
       const bogo = s.kind === "bogo";
       // Fixed-price deals are never added as a cart line - they price
       // themselves off the pizzas already in it, so the card only explains
@@ -543,14 +569,18 @@ function renderMenu() {
         : deal
           ? money(s.price) + " for " + s.count
           : money(s.price);
+      const imgHtml = s.imageUrl
+        ? '<div class="special-img"><img src="' + esc(s.imageUrl) + '" alt="' + esc(s.name) + '" loading="lazy" onerror="this.parentElement.style.display=\'none\'" /></div>'
+        : "";
       return (
         '<div class="special-card">' +
+        imgHtml +
         '<div class="special-top"><h3>' + esc(s.name) + '</h3><span class="price">' + priceText + "</span>" + favButton("special", s.id) + "</div>" +
         (s.description ? '<div class="special-desc">' + esc(s.description) + "</div>" : "") +
         partsHtml +
         '<div class="special-actions">' + action + "</div></div>"
       );
-    }).join("") + "</div>");
+    }).join("") + '</div><div class="deals-nav"><button type="button" class="deals-prev">\u2039</button><div class="deals-dots"></div><button type="button" class="deals-next">\u203a</button></div></div>');
   }
 
   for (const cat of CATS) {
@@ -687,7 +717,7 @@ function renderCustomize() {
     : "");
 
   const topList = tops.length
-    ? '<div class="field"><label>Extra toppings</label><div class="opt-list">' +
+    ? '<div class="field"><button type="button" class="tops-toggle" style="background:none;border:0;padding:0;font:inherit;font-weight:700;color:var(--ink);cursor:pointer;margin-bottom:4px;">Extra toppings \u25be</button><div class="opt-list">' +
       tops.map((t) => {
         const p = topPriceOf(t, size);
         const oos = t.topping.isInSeason === false;
@@ -1011,14 +1041,10 @@ $("#checkout-modal").addEventListener("click", (e) => {
   loc.textContent = "\u231b Getting location\u2026";
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      geo = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      const g = classifyGeoForCart(geo.lat, geo.lng);
-      geoStatus = g.status;
+      setDeliveryPin(pos.coords.latitude, pos.coords.longitude);
       loc.disabled = false;
       loc.textContent = "\ud83d\udccd Use my current location";
       $("#geo-hint").textContent = "Location captured (" + pos.coords.latitude.toFixed(4) + ", " + pos.coords.longitude.toFixed(4) + ")";
-      refreshDeliveryHint();
-      refreshCheckoutSummary();
     },
     () => {
       geo = { lat: null, lng: null };
@@ -1034,6 +1060,102 @@ $("#checkout-modal").addEventListener("click", (e) => {
   );
 });
 
+// Populate saved delivery locations for logged-in customers.
+async function populateDeliveryLocations() {
+  const sel = $("#delivery-location");
+  if (!sel) return;
+  // reset to base options
+  sel.innerHTML = '<option value="">Collection (no delivery)</option><option value="__pin__">Use current location (pin on map)</option>';
+  if (!CUSTOMER) return;
+  try {
+    const rows = await fetch("/api/customer/addresses").then((r) => r.ok ? r.json() : []);
+    for (const a of (rows || [])) {
+      const opt = document.createElement("option");
+      opt.value = "addr:" + a.id;
+      opt.textContent = a.label + " — " + a.address;
+      opt.dataset.lat = a.lat == null ? "" : a.lat;
+      opt.dataset.lng = a.lng == null ? "" : a.lng;
+      opt.dataset.address = a.address;
+      sel.appendChild(opt);
+      if (a.isDefault) sel.value = "addr:" + a.id;
+    }
+  } catch (e) {}
+}
+
+$("#delivery-location").addEventListener("change", (e) => {
+  const sel = e.target;
+  const val = sel.value;
+  const addrInput = $("#checkout-form input[name=deliveryAddress]");
+  if (val === "" ) {
+    geo = { lat: null, lng: null };
+    if (addrInput) addrInput.value = "";
+  } else if (val === "__pin__") {
+    if (addrInput) addrInput.value = "";
+    // keep geo as-is (from pin or profile)
+  } else if (val.startsWith("addr:")) {
+    const opt = sel.selectedOptions[0];
+    const a = opt?.dataset.address || "";
+    const lat = opt?.dataset.lat ? Number(opt.dataset.lat) : null;
+    const lng = opt?.dataset.lng ? Number(opt.dataset.lng) : null;
+    if (addrInput) addrInput.value = a;
+    geo = { lat, lng };
+    geoStatus = geo.lat != null && geo.lng != null ? classifyGeoForCart(geo.lat, geo.lng).status : (a ? "unverified" : null);
+  }
+  refreshDeliveryHint();
+  refreshCheckoutSummary();
+  if (geo.lat != null && geo.lng != null && deliveryMap) setDeliveryPin(geo.lat, geo.lng);
+});
+
+// Address autocomplete via Nominatim (OpenStreetMap), biased to the shop.
+let _suggestTimer = null;
+async function fetchAddressSuggestions(q) {
+  const box = $("#addr-suggest");
+  if (!box) return;
+  if (!q || q.trim().length < 3) { box.innerHTML = ""; return; }
+  const cfg = deliveryCfg || {};
+  const shopLat = cfg.shop?.lat, shopLng = cfg.shop?.lng;
+  let url = "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&countrycodes=za&q=" + encodeURIComponent(q.trim());
+  if (Number.isFinite(shopLat) && Number.isFinite(shopLng)) {
+    const d = 0.15; // ~15km viewbox
+    url += "&viewbox=" + (shopLng - d) + "," + (shopLat - d) + "," + (shopLng + d) + "," + (shopLat + d) + "&bounded=0";
+  }
+  try {
+    const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+    if (!res.ok) return;
+    const data = await res.json();
+    const maxKm = cfg.maxRadiusKm || 10;
+    const items = (data || []).filter((r) => {
+      if (!Number.isFinite(shopLat) || !Number.isFinite(shopLng)) return true;
+      const km = distanceKm(shopLat, shopLng, Number(r.lat), Number(r.lon));
+      return km == null || km <= maxKm + 2;
+    });
+    if (!items.length) { box.innerHTML = '<div class="hint">No matching addresses in delivery area.</div>'; return; }
+    box.innerHTML = '<div style="border:1px solid var(--line);border-radius:8px;background:#fff;max-height:180px;overflow:auto;">' +
+      items.map((r) => '<div class="addr-sug" data-lat="' + r.lat + '" data-lng="' + r.lon + '" data-addr="' + esc(r.display_name) + '" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line);">' + esc(r.display_name) + '</div>').join("") +
+      '</div>';
+    box.querySelectorAll(".addr-sug").forEach((el) => {
+      el.addEventListener("click", () => {
+        const a = el.dataset.addr;
+        const lat = Number(el.dataset.lat), lng = Number(el.dataset.lng);
+        const input = $("#checkout-form input[name=deliveryAddress]");
+        if (input) input.value = a;
+        if (Number.isFinite(lat) && Number.isFinite(lng)) setDeliveryPin(lat, lng);
+        box.innerHTML = "";
+      });
+    });
+  } catch (e) { box.innerHTML = ""; }
+}
+
+const addrInput = document.querySelector("#checkout-form input[name=deliveryAddress]");
+if (addrInput) {
+  addrInput.addEventListener("input", () => {
+    clearTimeout(_suggestTimer);
+    const v = addrInput.value;
+    _suggestTimer = setTimeout(() => fetchAddressSuggestions(v), 400);
+  });
+  addrInput.addEventListener("blur", () => setTimeout(() => { const b = $("#addr-suggest"); if (b) b.innerHTML = ""; }, 250));
+}
+
 // Keep the delivery status honest as the address is typed/cleared.
 $("#checkout-modal").addEventListener("input", (e) => {
   if (!e.target.matches("#checkout-form input[name=deliveryAddress]")) return;
@@ -1041,6 +1163,7 @@ $("#checkout-modal").addEventListener("input", (e) => {
   // Typing a different address invalidates the saved/captured coordinates.
   if (CUSTOMER && typed !== String(CUSTOMER.addressLabel || "").trim()) {
     geo = { lat: null, lng: null };
+    if (deliveryMarker && deliveryMap) { deliveryMap.removeLayer(deliveryMarker); deliveryMarker = null; }
   }
   geoStatus = geo.lat != null && geo.lng != null
     ? classifyGeoForCart(geo.lat, geo.lng).status
@@ -1114,6 +1237,7 @@ function fillCheckoutAccount() {
     const loc = form.querySelector('button[data-action="use-location"]');
     if (loc) loc.disabled = false;
     refreshDeliveryHint();
+    populateDeliveryLocations();
   } else {
     // A guest session must never inherit account fields from an earlier signed-in view.
     ["firstName", "lastName", "cellphone", "email"].forEach((name) => {
@@ -1150,6 +1274,68 @@ function refreshCheckoutSummary() {
   if (el) el.textContent = checkoutSummaryText();
 }
 
+let deliveryMap = null;
+let deliveryMarker = null;
+function setDeliveryPin(lat, lng) {
+  geo = { lat: Number(lat), lng: Number(lng) };
+  geoStatus = classifyGeoForCart(geo.lat, geo.lng).status;
+  if (deliveryMap) {
+    if (!deliveryMarker) {
+      deliveryMarker = L.marker([geo.lat, geo.lng]).addTo(deliveryMap);
+    } else {
+      deliveryMarker.setLatLng([geo.lat, geo.lng]);
+    }
+    deliveryMap.setView([geo.lat, geo.lng], 15);
+  }
+  const g = classifyGeoForCart(geo.lat, geo.lng);
+  if (g.status === "fee" || g.status === "beyond" || g.status === "unverified") {
+    const fee = g.status === "beyond" ? (deliveryCfg?.beyondFeeAmount || 0) : (deliveryCfg?.feeAmount || 0);
+    if (fee > 0) toast("Delivery fee R" + fee + " applies (" + (g.km != null ? g.km.toFixed(1) + " km" : "address to confirm") + ")");
+  } else if (g.status === "free") {
+    toast("Free delivery \u2713 (" + g.km.toFixed(1) + " km)");
+  }
+  refreshDeliveryHint();
+  refreshCheckoutSummary();
+}
+function initDeliveryMap() {
+  const el = $("#delivery-map");
+  if (!el || typeof L === "undefined") return;
+  try {
+    if (deliveryMap && deliveryMap.getContainer && deliveryMap.getContainer() !== el) {
+      try { deliveryMap.remove(); } catch (e) {}
+      deliveryMap = null; deliveryMarker = null;
+    }
+  } catch (e) {
+    deliveryMap = null; deliveryMarker = null;
+  }
+  const center = (deliveryCfg && deliveryCfg.shop && deliveryCfg.shop.lat != null)
+    ? [deliveryCfg.shop.lat, deliveryCfg.shop.lng]
+    : [-33.644, 19.450];
+  if (!deliveryMap) {
+    deliveryMap = L.map(el).setView(center, 13);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+      maxZoom: 19,
+    }).addTo(deliveryMap);
+    // shop marker
+    if (Number.isFinite(center[0]) && Number.isFinite(center[1])) {
+      L.marker(center, { title: "Shop" }).addTo(deliveryMap);
+    }
+    deliveryMap.on("click", (e) => {
+      setDeliveryPin(e.latlng.lat, e.latlng.lng);
+    });
+  }
+  // sync marker with current geo
+  if (geo.lat != null && geo.lng != null) {
+    if (!deliveryMarker) deliveryMarker = L.marker([geo.lat, geo.lng]).addTo(deliveryMap);
+    else deliveryMarker.setLatLng([geo.lat, geo.lng]);
+    deliveryMap.setView([geo.lat, geo.lng], 15);
+  } else {
+    deliveryMap.setView(center, 13);
+  }
+  // Leaflet needs a resize after the modal becomes visible
+  setTimeout(() => { try { deliveryMap.invalidateSize(); } catch (e) {} }, 200);
+}
 function openCheckout() {
   if (!CART.length) { toast("Your cart is empty"); return; }
   if (shopCfg && shopCfg.onlineEnabled === false) { toast("Online ordering is paused right now \u2014 please call us."); return; }
@@ -1164,18 +1350,27 @@ function openCheckout() {
   $("#checkout-error").hidden = true;
   $("#checkout-overlay").hidden = false;
   fillCheckoutAccount();
+  initDeliveryMap();
+  syncOrderMethod();
 
   // Unregistered (guest) customers may only place collection orders.
   const addr = $("#checkout-form input[name=deliveryAddress]");
   const loc = $("#checkout-form button[data-action=\"use-location\"]");
   const geoHint = $("#geo-hint");
   if (!CUSTOMER) {
+    const deliveryRadio = document.querySelector('input[name="orderMethod"][value="delivery"]');
+    const collectionRadio = document.querySelector('input[name="orderMethod"][value="collection"]');
+    if (collectionRadio) collectionRadio.checked = true;
+    if (deliveryRadio) deliveryRadio.disabled = true;
     if (addr) { addr.value = ""; addr.disabled = true; addr.placeholder = "Collection only - sign in for delivery"; }
     if (loc) loc.disabled = true;
     geo = { lat: null, lng: null };
     geoStatus = null;
     if (geoHint) geoHint.textContent = "Collection only - sign in for delivery. No address = collection.";
+    syncOrderMethod();
   } else {
+    const deliveryRadio = document.querySelector('input[name="orderMethod"][value="delivery"]');
+    if (deliveryRadio) deliveryRadio.disabled = false;
     if (addr) { addr.disabled = false; addr.placeholder = "House no & street, suburb, Worcester"; }
     if (loc) loc.disabled = false;
   }
@@ -1201,11 +1396,13 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
     lastName: String(f.get("lastName") || "").trim(),
     cellphone: String(f.get("cellphone") || "").trim() || null,
     email: String(f.get("email") || "").trim() || null,
-    deliveryAddress: String(f.get("deliveryAddress") || "").trim() || null,
+    ...(String(f.get("orderMethod")) === "delivery" ? {
+      deliveryAddress: String(f.get("deliveryAddress") || "").trim() || null,
+      deliveryLat: geo.lat, deliveryLng: geo.lng,
+    } : { deliveryAddress: null, deliveryLat: null, deliveryLng: null }),
     notes: String(f.get("notes") || "").trim() || null,
     couponCode: String(f.get("couponCode") || "").trim() || null,
     paymentMethod: String(f.get("paymentMethod") || "cod_cash").trim(),
-    deliveryLat: geo.lat, deliveryLng: geo.lng,
     items: CART.map((l) =>
       l.kind === "special"
         ? {
@@ -1245,10 +1442,16 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
     const pay = data.grandTotal != null ? data.grandTotal : data.total;
     if (data.redirect) {
       const providerName = data.redirect.provider === "paygate" ? "PayGate" : "our secure payment provider";
+      const feeLine = (data.deliveryFee && Number(data.deliveryFee) > 0)
+        ? '<p class="sub">Delivery fee: R' + money(Number(data.deliveryFee)) + '</p>'
+        : '';
       $("#checkout-modal").innerHTML =
         '<div class="success-box"><div class="big">&#128274;</div>' +
         "<h3>Redirecting to secure payment\u2026</h3>" +
         '<p class="sub">Your order #' + data.id + " is saved. You\u2019ll be taken to " + providerName + " to complete the payment.</p>" +
+        '<p class="sub">Subtotal: ' + money(data.total) + '</p>' +
+        feeLine +
+        '<p class="sub" style="font-weight:700">Total to pay: ' + money(pay) + '</p>' +
         '<form id="pay-redirect" action="' + esc(data.redirect.url) + '" method="POST">' +
         Object.entries(data.redirect.fields)
           .map(([k, v]) => '<input type="hidden" name="' + esc(k) + '" value="' + esc(v) + '" />')
@@ -1258,11 +1461,15 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
       const rf = $("#pay-redirect");
       setTimeout(() => rf && rf.submit(), 600);
     } else {
+      const feeTxt = (data.deliveryFee && Number(data.deliveryFee) > 0)
+        ? '<p class="sub">Delivery fee: ' + money(Number(data.deliveryFee)) + "</p>"
+        : "";
       const totalTxt = data.discountAmount
         ? '<p class="sub" style="text-decoration:line-through">' + money(data.total) + "</p>" +
           '<p class="sub">Discount −' + money(data.discountAmount) + "</p>" +
+          feeTxt +
           '<p class="sub" style="font-weight:700">Total ' + money(pay) + "</p>"
-        : '<p class="sub">Total ' + money(pay) + "</p>";
+        : '<p class="sub">Total ' + money(pay) + "</p>" + feeTxt;
       $("#checkout-modal").innerHTML =
         '<div class="success-box"><div class="big">&#127829;</div>' +
         "<h3>Order placed!</h3>" +
@@ -1281,6 +1488,97 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
     btn.textContent = "Place Order";
   }
 });
+
+// Toggle delivery block based on Collection / Delivery radio.
+function syncOrderMethod() {
+  const method = document.querySelector('input[name="orderMethod"]:checked')?.value || "delivery";
+  const block = $("#delivery-block");
+  const addr = $("#checkout-form input[name=deliveryAddress]");
+  if (method === "collection") {
+    if (block) block.style.display = "none";
+    geo = { lat: null, lng: null };
+    geoStatus = null;
+    if (addr) addr.value = "";
+    if (deliveryMarker && deliveryMap) { deliveryMap.removeLayer(deliveryMarker); deliveryMarker = null; }
+    const s = $("#geo-status"); if (s) s.hidden = true;
+  } else {
+    if (block) block.style.display = "";
+    if (geo.lat == null && addr?.value.trim()) geoStatus = "unverified";
+  }
+  refreshDeliveryHint();
+  refreshCheckoutSummary();
+}
+document.addEventListener("change", (e) => {
+  if (e.target.matches('input[name="orderMethod"]')) syncOrderMethod();
+});
+
+// Toggle toppings list via the labeled button.
+document.addEventListener("click", (e) => {
+  const btn = e.target?.closest?.(".tops-toggle");
+  if (!btn) return;
+  const list = btn.nextElementSibling;
+  if (!list || !list.classList.contains("opt-list")) return;
+  list.classList.toggle("expanded");
+  btn.textContent = list.classList.contains("expanded") ? "Extra toppings \u25b4" : "Extra toppings \u25be";
+});
+// Collapse/expand the toppings list based on focus.
+document.addEventListener("focusin", (e) => {
+  const list = e.target?.closest?.(".opt-list");
+  if (list) list.classList.add("expanded");
+});
+document.addEventListener("focusout", (e) => {
+  const list = e.target?.closest?.(".opt-list");
+  if (!list) return;
+  setTimeout(() => {
+    if (!list.contains(document.activeElement)) list.classList.remove("expanded");
+  }, 120);
+});
+
+function initDealsCarousel() {
+  const carousel = document.querySelector(".deals-carousel");
+  if (!carousel) return;
+  const track = carousel.querySelector(".deals-track");
+  const cards = [...track.querySelectorAll(".special-card")];
+  if (!cards.length) return;
+  const perPage = 2;
+  const pages = Math.ceil(cards.length / perPage);
+  let page = 0;
+  const dots = carousel.querySelector(".deals-dots");
+  const prev = carousel.querySelector(".deals-prev");
+  const next = carousel.querySelector(".deals-next");
+  function renderPage() {
+    cards.forEach((c, i) => {
+      const start = page * perPage;
+      const end = start + perPage;
+      c.style.display = (i >= start && i < end) ? "" : "none";
+    });
+    if (dots) {
+      dots.innerHTML = Array.from({ length: pages }, (_, i) =>
+        '<span class="' + (i === page ? "active" : "") + '" data-page="' + i + '"></span>'
+      ).join("");
+      dots.querySelectorAll("span").forEach((d) => {
+        d.addEventListener("click", () => { page = Number(d.dataset.page); renderPage(); });
+      });
+    }
+    if (prev) prev.disabled = page === 0;
+    if (next) next.disabled = page === pages - 1;
+  }
+  if (prev) prev.addEventListener("click", () => { if (page > 0) { page--; renderPage(); } });
+  if (next) next.addEventListener("click", () => { if (page < pages - 1) { page++; renderPage(); } });
+  renderPage();
+  // Auto-advance every 7 seconds, looping back to start.
+  let autoTimer = setInterval(() => {
+    page = (page + 1) % pages;
+    renderPage();
+  }, 7000);
+  carousel.addEventListener("mouseenter", () => { clearInterval(autoTimer); });
+  carousel.addEventListener("mouseleave", () => {
+    autoTimer = setInterval(() => { page = (page + 1) % pages; renderPage(); }, 7000);
+  });
+}
+
+const _origRenderMenu = renderMenu;
+renderMenu = function() { _origRenderMenu(); initDealsCarousel(); };
 
 const CHECKOUT_HTML = $("#checkout-modal").innerHTML;
 $("#checkout-modal").addEventListener("click", (e) => {

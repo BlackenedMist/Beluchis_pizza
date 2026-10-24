@@ -103,7 +103,9 @@ export function buildReceipt(order) {
     segs.push({ text: `Subtotal: ${money(order.total)}` });
     segs.push({ text: `Discount: -${money(order.discountAmount)}` });
   }
-  segs.push({ text: `TOTAL PAYABLE  ${money(order.grandTotal ?? order.total)}`, align: 'center', bold: true, size: 2 });
+  const payable = order.paymentStatus === 'paid' ? 0 : (order.grandTotal ?? order.total);
+  segs.push({ text: `TOTAL PAYABLE  ${money(payable)}`, align: 'center', bold: true, size: 2 });
+  if (order.paymentStatus === 'paid') segs.push({ text: 'Paid online - no balance due', align: 'center' });
   segs.push({ text: '', align: 'center' });
   segs.push({ text: 'Thank you for your order', align: 'center' });
   segs.push({ text: '', align: 'center' });

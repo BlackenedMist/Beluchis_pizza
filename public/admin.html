@@ -45,6 +45,14 @@
   }
   nav button.active { background: var(--panel); border-bottom-color: var(--panel); }
   nav button.hidden { display: none; }
+  .nav-group { position: relative; }
+  .nav-group-title { border: 1px solid var(--line); background: #efe9de; color: var(--ink); padding: 9px 18px; border-radius: 8px 8px 0 0; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .nav-group-title.active { background: var(--panel); border-bottom-color: var(--panel); }
+  .nav-group-menu { display: none; position: absolute; top: 100%; left: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 0 8px 8px 8px; padding: 6px; z-index: 50; min-width: 160px; flex-direction: column; gap: 4px; }
+  .nav-group.open .nav-group-menu { display: flex; }
+  .nav-group-menu button { border: 0; background: transparent; text-align: left; padding: 8px 12px; border-radius: 6px; font-size: 14px; cursor: pointer; width: 100%; }
+  .nav-group-menu button:hover { background: #efe9de; }
+  .nav-group-menu button.active { background: var(--accent); color: #fff; }
   main { padding: 20px 28px 60px; }
   .panel {
     background: var(--panel);
@@ -247,6 +255,8 @@
 .img-tile-actions button{padding:2px 6px;font-size:11px}
 
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 <header>
@@ -263,15 +273,28 @@
 <nav>
   <button data-tab="orders" class="active">Orders</button>
   <button data-tab="contact" data-roles="admin,orders">Inbox</button>
-  <button data-tab="items" data-roles="admin">Items</button>
-  <button data-tab="specials" data-roles="admin">Specials</button>
-  <button data-tab="deals" data-roles="admin">Deals</button>
-  <button data-tab="toppings" data-roles="admin">Toppings</button>
-  <button data-tab="bases" data-roles="admin">Bases</button>
-  <button data-tab="categories" data-roles="admin">Categories</button>
-  <button data-tab="users" data-roles="admin">Users</button>
+  <div class="nav-group" data-roles="admin">
+    <button type="button" class="nav-group-title">Menu</button>
+    <div class="nav-group-menu">
+      <button data-tab="items">Items</button>
+      <button data-tab="specials">Specials</button>
+      <button data-tab="deals">Deals</button>
+      <button data-tab="toppings">Toppings</button>
+      <button data-tab="bases">Bases</button>
+      <button data-tab="categories">Categories</button>
+    </div>
+  </div>
+  <div class="nav-group" data-roles="admin">
+    <button type="button" class="nav-group-title">Store</button>
+    <div class="nav-group-menu">
+      <button data-tab="users">Users</button>
+      <button data-tab="delivery">Shop</button>
+      <button data-tab="deliveries">Deliveries</button>
+      <button data-tab="homepage">Homepage</button>
+      <button data-tab="orderhistory">Order History</button>
+    </div>
+  </div>
   <button data-tab="loyalty" data-roles="admin">Loyalty</button>
-  <button data-tab="delivery" data-roles="admin">Shop</button>
 </nav>
 <main>
   <section id="tab-orders" class="panel"></section>
@@ -285,6 +308,9 @@
   <section id="tab-users" class="panel" hidden></section>
   <section id="tab-loyalty" class="panel" hidden></section>
   <section id="tab-delivery" class="panel" hidden></section>
+  <section id="tab-deliveries" class="panel" hidden></section>
+  <section id="tab-homepage" class="panel" hidden></section>
+  <section id="tab-orderhistory" class="panel" hidden></section>
 </main>
 <div id="toast"></div>
 
@@ -292,7 +318,7 @@
 const $ = (s, el=document) => el.querySelector(s);
 const $$ = (s, el=document) => [...el.querySelectorAll(s)];
 
-// Shop times are South African (CAT, UTC+2) regardless of the device timezone.
+// Shop times are Central Africa Time (CAT) regardless of the device timezone.
 const SHOP_TZ = "Africa/Johannesburg";
 const shopDate = (d) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: SHOP_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
@@ -304,6 +330,7 @@ const state = {
   tab: "orders", search: "",
   fItems: { category: "", type: "", active: "" },
   fStatus: "", orderSearch: "",
+  orderHistoryDate: "", orderHistorySearch: "",
   loyalty: null, coupons: [],
   fLoyalty: { q: "", tier: "", window: "365", minSpend: "", minOrders: "" },
   fCoupons: "active",
@@ -319,11 +346,12 @@ const ROLES = {
   cashier: "Cashier",
   driver: "Driver",
 };
-const STATUSES = ["awaiting_payment", "placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
+const STATUSES = ["awaiting_payment", "placed", "preparing", "ReadyToCollect", "out_for_delivery", "delivered", "cancelled"];
 const STATUS_NAMES = {
   awaiting_payment: "Awaiting payment",
   placed: "Placed",
   preparing: "Preparing",
+  ReadyToCollect: "Ready to collect",
   out_for_delivery: "Out for delivery",
   delivered: "Delivered",
   cancelled: "Cancelled",
@@ -331,7 +359,8 @@ const STATUS_NAMES = {
 const STATUS_FLOW = {
   awaiting_payment: [],
   placed: ["preparing"],
-  preparing: ["out_for_delivery"],
+  preparing: ["ReadyToCollect"],
+  ReadyToCollect: ["out_for_delivery", "delivered"],
   out_for_delivery: ["delivered"],
   delivered: [],
   cancelled: [],
@@ -372,6 +401,10 @@ function roleGating() {
     const allowed = String(b.dataset.roles || "").split(",").includes(role);
     b.classList.toggle("hidden", !allowed);
     b.disabled = !allowed; // don't let hidden-but-focusable buttons open restricted tabs
+  });
+  $$(".nav-group[data-roles]").forEach((g) => {
+    const allowed = String(g.dataset.roles || "").split(",").includes(role);
+    g.classList.toggle("hidden", !allowed);
   });
 }
 
@@ -458,7 +491,7 @@ function renderOrders() {
         <span class="order-time">${orderTime(o.createdAt)}</span>
         ${payChip}
       </div>
-      <div class="order-total">R${o.discountAmount ? (o.grandTotal ?? o.total) : o.total}</div>
+      <div class="order-total">${o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Paid online" : "R" + (o.discountAmount ? (o.grandTotal ?? o.total) : o.total)}</div>
     </div>`;
   };
 
@@ -722,20 +755,39 @@ $("#global-search").addEventListener("input", (e) => {
 });
 
 // tabs
-$$("nav button").forEach((btn) =>
+$$("nav button[data-tab]").forEach((btn) =>
   btn.addEventListener("click", () => {
     if (btn.disabled) return;
     $$("nav button").forEach((b) => b.classList.remove("active"));
+    $$(".nav-group").forEach((g) => g.classList.remove("open"));
     btn.classList.add("active");
+    // mark group title active if inside a group
+    const group = btn.closest(".nav-group");
+    if (group) group.querySelector(".nav-group-title")?.classList.add("active");
     state.tab = btn.dataset.tab;
     if (state.tab === "orders") loadOrders();
     if (state.tab === "users") loadUsers();
     if (state.tab === "contact") loadContact();
     if (state.tab === "loyalty") loadLoyalty();
     if (state.tab === "delivery") loadSettings();
+    if (state.tab === "deliveries") loadSettings();
+    if (state.tab === "homepage") renderHomepage();
+    if (state.tab === "orderhistory") { loadOrders().then(() => renderOrderHistory()); }
     render();
   })
 );
+// group title toggles
+$$(".nav-group-title").forEach((btn) => {
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const group = btn.closest(".nav-group");
+    const wasOpen = group.classList.contains("open");
+    $$(".nav-group").forEach((g) => g.classList.remove("open"));
+    if (!wasOpen) group.classList.add("open");
+  });
+});
+// close dropdowns on outside click
+document.addEventListener("click", () => $$(".nav-group").forEach((g) => g.classList.remove("open")));
 
 const priceTable = (prices) =>
   prices.length
@@ -933,8 +985,15 @@ function render() {
   renderOrders();
   if (state.me?.role === "admin") renderUsers();
   if (state.me?.role === "admin") renderLoyalty();
-  if (state.me?.role === "admin") renderDelivery();
+  if (state.me?.role === "admin") { renderDelivery(); renderDeliveries(); renderHomepage(); renderOrderHistory(); }
   $$("section[id^=tab-]").forEach((s) => (s.hidden = s.id !== `tab-${state.tab}`));
+  // highlight the group title that owns the active tab
+  $$(".nav-group").forEach((g) => {
+    const title = g.querySelector(".nav-group-title");
+    const owns = [...g.querySelectorAll("button[data-tab]")].some((b) => b.dataset.tab === state.tab);
+    title?.classList.toggle("active", owns);
+  });
+  $$("nav button[data-tab]").forEach((b) => b.classList.toggle("active", b.dataset.tab === state.tab));
 }
 
 // ---------------------------------------------------------------- Modals
@@ -1318,6 +1377,115 @@ function renderSpecials() {
     </table>` : `<div class="empty">${state.specials.length ? "No specials match your search" : "No specials yet"}</div>`}`;
 }
 
+// ---------------------------------------------------------------- Homepage
+function renderHomepage() {
+  const el = $("#tab-homepage");
+  if (!el) return;
+  const items = (state.items || []).filter((i) => i.isActive !== false);
+  const cats = state.categories || [];
+  el.innerHTML = `
+    <div class="toolbar">
+      <h2>Homepage</h2>
+      <div class="muted" style="max-width:580px;font-size:13px">Choose which pizzas and food items appear as tiles on the home page. Tick to show, untick to hide.</div>
+    </div>
+    ${cats.map((c) => {
+      const rows = items.filter((i) => i.categoryId === c.id);
+      if (!rows.length) return "";
+      return `
+      <div class="card" style="margin-bottom:14px;padding:14px 16px">
+        <b>${esc(c.name)}</b>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;margin-top:10px">
+          ${rows.map((i) => `
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;cursor:pointer">
+              <input type="checkbox" ${i.showOnHome ? "checked" : ""} onchange="toggleHomeItem(${i.id}, this.checked)" />
+              ${i.imageUrl ? `<img src="${esc(i.imageUrl)}" alt="" style="width:32px;height:32px;object-fit:cover;border-radius:6px" />` : ""}
+              <span style="font-size:13px">${esc(i.name)}</span>
+            </label>
+          `).join("")}
+        </div>
+      </div>`;
+    }).join("")}
+    ${items.filter((i) => !i.categoryId).length ? `
+    <div class="card" style="margin-bottom:14px;padding:14px 16px">
+      <b>Uncategorised</b>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;margin-top:10px">
+        ${items.filter((i) => !i.categoryId).map((i) => `
+          <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;cursor:pointer">
+            <input type="checkbox" ${i.showOnHome ? "checked" : ""} onchange="toggleHomeItem(${i.id}, this.checked)" />
+            ${i.imageUrl ? `<img src="${esc(i.imageUrl)}" alt="" style="width:32px;height:32px;object-fit:cover;border-radius:6px" />` : ""}
+            <span style="font-size:13px">${esc(i.name)}</span>
+          </label>
+        `).join("")}
+      </div>
+    </div>` : ""}
+  `;
+}
+
+window.toggleHomeItem = async (id, on) => {
+  try {
+    const item = state.items.find((i) => i.id === id);
+    if (!item) return;
+    await api(`/api/items/${id}`, { method: "PUT", body: JSON.stringify({ ...item, showOnHome: on }) });
+    item.showOnHome = on;
+    toast(on ? "Shown on home" : "Hidden from home");
+  } catch (e) { toast(e.message, true); }
+};
+
+// ---------------------------------------------------------------- Order history
+function renderOrderHistory() {
+  const el = $("#tab-orderhistory");
+  if (!el) return;
+  if (!state.orderHistoryDate) {
+    const d = new Date();
+    state.orderHistoryDate = d.toISOString().slice(0, 10);
+  }
+  const q = (state.orderHistorySearch || "").trim().toLowerCase();
+  const filtered = (state.orders || []).filter((o) => {
+    const day = (o.createdAt || "").slice(0, 10);
+    if (day !== state.orderHistoryDate) return false;
+    if (!q) return true;
+    const name = `${o.customer?.firstName || ""} ${o.customer?.lastName || ""}`;
+    return String(o.id).includes(q) || name.toLowerCase().includes(q) ||
+      (o.customer?.cellphone || "").toLowerCase().includes(q) || (o.deliveryAddress || "").toLowerCase().includes(q);
+  });
+
+  const card = (o) => {
+    const payLabels = { cod_cash: "Cash on delivery", cod_card: "Card on delivery", payfast: "Online (PayFast)", paygate: "Online (PayGate)" };
+    const total = o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Paid online" : "R" + (o.discountAmount ? (o.grandTotal ?? o.total) : o.total);
+    return `
+    <div class="order-card">
+      <div class="order-head">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span class="order-id">#${o.id}</span>
+          <span class="status-badge s-${o.status}">${STATUS_NAMES[o.status] || o.status}</span>
+          <span class="order-time">${orderTime(o.createdAt)}</span>
+          <span class="pay-chip">${payLabels[o.paymentMethod] || o.paymentMethod} · ${o.paymentStatus}</span>
+        </div>
+        <div class="order-total">${total}</div>
+      </div>
+      <div class="order-cust">${esc(o.customer?.firstName || "")} ${esc(o.customer?.lastName || "")} ${o.customer?.cellphone ? "· " + esc(o.customer.cellphone) : ""}</div>
+      ${o.deliveryAddress ? `<div class="order-dest">Delivery: ${esc(o.deliveryAddress)}</div>` : `<div class="order-dest">Collection</div>`}
+      <table class="order-items">
+        <thead><tr><th>Item</th><th>Size</th><th>Qty</th><th>Total</th></tr></thead>
+        <tbody>${(o.items || []).map((it) => `<tr><td>${esc(it.itemName || it.item?.name || "")}</td><td>${esc(it.sizeLabel || "")}</td><td>${it.quantity}</td><td>R${it.total}</td></tr>`).join("")}</tbody>
+      </table>
+    </div>`;
+  };
+
+  el.innerHTML = `
+    <div class="toolbar">
+      <h2>Order history</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="date" id="oh-date" value="${esc(state.orderHistoryDate)}" onchange="state.orderHistoryDate=this.value;renderOrderHistory()" />
+        <input class="search" placeholder="Search order, name, phone…" value="${esc(state.orderHistorySearch || "")}" oninput="state.orderHistorySearch=this.value;renderOrderHistory()" />
+        <button class="primary" onclick="loadOrders().then(()=>renderOrderHistory())">Refresh</button>
+      </div>
+    </div>
+    <div class="muted" style="margin-bottom:10px;font-size:13px">${filtered.length} order(s) on ${esc(state.orderHistoryDate)}</div>
+    ${filtered.length ? filtered.map(card).join("") : `<div class="empty">No orders for this date.</div>`}
+  `;
+}
+
 // ------------------------------------------------------------------ Deals
 // Fixed-price deals (kind === "deal") get their own tab: one price box per
 // size actually sold in a category. An empty box means no deal for that size,
@@ -1405,6 +1573,12 @@ function renderDeals() {
             <button class="primary" onclick="saveDeals(${c.id})">Save deals</button>
           </div>
         </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+          ${rows[0]?.imageUrl ? `<img src="${esc(rows[0].imageUrl)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:7px;border:1px solid #e8e0d5" />` : ""}
+          <input type="hidden" id="deal-img-${c.id}" value="${esc(rows[0]?.imageUrl || "")}" />
+          <input type="file" accept="image/*" onchange="uploadPicture(this,'deal-img-${c.id}')" />
+          <button type="button" class="ghost" onclick="$('#deal-img-${c.id}').value=''">Clear</button>
+        </div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px">
           ${sizes.map((z) => {
             const d = bySize.get(z);
@@ -1462,6 +1636,7 @@ window.saveDeals = async (catId) => {
       isActive,
       showOnHome: false,
       sortOrder: cur?.sortOrder ?? 0,
+      imageUrl: (document.getElementById("deal-img-" + catId)?.value || "").trim() || null,
     };
     jobs.push(
       cur
@@ -1937,6 +2112,7 @@ async function loadSettings() {
     state.delivery = await api("/api/delivery/config");
     state.shop = await api("/api/shop/config");
     renderDelivery();
+    renderDeliveries();
   } catch (e) { toast(e.message, true); }
 }
 
@@ -1958,13 +2134,6 @@ function renderDelivery() {
   if (!el) return;
   const s = state.settings || {};
   const get = (k, fb) => (k in s ? s[k] : fb);
-  const freeKm = Number(get("delivery.freeRadiusKm", 3)) || 0;
-  const maxKm = Number(get("delivery.maxRadiusKm", 10)) || 0;
-  const fee = Number(get("delivery.feeAmount", 85)) || 0;
-  const beyondFee = Number(get("delivery.beyondFeeAmount", 95)) || 0;
-  const minOrder = Number(get("delivery.minOrderAmount", 200)) || 0;
-  const enabled = state.delivery ? Boolean(state.delivery.enabled) : true;
-  const batch = enabled && Number(get("shop.lat", 0)) && Number(get("shop.lng", 0));
   const shop = state.shop || {};
   const openTime = shop.openTime || get("shop.openTime", "10:00");
   const closeTime = shop.closeTime || get("shop.closeTime", "21:00");
@@ -1972,25 +2141,52 @@ function renderDelivery() {
   const forceOpen = Boolean(shop.forceOpen);
   el.innerHTML = `
     <div class="toolbar">
-      <h2>Shop &amp; delivery</h2>
+      <h2>Shop hours</h2>
+      <button class="ghost" onclick="loadSettings()">Refresh</button>
+    </div>
+    <div class="card" style="padding:16px;max-width:640px">
+      <h3 style="margin:0 0 8px;font-size:14px">Opening hours</h3>
+      <div class="row">
+        <div class="field"><label>Opens</label><input id="f-open" type="time" value="${esc(openTime)}" /></div>
+        <div class="field"><label>Closes</label><input id="f-close" type="time" value="${esc(closeTime)}" /></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-online" ${onlineEnabled ? "checked" : ""} /> Accept online orders</label>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-force" ${forceOpen ? "checked" : ""} onchange="if(this.checked)document.getElementById('f-force-closed').checked=false" /> Force open (keep taking orders outside hours)</label>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-force-closed" ${shop.forceClosed ? "checked" : ""} onchange="if(this.checked)document.getElementById('f-force').checked=false" /> Force closed (stop taking orders even during hours)</label>
+      <div class="hint" style="margin:8px 0 10px">Shop time is Central Africa Time (CAT). Customers can't check out while closed unless "force open" is ticked &mdash; staff orders are always allowed.</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
+        <div style="font-weight:700;color:${shop.open ? "#2e7d32" : "#b3351f"}">Currently ${shop.open ? "OPEN" : "CLOSED"}</div>
+        <button class="ghost" type="button" onclick="toggleForceClosed()" style="padding:4px 10px;font-size:12px">${shop.forceClosed ? "Resume normal hours" : "Force close now"}</button>
+      </div>
+      <button class="primary" style="margin-top:12px" onclick="saveSettings()">Save settings</button>
+    </div>
+    <div class="card" style="padding:16px;flex:1;min-width:300px">
+      <h3 style="margin:0 0 8px;font-size:14px">Claim-invite email</h3>
+      <div class="field"><label>Subject</label><input id="f-invite-subject" type="text" value="${esc(get("mail.inviteSubject", "Your Beluchis account is ready"))}" /></div>
+      <div class="field"><label>Body</label><textarea id="f-invite-body" rows="7" style="width:100%;resize:vertical">${esc(get("mail.inviteBody", "Hi {firstName},\n\nYour Beluchis account is ready. Set your password to start ordering:\n{url}\n\n— The Beluchis team"))}</textarea></div>
+      <div class="hint" style="margin-bottom:10px">Placeholders: <code>{firstName}</code> and <code>{url}</code>. Sent by <code>npm run invites:send</code> — claimed customers are skipped automatically.</div>
+      <button class="ghost" onclick="sendTestInvite()">Send the invite email to myself</button>
+    </div>`;
+}
+
+function renderDeliveries() {
+  const el = $("#tab-deliveries");
+  if (!el) return;
+  const s = state.settings || {};
+  const get = (k, fb) => (k in s ? s[k] : fb);
+  const freeKm = Number(get("delivery.freeRadiusKm", 3)) || 0;
+  const maxKm = Number(get("delivery.maxRadiusKm", 10)) || 0;
+  const fee = Number(get("delivery.feeAmount", 85)) || 0;
+  const beyondFee = Number(get("delivery.beyondFeeAmount", 95)) || 0;
+  const minOrder = Number(get("delivery.minOrderAmount", 200)) || 0;
+  const enabled = state.delivery ? Boolean(state.delivery.enabled) : true;
+  const batch = enabled && Number(get("shop.lat", 0)) && Number(get("shop.lng", 0));
+  el.innerHTML = `
+    <div class="toolbar">
+      <h2>Deliveries</h2>
       <button class="ghost" onclick="loadSettings()">Refresh</button>
     </div>
     <div class="row" style="align-items:flex-start;gap:20px;flex-wrap:wrap">
-      <div class="card" style="padding:16px;flex:1;min-width:300px">
-        <h3 style="margin:0 0 8px;font-size:14px">Opening hours</h3>
-        <div class="row">
-          <div class="field"><label>Opens</label><input id="f-open" type="time" value="${esc(openTime)}" /></div>
-          <div class="field"><label>Closes</label><input id="f-close" type="time" value="${esc(closeTime)}" /></div>
-        </div>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-online" ${onlineEnabled ? "checked" : ""} /> Accept online orders</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-force" ${forceOpen ? "checked" : ""} onchange="if(this.checked)document.getElementById('f-force-closed').checked=false" /> Force open (keep taking orders outside hours)</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-force-closed" ${shop.forceClosed ? "checked" : ""} onchange="if(this.checked)document.getElementById('f-force').checked=false" /> Force closed (stop taking orders even during hours)</label>
-        <div class="hint" style="margin:8px 0 10px">Shop time is South African (UTC+2). Customers can't check out while closed unless "force open" is ticked &mdash; staff orders are always allowed.</div>
-        <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
-          <div style="font-weight:700;color:${shop.open ? "#2e7d32" : "#b3351f"}">Currently ${shop.open ? "OPEN" : "CLOSED"}</div>
-          <button class="ghost" type="button" onclick="toggleForceClosed()" style="padding:4px 10px;font-size:12px">${shop.forceClosed ? "Resume normal hours" : "Force close now"}</button>
-        </div>
-      </div>
       <div class="card" style="padding:14px;text-align:center;align-self:flex-start">
         <h3 style="margin:0 0 6px;font-size:14px">Radius preview</h3>
         ${ringSVG(freeKm, maxKm, fee)}
@@ -2005,9 +2201,11 @@ function renderDelivery() {
           <div class="field"><label>Shop latitude</label><input id="f-shop-lat" type="number" step="any" value="${esc(get("shop.lat", ""))}" placeholder="-33.646" /></div>
           <div class="field"><label>Shop longitude</label><input id="f-shop-lng" type="number" step="any" value="${esc(get("shop.lng", ""))}" placeholder="19.448" /></div>
         </div>
+        <div id="shop-map" style="height:220px;border-radius:10px;border:1px solid var(--line);margin:8px 0;"></div>
+        <div class="hint" style="margin-bottom:8px;">Click the map to set the shop location.</div>
         <div class="row">
-          <div class="field"><label>Free delivery radius (km)</label><input id="f-free-km" type="number" step="0.1" min="0.1" value="${freeKm}" /></div>
-          <div class="field"><label>Standard-fee radius (km)</label><input id="f-max-km" type="number" step="0.1" min="0.1" value="${maxKm}" /></div>
+          <div class="field"><label>Free delivery radius (km)</label><input id="f-free-km" type="number" step="0.1" min="0.1" value="${freeKm}" onchange="drawShopCircles()" /></div>
+          <div class="field"><label>Standard-fee radius (km)</label><input id="f-max-km" type="number" step="0.1" min="0.1" value="${maxKm}" onchange="drawShopCircles()" /></div>
         </div>
         <div class="row">
           <div class="field"><label>Delivery fee (R) from free radius to standard radius</label><input id="f-fee" type="number" step="1" min="0" value="${fee}" /></div>
@@ -2017,15 +2215,62 @@ function renderDelivery() {
         <div class="hint" style="margin-bottom:10px">Free delivery needs <b>both</b>: food subtotal at least the threshold and an address inside the free radius. Below the threshold the standard fee applies, even inside the free radius. Free&ndash;standard radius &rarr; standard fee. Beyond the standard radius &rarr; the "beyond" fee (delivery still available). There is no minimum-order block; collection is exempt. No GPS captured &rarr; the standard fee applies and the shop confirms the address/rate with the customer.</div>
         <button class="primary" onclick="saveSettings()">Save settings</button>
       </div>
-      <div class="card" style="padding:16px;flex:1;min-width:300px">
-        <h3 style="margin:0 0 8px;font-size:14px">Claim-invite email</h3>
-        <div class="field"><label>Subject</label><input id="f-invite-subject" type="text" value="${esc(get("mail.inviteSubject", "Your Beluchis account is ready"))}" /></div>
-        <div class="field"><label>Body</label><textarea id="f-invite-body" rows="7" style="width:100%;resize:vertical">${esc(get("mail.inviteBody", "Hi {firstName},\n\nYour Beluchis account is ready. Set your password to start ordering:\n{url}\n\n— The Beluchis team"))}</textarea></div>
-        <div class="hint" style="margin-bottom:10px">Placeholders: <code>{firstName}</code> and <code>{url}</code>. Sent by <code>npm run invites:send</code> — claimed customers are skipped automatically.</div>
-        <button class="ghost" onclick="sendTestInvite()">Send the invite email to myself</button>
-      </div>
+
     </div>`;
+  initShopMap();
 }
+
+let shopMap = null, shopMarker = null, shopCircles = [];
+function initShopMap() {
+  const el = document.getElementById("shop-map");
+  if (!el || typeof L === "undefined") return;
+  try {
+    if (shopMap && shopMap.getContainer && shopMap.getContainer() !== el) {
+      try { shopMap.remove(); } catch (e) {}
+      shopMap = null; shopMarker = null; shopCircles = [];
+    }
+  } catch (e) {
+    shopMap = null; shopMarker = null; shopCircles = [];
+  }
+  const lat = Number(document.getElementById("f-shop-lat")?.value) || -33.644;
+  const lng = Number(document.getElementById("f-shop-lng")?.value) || 19.450;
+  if (!shopMap) {
+    shopMap = L.map(el).setView([lat, lng], 13);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "&copy; OpenStreetMap", maxZoom: 19 }).addTo(shopMap);
+    shopMap.on("click", (e) => {
+      document.getElementById("f-shop-lat").value = e.latlng.lat.toFixed(6);
+      document.getElementById("f-shop-lng").value = e.latlng.lng.toFixed(6);
+      if (shopMarker) shopMarker.setLatLng(e.latlng); else shopMarker = L.marker(e.latlng).addTo(shopMap);
+      drawShopCircles();
+    });
+  }
+  if (!shopMarker && lat && lng) shopMarker = L.marker([lat, lng]).addTo(shopMap);
+  else if (shopMarker) shopMarker.setLatLng([lat, lng]);
+  drawShopCircles();
+  shopMap.setView([lat, lng], 13);
+  setTimeout(() => { try { shopMap.invalidateSize(); } catch (e) {} }, 200);
+}
+function drawShopCircles() {
+  if (!shopMap) return;
+  shopCircles.forEach((c) => shopMap.removeLayer(c));
+  shopCircles = [];
+  const lat = Number(document.getElementById("f-shop-lat")?.value) || -33.644;
+  const lng = Number(document.getElementById("f-shop-lng")?.value) || 19.450;
+  const freeKm = Number(document.getElementById("f-free-km")?.value) || 0;
+  const maxKm = Number(document.getElementById("f-max-km")?.value) || 0;
+  if (maxKm > 0) {
+    const c = L.circle([lat, lng], { radius: maxKm * 1000, color: "#9a6a00", fillColor: "#f0c48a", fillOpacity: 0.15, weight: 2 }).addTo(shopMap);
+    shopCircles.push(c);
+  }
+  if (freeKm > 0) {
+    const c = L.circle([lat, lng], { radius: freeKm * 1000, color: "#2e7d32", fillColor: "#bfe5c9", fillOpacity: 0.25, weight: 2 }).addTo(shopMap);
+    shopCircles.push(c);
+  }
+}
+
+// hook into renderDeliveries by wrapping
+const _origRenderDeliveries = renderDeliveries;
+renderDeliveries = function() { _origRenderDeliveries(); initShopMap(); };
 
 window.sendTestInvite = async () => {
   const to = prompt("Send the invite email to this address (leave blank to skip):");

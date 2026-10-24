@@ -137,6 +137,8 @@
   #toast.show { opacity: 1; }
   #toast.err { background: var(--bad); }
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 <header>
@@ -173,7 +175,7 @@
 <script>
 const $ = (s, el = document) => el.querySelector(s);
 
-// Shop times are South African (CAT, UTC+2) regardless of the device timezone.
+// Shop times are Central Africa Time (CAT) regardless of the device timezone.
 const SHOP_TZ = "Africa/Johannesburg";
 const shopDate = (d) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: SHOP_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
@@ -187,10 +189,11 @@ const state = {
   showed: [],
 };
 
-const STATUSES = ["placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
+const STATUSES = ["out_for_delivery", "delivered"];
 const STATUS_NAMES = {
   placed: "Placed",
   preparing: "Preparing",
+  ReadyToCollect: "Ready to collect",
   out_for_delivery: "Out for delivery",
   delivered: "Delivered",
   cancelled: "Cancelled",
@@ -248,7 +251,7 @@ function orderHead(o) {
         <span class="order-time">${orderTime(o.createdAt)}</span>
         ${payChip}
       </div>
-      <div class="order-total">R${o.discountAmount ? (o.grandTotal ?? o.total) : o.total}</div>
+      <div class="order-total">${o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Paid online" : "R" + (o.discountAmount ? (o.grandTotal ?? o.total) : o.total)}</div>
     </div>`;
 }
 
@@ -315,6 +318,7 @@ function render() {
       ${orderHead(o)}
       <div class="order-cust">${orderContact(o)}</div>
       <div class="order-dest">${orderDest(o)}</div>
+      ${o.deliveryLat != null && o.deliveryLng != null ? `<div class="driver-map" data-map-id="${o.id}" data-lat="${o.deliveryLat}" data-lng="${o.deliveryLng}" style="height:160px;border-radius:8px;margin:6px 0;border:1px solid var(--line);"></div>` : ""}
       ${orderTiming(o)}
       ${o.notes ? `<div class="order-notes">Notes: ${esc(o.notes)}</div>` : ""}
       <table class="order-items">
@@ -330,6 +334,25 @@ function render() {
     `${state.orders.filter((o) => o.status === "preparing").length} preparing · ` +
     `${state.orders.filter((o) => o.status === "out_for_delivery").length} out for delivery`;
   $("#updated").textContent = new Date().toLocaleTimeString([], { timeZone: SHOP_TZ, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+  // Init delivery maps for visible cards.
+  setTimeout(() => {
+    if (typeof L === "undefined") return;
+    for (const el of document.querySelectorAll(".driver-map")) {
+      if (el.dataset.inited) continue;
+      const lat = Number(el.dataset.lat), lng = Number(el.dataset.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      try {
+        const m = L.map(el).setView([lat, lng], 14);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "&copy; OSM", maxZoom: 19 }).addTo(m);
+        L.marker([lat, lng]).addTo(m);
+        // shop marker (Worcester)
+        L.marker([-33.644, 19.450], { title: "Shop" }).addTo(m);
+        el.dataset.inited = "1";
+        setTimeout(() => { try { m.invalidateSize(); } catch (e) {} }, 200);
+      } catch (e) {}
+    }
+  }, 100);
 }
 
 function checkNewOrders(orders) {
@@ -351,7 +374,7 @@ async function loadOrders() {
   try {
     const orders = await api("/api/orders");
     checkNewOrders(orders);
-    state.orders = orders;
+    state.orders = (orders || []).filter((o) => o.status === "out_for_delivery" || o.status === "delivered");
     render();
   } catch (e) {
     toast(e.message, true);

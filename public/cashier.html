@@ -172,7 +172,7 @@
 <script>
 const $ = (s, el = document) => el.querySelector(s);
 
-// Shop times are South African (CAT, UTC+2) regardless of the device timezone.
+// Shop times are Central Africa Time (CAT) regardless of the device timezone.
 const SHOP_TZ = "Africa/Johannesburg";
 const shopDate = (d) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: SHOP_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
@@ -186,10 +186,11 @@ const state = {
   showed: [],
 };
 
-const STATUSES = ["placed", "preparing", "out_for_delivery", "delivered", "cancelled"];
+const STATUSES = ["placed", "preparing", "ReadyToCollect", "out_for_delivery", "delivered", "cancelled"];
 const STATUS_NAMES = {
   placed: "Placed",
   preparing: "Preparing",
+  ReadyToCollect: "Ready to collect",
   out_for_delivery: "Out for delivery",
   delivered: "Delivered",
   cancelled: "Cancelled",
@@ -247,7 +248,7 @@ function orderHead(o) {
         <span class="order-time">${orderTime(o.createdAt)}</span>
         ${payChip}
       </div>
-      <div class="order-total">R${o.discountAmount ? (o.grandTotal ?? o.total) : o.total}</div>
+      <div class="order-total">${o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Paid online" : "R" + (o.discountAmount ? (o.grandTotal ?? o.total) : o.total)}</div>
     </div>`;
 }
 
