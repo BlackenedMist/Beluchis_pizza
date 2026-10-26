@@ -1,0 +1,59 @@
+Part A — IBM Cloud Code Engine (preview)
+
+### A1. One-time CLI login
+```bash
+ibmcloud login --apikey "$(cat /mnt/hybrid-apps/configs/ibm/api-key.txt)"
+ibmcloud target -g Turbomonics -r eu-gb
+```
+
+### A2. Create the Code Engine project
+```bash
+ibmcloud ce project create --name beluchis-preview
+ibmcloud ce project select --name beluchis-preview
+```
+
+### A3. Build & deploy from GitHub (Dockerfile strategy)
+Repo: `https://github.com/BlackenedMist/Beluchis_pizza` (public — no repo credentials needed).
+
+```bash
+ibmcloud ce app create \
+  --name beluchis-preview \
+  --build-source https://github.com/BlackenedMist/Beluchis_pizza.git \
+  --strategy dockerfile \
+  --port 8080 \
+  --cpu 0.5 --memory 1G \
+  --min-scale 1 --max-scale 1 \
+  --env PORT=8080 \
+  --env DATABASE_URL=file:/data/beluchis.db \
+  --env ADMIN_PIN=PREVIEW_ADMIN_PIN \
+  --env PREVIEW_RESEED=1
+```
+
+Code Engine auto-provisions a private Container Registry namespace on the first build
+(eu-gb pushes to `uk.icr.io`). If a registry secret is requested, create:
+`ibmcloud ce registry create --name icr --server uk.icr.io --username iamapikey --password "$(cat /mnt/hybrid-apps/configs/ibm/api-key.txt)"`
+
+### A4. Point `PUBLIC_BASE_URL` at the real app URL
+Build status: `ibmcloud ce app show --name beluchis-preview`. When status is **Ready**, the app URL is
+`https://beluchis-preview.<hash>.eu-gb.codeengine.appdomain.cloud`. Set it:
+
+```bash
+ibmcloud ce app update --name beluchis-preview \
+  --env PUBLIC_BASE_URL=https://beluchis-preview.<hash>.eu-gb.codeengine.appdomain.cloud
+  
+  ibmcloud ce app update --name beluchis-preview \
+  --env PUBLIC_BASE_URL=https://beluchis-preview.2evcjpeq1yus.eu-gb.codeengine.appdomain.cloud
+```
+
+### A5. Behavior notes
+- Filesystem is **ephemeral** + scale-to-zero: each cold start re-migrates + re-seeds the demo DB
+  (`/data/beluchis.db`). Fine for a display preview; NOT for persistence.
+- `min-scale 1 / max-scale 1` keeps in-memory sessions valid and avoids Postgres-like cold-hit gaps.
+- Demo logins after boot: Zanele `+27 60 555 0000` / `beluchis123`; admin pin = `ADMIN_PIN`.
+
+### A6. Verify
+```bash
+curl -I https://beluchis-preview.<hash>.eu-gb.codeengine.appdomain.cloud/preview/mobile   # 200
+curl -I https://beluchis-preview.<hash>.eu-gb.codeengine.appdomain.cloud/preview/portal  # 200
+curl -s  https://beluchis-preview.<hash>.eu-gb.codeengine.appdomain.cloud/api/specials  # coupon list
+```

@@ -187,6 +187,14 @@ const state = {
 };
 
 const STATUSES = ["placed", "preparing", "ReadyToCollect", "out_for_delivery", "delivered", "cancelled"];
+const STATUS_FLOW = {
+  placed: ["preparing"],
+  preparing: ["ReadyToCollect"],
+  ReadyToCollect: ["out_for_delivery", "delivered"],
+  out_for_delivery: ["delivered"],
+  delivered: [],
+  cancelled: [],
+};
 const STATUS_NAMES = {
   placed: "Placed",
   preparing: "Preparing",
@@ -274,10 +282,10 @@ window.setOrderStatus = async (id, status) => {
 };
 
 function orderActions(o) {
-  if (o.status === "placed" || o.status === "preparing") {
-    return `<button class="ok" onclick="setOrderStatus(${o.id}, 'out_for_delivery')">Mark out for delivery</button>`;
-  }
-  return "";
+  const next = STATUS_FLOW[o.status] || [];
+  const btn = (status) =>
+    `<button class="ok" onclick="setOrderStatus(${o.id}, '${status}')">Mark ${STATUS_NAMES[status]}</button>`;
+  return next.map(btn).join("");
 }
 
 function render() {

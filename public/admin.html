@@ -170,8 +170,16 @@
     border: 1px solid var(--line); border-radius: 8px; padding: 10px;
   }
   .specials-grid label { font-size: 12.5px; display: flex; gap: 6px; align-items: center; }
-  .specials-grid .pick-name { flex: 1; min-width: 0; }
-  .specials-grid .pick-controls { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  .specials-grid .pick-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .specials-grid .pick-controls { display: flex; align-items: center; gap: 6px; margin-left: 8px; }
+  .field input[type="checkbox"] { width: auto; }
+  .field input[type="radio"] { width: auto; }
+  .sp-item { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; overflow: hidden; background: #fff; }
+  .sp-item-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; background: #f7f1e7; }
+  .sp-item-head .pick-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sp-item-body { padding: 8px 10px; border-top: 1px solid var(--line); }
+  .sp-item-body[hidden] { display: none; }
+  .sp-extras { border-top: 1px dashed var(--line); padding-top: 6px; margin-top: 4px; }
   .specials-grid .pick-size {
     width: 64px; padding: 4px 5px; border: 1px solid var(--line); border-radius: 6px;
     font-size: 12px; background: #fff; color: var(--ink);
@@ -1704,38 +1712,66 @@ window.openSpecial = (id) => {
 
   const sizesOf = (item) => ((item && item.sizes) || []).filter((z) => z.isActive !== false);
   window.specialPicks = s && !isBogo
-    ? s.items.map((x) => ({ itemId: x.itemId, quantity: x.quantity, sizeLabel: x.sizeLabel || null }))
+    ? s.items.map((x) => {
+        let extras = [];
+        try { extras = x.extras ? JSON.parse(x.extras) : []; } catch (e) { extras = []; }
+        return { itemId: x.itemId, quantity: x.quantity, sizeLabel: x.sizeLabel || null, extras };
+      })
     : [];
   window.renderSpecialPicks = () => {
     $("#sp-items").innerHTML = state.items.map((i) => {
       const pick = specialPicks.find((p) => p.itemId === i.id);
-      const checked = pick ? "checked" : "";
+      const checked = !!pick;
       const qty = pick ? pick.quantity : 1;
       const sizes = sizesOf(i);
-      // Keep a saved size even if it has since been marked inactive so an
-      // existing special is never silently rewritten while being edited.
       if (pick?.sizeLabel && !sizes.some((z) => z.sizeLabel === pick.sizeLabel)) {
         const saved = (i.sizes || []).find((z) => z.sizeLabel === pick.sizeLabel);
         if (saved) sizes.push(saved);
       }
-      const sizeSel = checked && sizes.length
+      const chosenSize = pick?.sizeLabel || (sizes[0] ? sizes[0].sizeLabel : null);
+      const sizeSel = sizes.length
         ? `<select class="pick-size" onchange="setSpecialSize(${i.id}, this.value)">
-            <option value=""${!pick.sizeLabel ? " selected" : ""}>—</option>
-            ${sizes.map((z) => `<option value="${esc(z.sizeLabel)}"${z.sizeLabel === pick.sizeLabel ? " selected" : ""}>${esc(z.sizeLabel)}</option>`).join("")}
+            <option value=""${!pick?.sizeLabel ? " selected" : ""}>—</option>
+            ${sizes.map((z) => `<option value="${esc(z.sizeLabel)}"${z.sizeLabel === pick?.sizeLabel ? " selected" : ""}>${esc(z.sizeLabel)} (R${z.price})</option>`).join("")}
           </select>`
+        : `<span class="muted">no sizes</span>`;
+      const tops = i.toppings || [];
+      const extrasHtml = (checked && tops.length)
+        ? `<div class="sp-extras">
+            <div class="muted" style="font-size:12px;margin:6px 0 4px;font-weight:600">Extra toppings (optional)</div>
+            ${tops.map((t) => {
+              const tp = t.topping;
+              const prices = tp.prices || [];
+              const priceForSize = prices.find((p) => p.sizeLabel === chosenSize)?.price ?? (prices[0]?.price ?? 0);
+              const isOn = (pick?.extras || []).some((e) => e.name === tp.name);
+              return `<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin:2px 0">
+                <input type="checkbox" ${isOn ? "checked" : ""} onchange="toggleSpecialExtra(${i.id}, '${String(tp.name).replace(/'/g, "\\'")}', ${priceForSize}, this.checked)" />
+                <span style="flex:1">${esc(tp.name)}</span>
+                <span class="muted">+R${priceForSize}</span>
+              </label>`;
+            }).join("")}
+          </div>`
         : "";
-      return `<label>
-        <input type="checkbox" value="${i.id}" ${checked} onchange="toggleSpecialPick(${i.id}, this.checked)" />
-        <span class="pick-name">${esc(i.name)}</span>
-        <span class="pick-controls">${sizeSel}<input class="num" type="number" min="1" value="${qty}" ${checked ? "" : "disabled"} oninput="setSpecialQty(${i.id}, this.value)" /></span>
-      </label>`;
+      return `<div class="sp-item ${checked ? "is-on" : ""}">
+        <label class="sp-item-head">
+          <input type="checkbox" value="${i.id}" ${checked ? "checked" : ""} onchange="toggleSpecialPick(${i.id}, this.checked)" />
+          <span class="pick-name">${esc(i.name)}</span>
+        </label>
+        <div class="sp-item-body" ${checked ? "" : "hidden"}>
+          <div class="row" style="margin:6px 0 4px">
+            <div class="field" style="margin-bottom:6px"><label>Size</label>${sizeSel}</div>
+            <div class="field" style="margin-bottom:6px"><label>Qty</label><input class="num" type="number" min="1" value="${qty}" oninput="setSpecialQty(${i.id}, this.value)" /></div>
+          </div>
+          ${extrasHtml}
+        </div>
+      </div>`;
     }).join("");
   };
   window.toggleSpecialPick = (itemId, on) => {
     if (on) {
       const item = state.items.find((i) => i.id === itemId);
       const first = sizesOf(item)[0];
-      specialPicks = [...specialPicks, { itemId, quantity: 1, sizeLabel: first ? first.sizeLabel : null }];
+      specialPicks = [...specialPicks, { itemId, quantity: 1, sizeLabel: first ? first.sizeLabel : null, extras: [] }];
     } else {
       specialPicks = specialPicks.filter((p) => p.itemId !== itemId);
     }
@@ -1747,9 +1783,33 @@ window.openSpecial = (id) => {
     if (p) p.quantity = Math.max(1, Number(v) || 1);
     renderSpecialSum();
   };
+  window.toggleSpecialExtra = (itemId, name, price, on) => {
+    const p = specialPicks.find((x) => x.itemId === itemId);
+    if (!p) return;
+    p.extras = p.extras || [];
+    if (on) {
+      if (!p.extras.some((e) => e.name === name)) p.extras.push({ name, price });
+    } else {
+      p.extras = p.extras.filter((e) => e.name !== name);
+    }
+    renderSpecialSum();
+  };
   window.setSpecialSize = (itemId, v) => {
     const p = specialPicks.find((x) => x.itemId === itemId);
-    if (p) p.sizeLabel = v || null;
+    if (p) {
+      p.sizeLabel = v || null;
+      const item = state.items.find((i) => i.id === itemId);
+      const tops = item?.toppings || [];
+      if (p.extras && p.extras.length) {
+        p.extras = p.extras.map((e) => {
+          const tp = tops.find((t) => t.topping.name === e.name);
+          const prices = tp?.topping?.prices || [];
+          const price = prices.find((pp) => pp.sizeLabel === (v || null))?.price ?? (prices[0]?.price ?? e.price);
+          return { name: e.name, price };
+        });
+      }
+    }
+    renderSpecialPicks();
     renderSpecialSum();
   };
   window.renderSpecialSum = () => {
@@ -1801,7 +1861,7 @@ window.saveSpecial = async (id) => {
       ...base,
       kind: "flat",
       price: Number($("#sp-price").value) || 0,
-      items: specialPicks.map((p) => ({ itemId: p.itemId, quantity: p.quantity, sizeLabel: p.sizeLabel || null })),
+      items: specialPicks.map((p) => ({ itemId: p.itemId, quantity: p.quantity, sizeLabel: p.sizeLabel || null, extras: p.extras || [] })),
     };
     if (!payload.items.length) return toast("Pick at least one item", true);
   }

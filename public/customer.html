@@ -285,15 +285,6 @@
             <input type="email" id="det-email" autocomplete="email" />
           </div>
         </div>
-        <div class="field">
-          <label for="det-address">Delivery address</label>
-          <input type="text" id="det-address" placeholder="House no &amp; street, suburb, Worcester" autocomplete="street-address" />
-          <div id="det-suggest" style="position:relative;margin-top:4px;"></div>
-          <button type="button" class="ghost mini" id="det-locate" style="margin-top:8px;">&#128205; Use my current location</button>
-          <div id="det-map" style="height:220px;border-radius:10px;border:1px solid var(--line);margin-top:8px;"></div>
-          <div class="hint" style="margin-top:4px;">Tap/click the map to drop a pin at your delivery spot.</div>
-          <div class="hint" id="det-geo-hint">Saved with your account and pre-filled at checkout.</div>
-        </div>
         <div class="err" id="details-err" hidden></div>
         <button class="primary" type="submit" id="details-save">Save details</button>
       </form>
@@ -301,19 +292,29 @@
 
     <div class="panel" id="addresses-panel">
       <h3>Delivery locations</h3>
-      <p class="muted" style="margin-top:-6px;">Save home, work or any spot. Tap the map to drop a pin, then save.</p>
+      <p class="muted" style="margin-top:-6px;">Save up to 3 spots. Each needs a unique name and a pin on the map — we use the pin to calculate your delivery fee.</p>
+      <div class="row" style="align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <span class="muted" id="addr-count">0 of 3 saved</span>
+      </div>
       <div id="addresses-list"></div>
-      <div class="field" style="margin-top:10px;">
-        <label for="addr-label">Label</label>
-        <input type="text" id="addr-label" placeholder="Home / Work / Other" />
+      <div id="addr-form">
+        <div class="field" style="margin-top:10px;">
+          <label for="addr-label">Location name</label>
+          <input type="text" id="addr-label" placeholder="Home / Work / Other" maxlength="30" />
+        </div>
+        <div class="field">
+          <label for="addr-text">Address</label>
+          <input type="text" id="addr-text" placeholder="House no & street, suburb, Worcester" />
+        </div>
+        <div id="addr-map" style="height:200px;border-radius:10px;border:1px solid var(--line);margin:8px 0;"></div>
+        <div class="hint" id="addr-geo-hint">Tap/click the map to drop a pin at this spot. We use the pin to calculate your delivery fee.</div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="primary" type="button" id="addr-save">Save location</button>
+          <button class="ghost" type="button" id="addr-cancel" hidden>Cancel</button>
+        </div>
+        <button class="ghost mini" type="button" id="addr-locate" style="margin-top:8px;">&#128205; Use my current location</button>
+        <div class="err" id="addr-err" hidden></div>
       </div>
-      <div class="field">
-        <label for="addr-text">Address</label>
-        <input type="text" id="addr-text" placeholder="House no & street, suburb, Worcester" />
-      </div>
-      <div id="addr-map" style="height:200px;border-radius:10px;border:1px solid var(--line);margin:8px 0;"></div>
-      <button class="primary" type="button" id="addr-save">Save location</button>
-      <div class="err" id="addr-err" hidden></div>
     </div>
 
     <div class="panel" id="offers-panel" hidden>
@@ -504,14 +505,11 @@ $("#details-form").addEventListener("submit", async (e) => {
         lastName: $("#det-last").value.trim(),
         cellphone: $("#det-phone").value.trim() || null,
         email: $("#det-email").value.trim() || null,
-        addressLabel: $("#det-address").value.trim() || null,
-        lat: PROFILE_GEO.lat,
-        lng: PROFILE_GEO.lng,
       }),
     });
     populateDetails(me);
     loadAddresses();
-    initDetMap();    $("#dash-name").textContent = `${me.firstName} ${me.lastName || ""}`.trim() || "Welcome back";
+    $("#dash-name").textContent = `${me.firstName} ${me.lastName || ""}`.trim() || "Welcome back";
     $("#dash-phone").textContent = me.cellphone || me.email || "";
     dashNote("Your details were saved.");
   } catch (ex) {
@@ -521,61 +519,6 @@ $("#details-form").addEventListener("submit", async (e) => {
     btn.disabled = false;
     btn.textContent = old;
   }
-});
-
-$("#det-locate").addEventListener("click", () => {
-  const btn = $("#det-locate");
-  if (!navigator.geolocation) {
-    $("#det-geo-hint").textContent = "Geolocation is not available on this device.";
-    return;
-  }
-  const old = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = "⏳ Getting location…";
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      setDetPin(pos.coords.latitude, pos.coords.longitude);
-      btn.disabled = false;
-      btn.textContent = old;
-    },
-    () => {
-      PROFILE_GEO = { lat: null, lng: null };
-      $("#det-geo-hint").textContent = "Couldn't get your location — please type your address instead.";
-      btn.disabled = false;
-      btn.textContent = old;
-    },
-    { timeout: 8000 }
-  );
-});
-
-$("#det-address").addEventListener("input", () => {
-  if (PROFILE && $("#det-address").value.trim() !== String(PROFILE.addressLabel || "").trim()) {
-    PROFILE_GEO = { lat: null, lng: null };
-    if (detMarker && detMap) { detMap.removeLayer(detMarker); detMarker = null; }
-    $("#det-geo-hint").textContent = "Address changed — location cleared. Save to update your address.";
-  }
-  clearTimeout(window._detSuggestTimer);
-  const v = $("#det-address").value;
-  window._detSuggestTimer = setTimeout(async () => {
-    const box = $("#det-suggest");
-    if (!box) return;
-    if (!v || v.trim().length < 3) { box.innerHTML = ""; return; }
-    try {
-      const res = await fetch("https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&countrycodes=za&q=" + encodeURIComponent(v.trim()));
-      const data = await res.json();
-      if (!data || !data.length) { box.innerHTML = '<div class="hint">No matches.</div>'; return; }
-      box.innerHTML = '<div style="border:1px solid var(--line);border-radius:8px;background:#fff;max-height:180px;overflow:auto;">' +
-        data.map((r) => '<div class="det-sug" data-lat="' + r.lat + '" data-lng="' + r.lon + '" data-addr="' + esc(r.display_name) + '" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line);">' + esc(r.display_name) + '</div>').join("") +
-        '</div>';
-      box.querySelectorAll(".det-sug").forEach((el) => {
-        el.addEventListener("click", () => {
-          $("#det-address").value = el.dataset.addr;
-          setDetPin(Number(el.dataset.lat), Number(el.dataset.lng));
-          box.innerHTML = "";
-        });
-      });
-    } catch (e) { box.innerHTML = ""; }
-  }, 400);
 });
 
 // ---------------------------------------------------------------- Dashboard
@@ -701,73 +644,8 @@ window.copyCode = async (code, btn) => {
 };
 
 let PROFILE = null;
-let PROFILE_GEO = { lat: null, lng: null };
-
-let detMap = null;
-let detMarker = null;
-function setDetPin(lat, lng) {
-  PROFILE_GEO = { lat: Number(lat), lng: Number(lng) };
-  if (detMap) {
-    if (!detMarker) detMarker = L.marker([PROFILE_GEO.lat, PROFILE_GEO.lng]).addTo(detMap);
-    else detMarker.setLatLng([PROFILE_GEO.lat, PROFILE_GEO.lng]);
-    detMap.setView([PROFILE_GEO.lat, PROFILE_GEO.lng], 15);
-  }
-  const hint = $("#det-geo-hint");
-  if (hint) hint.textContent = "Location captured (" + PROFILE_GEO.lat.toFixed(4) + ", " + PROFILE_GEO.lng.toFixed(4) + "). Save to keep it.";
-}
-function initDetMap() {
-  const el = $("#det-map");
-  if (!el || typeof L === "undefined") return;
-  try {
-    if (detMap && detMap.getContainer && detMap.getContainer() !== el) {
-      try { detMap.remove(); } catch (e) {}
-      detMap = null; detMarker = null;
-    }
-  } catch (e) {
-    detMap = null; detMarker = null;
-  }
-  const center = [-33.644, 19.450];
-  if (!detMap) {
-    detMap = L.map(el).setView(center, 13);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap contributors", maxZoom: 19,
-    }).addTo(detMap);
-    if (!window.HAS_ACTIVE_ORDER) detMap.on("click", (e) => setDetPin(e.latlng.lat, e.latlng.lng));
-    else {
-      const h = $("#det-geo-hint");
-      if (h) h.textContent = "Delivery location locked while an order is in progress.";
-    }
-  }
-  if (PROFILE_GEO.lat != null && PROFILE_GEO.lng != null) {
-    if (!detMarker) detMarker = L.marker([PROFILE_GEO.lat, PROFILE_GEO.lng]).addTo(detMap);
-    else detMarker.setLatLng([PROFILE_GEO.lat, PROFILE_GEO.lng]);
-    detMap.setView([PROFILE_GEO.lat, PROFILE_GEO.lng], 15);
-  }
-  setTimeout(() => { try { detMap.invalidateSize(); } catch (e) {} }, 200);
-}
-
-function populateDetails(me) {
-  PROFILE = me;
-  // Number(null) is 0, which is a valid coordinate - only treat real values as saved.
-  const lat = me.lat == null || me.lat === "" ? NaN : Number(me.lat);
-  const lng = me.lng == null || me.lng === "" ? NaN : Number(me.lng);
-  PROFILE_GEO = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : { lat: null, lng: null };
-  $("#det-first").value = me.firstName || "";
-  $("#det-last").value = me.lastName || "";
-  $("#det-phone").value = me.cellphone || "";
-  $("#det-email").value = me.email || "";
-  $("#det-address").value = me.addressLabel || "";
-  $("#details-err").hidden = true;
-  const hint = $("#det-geo-hint");
-  if (hint) {
-    hint.textContent = PROFILE_GEO.lat != null
-      ? "Location saved (" + PROFILE_GEO.lat.toFixed(4) + ", " + PROFILE_GEO.lng.toFixed(4) + ")."
-      : "Saved with your account and pre-filled at checkout.";
-  }
-  initDetMap();
-}
-
 let addrMap = null, addrMarker = null, addrGeo = { lat: null, lng: null };
+let editingAddressId = null;
 function initAddrMap() {
   const el = document.getElementById("addr-map");
   if (!el || typeof L === "undefined") return;
@@ -792,12 +670,52 @@ function initAddrMap() {
   }
   setTimeout(() => { try { addrMap.invalidateSize(); } catch (e) {} }, 200);
 }
+function setAddrPin(lat, lng) {
+  addrGeo = { lat: Number(lat), lng: Number(lng) };
+  if (addrMap) {
+    if (!addrMarker) addrMarker = L.marker([addrGeo.lat, addrGeo.lng]).addTo(addrMap);
+    else addrMarker.setLatLng([addrGeo.lat, addrGeo.lng]);
+    addrMap.setView([addrGeo.lat, addrGeo.lng], 15);
+  }
+  const h = $("#addr-geo-hint");
+  if (h) h.textContent = "Pin set (" + addrGeo.lat.toFixed(4) + ", " + addrGeo.lng.toFixed(4) + ").";
+}
+function resetAddrForm() {
+  editingAddressId = null;
+  $("#addr-label").value = "";
+  $("#addr-text").value = "";
+  addrGeo = { lat: null, lng: null };
+  if (addrMarker && addrMap) { try { addrMap.removeLayer(addrMarker); } catch (e) {} addrMarker = null; }
+  $("#addr-save").textContent = "Save location";
+  $("#addr-cancel").hidden = true;
+  const h = $("#addr-geo-hint");
+  if (h) h.textContent = "Tap/click the map to drop a pin at this spot. We use the pin to calculate your delivery fee.";
+  const e = $("#addr-err"); if (e) e.hidden = true;
+}
 async function loadAddresses() {
   try {
-    const rows = await api("/api/customer/addresses");
+    const res = await api("/api/customer/addresses");
+    const rows = Array.isArray(res) ? res : (res.items || []);
+    const used = (res && res.used != null) ? res.used : rows.length;
+    const limit = (res && res.limit != null) ? res.limit : 3;
     const list = document.getElementById("addresses-list");
+    const count = document.getElementById("addr-count");
+    if (count) count.textContent = used + " of " + limit + " saved";
+    const form = document.getElementById("addr-form");
+    const limitMsg = document.getElementById("addr-limit-msg");
+    if (form) {
+      if (used >= limit && editingAddressId == null) {
+        form.style.opacity = "0.5";
+        form.style.pointerEvents = "none";
+        if (limitMsg) { limitMsg.textContent = "You've saved " + limit + " of " + limit + " locations. Delete one to add another."; limitMsg.hidden = false; }
+      } else {
+        form.style.opacity = "";
+        form.style.pointerEvents = "";
+        if (limitMsg) limitMsg.hidden = true;
+      }
+    }
     if (!list) return;
-    if (!Array.isArray(rows) || !rows.length) { list.innerHTML = '<div class="muted">No saved locations yet.</div>'; return; }
+    if (!rows.length) { list.innerHTML = '<div class="muted">No saved locations yet.</div>'; return; }
     list.innerHTML = rows.map((a) => `
       <div class="order-card" style="margin-bottom:8px;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -805,40 +723,84 @@ async function loadAddresses() {
           ${a.isDefault ? '<span class="tag ok">Default</span>' : ''}
         </div>
         <div class="muted" style="font-size:13px;">${esc(a.address)}</div>
-        ${a.lat != null ? '<div class="muted" style="font-size:12px;">' + a.lat.toFixed(4) + ', ' + a.lng.toFixed(4) + '</div>' : ''}
-        <div style="margin-top:6px;display:flex;gap:6px;">
+        ${a.lat != null ? '<div class="muted" style="font-size:12px;">' + Number(a.lat).toFixed(4) + ', ' + Number(a.lng).toFixed(4) + '</div>' : '<div class="muted" style="font-size:12px;color:#b91c1c;">Pin needed - edit to drop a pin</div>'}
+        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
           ${a.isDefault ? '' : '<button class="ghost mini" data-addr-default="' + a.id + '">Set default</button>'}
+          <button class="ghost mini" data-addr-edit="' + a.id + '">Edit</button>
           <button class="ghost mini" data-addr-del="' + a.id + '">Delete</button>
         </div>
       </div>
     `).join("");
     list.querySelectorAll("[data-addr-del]").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm("Delete this location?")) return;
       try { await api("/api/customer/addresses/" + b.dataset.addrDel, { method: "DELETE" }); await loadAddresses(); } catch (e) { alert(e.message); }
     }));
     list.querySelectorAll("[data-addr-default]").forEach((b) => b.addEventListener("click", async () => {
       try { await api("/api/customer/addresses/" + b.dataset.addrDefault, { method: "PUT", body: JSON.stringify({ isDefault: true }) }); await loadAddresses(); } catch (e) { alert(e.message); }
+    }));
+    list.querySelectorAll("[data-addr-edit]").forEach((b) => b.addEventListener("click", () => {
+      const id = Number(b.dataset.addrEdit);
+      const row = rows.find((r) => r.id === id);
+      if (!row) return;
+      editingAddressId = id;
+      $("#addr-label").value = row.label || "";
+      $("#addr-text").value = row.address || "";
+      addrGeo = { lat: row.lat, lng: row.lng };
+      if (row.lat != null && row.lng != null) setAddrPin(row.lat, row.lng);
+      $("#addr-save").textContent = "Update location";
+      $("#addr-cancel").hidden = false;
+      const form = document.getElementById("addr-form");
+      if (form) { form.style.opacity = ""; form.style.pointerEvents = ""; }
+      const lm = document.getElementById("addr-limit-msg"); if (lm) lm.hidden = true;
     }));
   } catch (e) {}
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   initAddrMap();
-  const btn = document.getElementById("addr-save");
-  if (btn) btn.addEventListener("click", async () => {
-    const label = document.getElementById("addr-label")?.value.trim() || "Home";
+  const saveBtn = document.getElementById("addr-save");
+  if (saveBtn) saveBtn.addEventListener("click", async () => {
+    const label = document.getElementById("addr-label")?.value.trim() || "";
     const address = document.getElementById("addr-text")?.value.trim() || "";
     const err = document.getElementById("addr-err");
+    if (!label) { if (err) { err.textContent = "Give this location a name (e.g. Home, Work)."; err.hidden = false; } return; }
     if (!address) { if (err) { err.textContent = "Address is required."; err.hidden = false; } return; }
+    if (addrGeo.lat == null || addrGeo.lng == null) { if (err) { err.textContent = "Drop a pin on the map so we can calculate your delivery fee."; err.hidden = false; } return; }
     if (err) err.hidden = true;
     try {
-      await api("/api/customer/addresses", { method: "POST", body: JSON.stringify({ label, address, lat: addrGeo.lat, lng: addrGeo.lng, isDefault: false }) });
-      document.getElementById("addr-label").value = "";
-      document.getElementById("addr-text").value = "";
-      addrGeo = { lat: null, lng: null };
-      if (addrMarker && addrMap) { addrMap.removeLayer(addrMarker); addrMarker = null; }
+      const body = { label, address, lat: addrGeo.lat, lng: addrGeo.lng };
+      if (editingAddressId) {
+        await api("/api/customer/addresses/" + editingAddressId, { method: "PUT", body: JSON.stringify(body) });
+      } else {
+        await api("/api/customer/addresses", { method: "POST", body: JSON.stringify(body) });
+      }
+      resetAddrForm();
       await loadAddresses();
+      initAddrMap();
     } catch (e) { if (err) { err.textContent = e.message; err.hidden = false; } }
   });
+  const cancelBtn = document.getElementById("addr-cancel");
+  if (cancelBtn) cancelBtn.addEventListener("click", () => { resetAddrForm(); loadAddresses(); initAddrMap(); });
+  const locateBtn = document.getElementById("addr-locate");
+  if (locateBtn) locateBtn.addEventListener("click", () => {
+    if (!navigator.geolocation) { $("#addr-geo-hint").textContent = "Geolocation is not available on this device."; return; }
+    const old = locateBtn.textContent;
+    locateBtn.disabled = true;
+    locateBtn.textContent = "⏳ Getting location…";
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setAddrPin(pos.coords.latitude, pos.coords.longitude); locateBtn.disabled = false; locateBtn.textContent = old; },
+      () => { locateBtn.disabled = false; locateBtn.textContent = old; $("#addr-geo-hint").textContent = "Couldn't get your location — tap the map instead."; },
+      { timeout: 8000 }
+    );
+  });
+  // map click -> pin (rebind since init may have run before HAS_ACTIVE_ORDER known)
+  if (addrMap) {
+    addrMap.off("click");
+    addrMap.on("click", (e) => {
+      addrGeo = { lat: e.latlng.lat, lng: e.latlng.lng };
+      if (addrMarker) addrMarker.setLatLng(e.latlng); else addrMarker = L.marker(e.latlng).addTo(addrMap);
+    });
+  }
 });
 
 let _orderPollTimer = null;
@@ -883,7 +845,6 @@ async function loadDash() {
     $("#dash").hidden = false;
     populateDetails(me);
     loadAddresses();
-    initDetMap();
     const [orders, offers] = await Promise.all([
       api("/api/customer/orders"),
       api("/api/customer/offers"),

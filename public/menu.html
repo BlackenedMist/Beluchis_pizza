@@ -132,6 +132,9 @@
   .deals-carousel { margin-bottom: 26px; }
   .deals-track { display: flex; gap: 12px; overflow: hidden; }
   .deals-track > .special-card { flex: 0 0 calc(50% - 6px); min-width: 260px; }
+  @media (max-width: 640px) {
+    .deals-track > .special-card { flex: 0 0 100%; min-width: 0; }
+  }
   .deals-nav { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px; }
   .deals-nav button { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; width: 32px; height: 32px; cursor: pointer; font-size: 18px; line-height: 1; }
   .deals-nav button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -222,6 +225,27 @@
   .pay-opt { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; cursor: pointer; font-size: 14px; background: #fff; }
   .pay-opt input { width: auto; }
   .pay-opt:has(input:checked) { border-color: var(--accent); background: #fdf3ef; font-weight: 600; }
+
+  /* Checkout accordion */
+  .co-step { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; overflow: hidden; background: #fff; }
+  .co-head {
+    width: 100%; display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; border: 0; background: #f7f1e7; cursor: pointer;
+    font-size: 14px; font-weight: 700; color: var(--ink); text-align: left;
+  }
+  .co-head:disabled { cursor: not-allowed; opacity: .55; }
+  .co-head[aria-expanded="true"] { background: var(--accent); color: #fff; }
+  .co-num {
+    width: 24px; height: 24px; border-radius: 50%; background: #fff; color: var(--accent);
+    display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800;
+  }
+  .co-head[aria-expanded="true"] .co-num { background: rgba(255,255,255,.25); color: #fff; }
+  .co-title { flex: 1; }
+  .co-summary { font-size: 12px; font-weight: 500; opacity: .85; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .co-chev { font-size: 12px; }
+  .co-body { padding: 12px 14px 4px; }
+  .co-body[hidden] { display: none; }
+  .co-actions { display: flex; gap: 8px; justify-content: flex-end; margin: 10px 0 6px; flex-wrap: wrap; }
 
   /* cart drawer */
   .drawer {
@@ -325,55 +349,107 @@
     <p class="sub" id="checkout-summary"></p>
     <div class="account-banner" id="checkout-account" hidden></div>
     <form id="checkout-form">
-      <div class="row">
-        <div class="field"><label>First name *</label><input name="firstName" required autocomplete="given-name" /></div>
-        <div class="field"><label>Last name *</label><input name="lastName" required autocomplete="family-name" /></div>
-      </div>
-      <div class="row">
-        <div class="field"><label>Phone *</label><input name="cellphone" required autocomplete="tel" placeholder="+27 ..." /></div>
-        <div class="field"><label>Email (optional)</label><input name="email" type="email" autocomplete="email" /></div>
-      </div>
-      <div class="field">
-        <label>Order method</label>
-        <div class="pay-options">
-          <label class="pay-opt"><input type="radio" name="orderMethod" value="delivery" checked /><span>Delivery</span></label>
-          <label class="pay-opt"><input type="radio" name="orderMethod" value="collection" /><span>Collection</span></label>
+      <!-- Step 1: Your details -->
+      <div class="co-step" data-step="1">
+        <button type="button" class="co-head" data-step-toggle="1" aria-expanded="true">
+          <span class="co-num">1</span>
+          <span class="co-title">Your details</span>
+          <span class="co-summary" id="co-sum-1"></span>
+          <span class="co-chev">&#9662;</span>
+        </button>
+        <div class="co-body" id="co-body-1">
+          <div class="row">
+            <div class="field"><label>First name *</label><input name="firstName" required autocomplete="given-name" /></div>
+            <div class="field"><label>Last name *</label><input name="lastName" required autocomplete="family-name" /></div>
+          </div>
+          <div class="row">
+            <div class="field"><label>Phone *</label><input name="cellphone" required autocomplete="tel" placeholder="+27 ..." /></div>
+            <div class="field"><label>Email (optional)</label><input name="email" type="email" autocomplete="email" /></div>
+          </div>
+          <div class="co-actions">
+            <button type="button" class="ghost" data-action="cancel-checkout">Cancel</button>
+            <button type="button" class="primary" data-co-next="1">Continue to delivery</button>
+          </div>
         </div>
       </div>
-      <div class="field" id="delivery-block">
-        <label>Delivery location</label>
-        <select id="delivery-location" style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:14.5px;background:#fff;color:var(--ink);">
-          <option value="__pin__">Use current location (pin on map)</option>
-        </select>
-        <input name="deliveryAddress" placeholder="House no &amp; street, suburb, Worcester" style="margin-top:6px;" autocomplete="off" />
-        <div id="addr-suggest" style="position:relative;margin-top:4px;"></div>
-        <button type="button" class="ghost" data-action="use-location" style="margin-top:6px;padding:6px 12px;font-size:12.5px;">&#128205; Use my current location</button>
-        <div class="hint" id="geo-hint">Free within 3km on food orders from R200 &middot; R85 to 10km &middot; R95 beyond &middot; No address = collection.</div>
-        <div class="hint" id="geo-status" hidden></div>
-        <div id="delivery-map" style="height:220px;border-radius:10px;border:1px solid var(--line);margin-top:8px;"></div>
-        <div class="hint" style="margin-top:4px;">Tap/click the map to drop a pin at your delivery spot. We use the pin to calculate your delivery fee.</div>
-      </div>
-      <div class="field"><label>Notes (optional)</label><textarea name="notes" rows="2" placeholder="e.g. call on arrival, extra napkins"></textarea></div>
-      <div class="field">
-        <label>Coupon code (optional)</label>
-        <input name="couponCode" placeholder="e.g. BELU-XXXX" autocomplete="off" />
-        <div class="hint">Got a Beluchis coupon? Enter it and the discount will be applied to this order.</div>
-      </div>
-      <div class="field">
-        <label>How will you pay?</label>
-        <div class="pay-options">
-          <label class="pay-opt"><input type="radio" name="paymentMethod" value="cod_cash" checked /><span>Cash on delivery</span></label>
-          <label class="pay-opt"><input type="radio" name="paymentMethod" value="cod_card" /><span>Card on delivery</span></label>
-          <label class="pay-opt" data-pay="paygate" hidden><input type="radio" name="paymentMethod" value="paygate" /><span>Paid online now (PayGate)</span></label>
+
+      <!-- Step 2: Delivery or collection -->
+      <div class="co-step" data-step="2">
+        <button type="button" class="co-head" data-step-toggle="2" aria-expanded="false" disabled>
+          <span class="co-num">2</span>
+          <span class="co-title">Delivery or collection</span>
+          <span class="co-summary" id="co-sum-2"></span>
+          <span class="co-chev">&#9662;</span>
+        </button>
+        <div class="co-body" id="co-body-2" hidden>
+          <div class="field">
+            <label>Order method</label>
+            <div class="pay-options">
+              <label class="pay-opt"><input type="radio" name="orderMethod" value="delivery" checked /><span>Delivery</span></label>
+              <label class="pay-opt"><input type="radio" name="orderMethod" value="collection" /><span>Collection</span></label>
+            </div>
+          </div>
+          <div class="field" id="delivery-block">
+            <label>Delivery location</label>
+            <select id="delivery-location" style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:14.5px;background:#fff;color:var(--ink);">
+              <option value="">Choose a saved location…</option>
+            </select>
+            <div id="delivery-addr-text" class="muted" style="margin-top:6px;font-size:13px;"></div>
+            <div id="delivery-empty" class="hint" hidden>You don't have a saved delivery location yet. Add one below.</div>
+            <button type="button" class="ghost" id="delivery-add-toggle" style="margin-top:6px;padding:6px 12px;font-size:12.5px;">+ Add a new location</button>
+            <div id="delivery-add" hidden style="margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:10px;">
+              <div class="field"><label>Location name</label><input id="new-addr-label" placeholder="Home / Work / Other" maxlength="30" /></div>
+              <div class="field"><label>Address</label><input id="new-addr-text" placeholder="House no & street, suburb, Worcester" /></div>
+              <div id="delivery-map" style="height:200px;border-radius:10px;border:1px solid var(--line);margin:8px 0;"></div>
+              <div class="hint" id="new-addr-hint">Tap/click the map to drop a pin. We use the pin to calculate your delivery fee.</div>
+              <button type="button" class="primary mini" id="delivery-add-save" style="margin-top:6px;">Save &amp; use</button>
+              <div class="err" id="delivery-add-err" hidden></div>
+            </div>
+            <div class="hint" id="geo-hint">Free within 3km on food orders from R200 &middot; R85 to 10km &middot; R95 beyond &middot; No address = collection.</div>
+            <div class="hint" id="geo-status" hidden></div>
+          </div>
+          <div class="field"><label>Notes (optional)</label><textarea name="notes" rows="2" placeholder="e.g. call on arrival, extra napkins"></textarea></div>
+          <div class="co-actions">
+            <button type="button" class="ghost" data-action="cancel-checkout">Cancel</button>
+            <button type="button" class="ghost" data-co-prev="2">Back</button>
+            <button type="button" class="primary" data-co-next="2">Continue to payment</button>
+          </div>
         </div>
-        <div class="hint" id="pay-hint">Pay cash when your order arrives.</div>
       </div>
-      <div class="error-text" id="checkout-error" hidden></div>
-      <div class="modal-actions">
-        <button type="button" class="ghost" data-action="cancel-checkout">Back</button>
-        <button type="submit" class="primary" id="submit-order">Place Order</button>
+
+      <!-- Step 3: Payment -->
+      <div class="co-step" data-step="3">
+        <button type="button" class="co-head" data-step-toggle="3" aria-expanded="false" disabled>
+          <span class="co-num">3</span>
+          <span class="co-title">Payment</span>
+          <span class="co-summary" id="co-sum-3"></span>
+          <span class="co-chev">&#9662;</span>
+        </button>
+        <div class="co-body" id="co-body-3" hidden>
+          <div class="field">
+            <label>Coupon code (optional)</label>
+            <input name="couponCode" placeholder="e.g. BELU-XXXX" autocomplete="off" />
+            <div class="hint">Got a Beluchis coupon? Enter it and the discount will be applied to this order.</div>
+          </div>
+          <div class="field">
+            <label>How will you pay?</label>
+            <div class="pay-options">
+              <label class="pay-opt"><input type="radio" name="paymentMethod" value="cod_cash" checked /><span>Cash on delivery</span></label>
+              <label class="pay-opt"><input type="radio" name="paymentMethod" value="cod_card" /><span>Card on delivery</span></label>
+              <label class="pay-opt" data-pay="paygate" hidden><input type="radio" name="paymentMethod" value="paygate" /><span>Paid online now (PayGate)</span></label>
+            </div>
+            <div class="hint" id="pay-hint">Pay cash when your order arrives.</div>
+          </div>
+          <div class="error-text" id="checkout-error" hidden></div>
+          <div class="co-actions">
+            <button type="button" class="ghost" data-action="cancel-checkout">Cancel</button>
+            <button type="button" class="ghost" data-co-prev="3">Back</button>
+            <button type="submit" class="primary" id="submit-order">Review order</button>
+          </div>
+        </div>
       </div>
     </form>
+    <div id="checkout-review" hidden></div>
   </div>
 </div>
 
@@ -1033,246 +1109,74 @@ $("#app").addEventListener("click", (e) => {
   }
 });
 
-$("#checkout-modal").addEventListener("click", (e) => {
-  const loc = e.target.closest('[data-action="use-location"]');
-  if (!loc) return;
-  if (!navigator.geolocation) { $("#geo-hint").textContent = "Geolocation not available on this device."; return; }
-  loc.disabled = true;
-  loc.textContent = "\u231b Getting location\u2026";
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      setDeliveryPin(pos.coords.latitude, pos.coords.longitude);
-      loc.disabled = false;
-      loc.textContent = "\ud83d\udccd Use my current location";
-      $("#geo-hint").textContent = "Location captured (" + pos.coords.latitude.toFixed(4) + ", " + pos.coords.longitude.toFixed(4) + ")";
-    },
-    () => {
-      geo = { lat: null, lng: null };
-      const typedAddr = $("#checkout-form input[name=deliveryAddress]")?.value.trim();
-      geoStatus = typedAddr ? "unverified" : null;
-      loc.disabled = false;
-      loc.textContent = "\ud83d\udccd Use my current location";
-      $("#geo-hint").textContent = "Couldn\u2019t get your location \u2014 please type your address instead (delivery is confirmed by the shop).";
-      $("#geo-status").hidden = true;
-      refreshCheckoutSummary();
-    },
-    { timeout: 8000 }
-  );
-});
-
 // Populate saved delivery locations for logged-in customers.
 async function populateDeliveryLocations() {
   const sel = $("#delivery-location");
   if (!sel) return;
-  // reset to base options
-  sel.innerHTML = '<option value="">Collection (no delivery)</option><option value="__pin__">Use current location (pin on map)</option>';
-  if (!CUSTOMER) return;
+  const empty = $("#delivery-empty");
+  const addrText = $("#delivery-addr-text");
+  sel.innerHTML = '<option value="">Choose a saved location…</option>';
+  if (!CUSTOMER) {
+    sel.disabled = true;
+    if (empty) { empty.textContent = "Sign in to use saved delivery locations."; empty.hidden = false; }
+    return;
+  }
+  sel.disabled = false;
+  let rows = [];
   try {
-    const rows = await fetch("/api/customer/addresses").then((r) => r.ok ? r.json() : []);
-    for (const a of (rows || [])) {
-      const opt = document.createElement("option");
-      opt.value = "addr:" + a.id;
-      opt.textContent = a.label + " — " + a.address;
-      opt.dataset.lat = a.lat == null ? "" : a.lat;
-      opt.dataset.lng = a.lng == null ? "" : a.lng;
-      opt.dataset.address = a.address;
-      sel.appendChild(opt);
-      if (a.isDefault) sel.value = "addr:" + a.id;
-    }
+    const r = await fetch("/api/customer/addresses");
+    if (r.ok) { const d = await r.json(); rows = Array.isArray(d) ? d : (d.items || []); }
   } catch (e) {}
-}
-
-$("#delivery-location").addEventListener("change", (e) => {
-  const sel = e.target;
-  const val = sel.value;
-  const addrInput = $("#checkout-form input[name=deliveryAddress]");
-  if (val === "" ) {
-    geo = { lat: null, lng: null };
-    if (addrInput) addrInput.value = "";
-  } else if (val === "__pin__") {
-    if (addrInput) addrInput.value = "";
-    // keep geo as-is (from pin or profile)
-  } else if (val.startsWith("addr:")) {
-    const opt = sel.selectedOptions[0];
-    const a = opt?.dataset.address || "";
-    const lat = opt?.dataset.lat ? Number(opt.dataset.lat) : null;
-    const lng = opt?.dataset.lng ? Number(opt.dataset.lng) : null;
-    if (addrInput) addrInput.value = a;
-    geo = { lat, lng };
-    geoStatus = geo.lat != null && geo.lng != null ? classifyGeoForCart(geo.lat, geo.lng).status : (a ? "unverified" : null);
+  for (const a of rows) {
+    const opt = document.createElement("option");
+    opt.value = "addr:" + a.id;
+    opt.textContent = a.label + " — " + a.address;
+    opt.dataset.lat = a.lat == null ? "" : a.lat;
+    opt.dataset.lng = a.lng == null ? "" : a.lng;
+    opt.dataset.address = a.address;
+    opt.dataset.label = a.label;
+    sel.appendChild(opt);
   }
-  refreshDeliveryHint();
-  refreshCheckoutSummary();
-  if (geo.lat != null && geo.lng != null && deliveryMap) setDeliveryPin(geo.lat, geo.lng);
-});
-
-// Address autocomplete via Nominatim (OpenStreetMap), biased to the shop.
-let _suggestTimer = null;
-async function fetchAddressSuggestions(q) {
-  const box = $("#addr-suggest");
-  if (!box) return;
-  if (!q || q.trim().length < 3) { box.innerHTML = ""; return; }
-  const cfg = deliveryCfg || {};
-  const shopLat = cfg.shop?.lat, shopLng = cfg.shop?.lng;
-  let url = "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&countrycodes=za&q=" + encodeURIComponent(q.trim());
-  if (Number.isFinite(shopLat) && Number.isFinite(shopLng)) {
-    const d = 0.15; // ~15km viewbox
-    url += "&viewbox=" + (shopLng - d) + "," + (shopLat - d) + "," + (shopLng + d) + "," + (shopLat + d) + "&bounded=0";
-  }
-  try {
-    const res = await fetch(url, { headers: { "Accept-Language": "en" } });
-    if (!res.ok) return;
-    const data = await res.json();
-    const maxKm = cfg.maxRadiusKm || 10;
-    const items = (data || []).filter((r) => {
-      if (!Number.isFinite(shopLat) || !Number.isFinite(shopLng)) return true;
-      const km = distanceKm(shopLat, shopLng, Number(r.lat), Number(r.lon));
-      return km == null || km <= maxKm + 2;
-    });
-    if (!items.length) { box.innerHTML = '<div class="hint">No matching addresses in delivery area.</div>'; return; }
-    box.innerHTML = '<div style="border:1px solid var(--line);border-radius:8px;background:#fff;max-height:180px;overflow:auto;">' +
-      items.map((r) => '<div class="addr-sug" data-lat="' + r.lat + '" data-lng="' + r.lon + '" data-addr="' + esc(r.display_name) + '" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line);">' + esc(r.display_name) + '</div>').join("") +
-      '</div>';
-    box.querySelectorAll(".addr-sug").forEach((el) => {
-      el.addEventListener("click", () => {
-        const a = el.dataset.addr;
-        const lat = Number(el.dataset.lat), lng = Number(el.dataset.lng);
-        const input = $("#checkout-form input[name=deliveryAddress]");
-        if (input) input.value = a;
-        if (Number.isFinite(lat) && Number.isFinite(lng)) setDeliveryPin(lat, lng);
-        box.innerHTML = "";
-      });
-    });
-  } catch (e) { box.innerHTML = ""; }
-}
-
-const addrInput = document.querySelector("#checkout-form input[name=deliveryAddress]");
-if (addrInput) {
-  addrInput.addEventListener("input", () => {
-    clearTimeout(_suggestTimer);
-    const v = addrInput.value;
-    _suggestTimer = setTimeout(() => fetchAddressSuggestions(v), 400);
-  });
-  addrInput.addEventListener("blur", () => setTimeout(() => { const b = $("#addr-suggest"); if (b) b.innerHTML = ""; }, 250));
-}
-
-// Keep the delivery status honest as the address is typed/cleared.
-$("#checkout-modal").addEventListener("input", (e) => {
-  if (!e.target.matches("#checkout-form input[name=deliveryAddress]")) return;
-  const typed = e.target.value.trim();
-  // Typing a different address invalidates the saved/captured coordinates.
-  if (CUSTOMER && typed !== String(CUSTOMER.addressLabel || "").trim()) {
-    geo = { lat: null, lng: null };
-    if (deliveryMarker && deliveryMap) { deliveryMap.removeLayer(deliveryMarker); deliveryMarker = null; }
-  }
-  geoStatus = geo.lat != null && geo.lng != null
-    ? classifyGeoForCart(geo.lat, geo.lng).status
-    : typed ? "unverified" : null;
-  refreshDeliveryHint();
-  refreshCheckoutSummary();
-});
-
-document.addEventListener("click", (e) => {
-  if (e.target.closest('[data-action="close-customize"]')) closeOverlay("#customize-overlay");
-  if (e.target.closest('[data-action="cancel-checkout"]')) closeOverlay("#checkout-overlay");
-});
-
-$("#customize-overlay").addEventListener("click", (e) => {
-  if (e.target === $("#customize-overlay")) closeOverlay("#customize-overlay");
-});
-$("#bogo-overlay").addEventListener("click", (e) => {
-  if (e.target === $("#bogo-overlay")) closeOverlay("#bogo-overlay");
-});
-$("#checkout-overlay").addEventListener("click", (e) => {
-  if (e.target === $("#checkout-overlay")) closeOverlay("#checkout-overlay");
-});
-
-function fillCheckoutAccount() {
-  const form = $("#checkout-form");
-  const banner = $("#checkout-account");
-  if (!form) return;
-
-  const setField = (name, value, locked) => {
-    const el = form.querySelector('[name="' + name + '"]');
-    if (!el) return;
-    el.value = value == null ? "" : String(value);
-    el.readOnly = Boolean(locked);
-    el.disabled = Boolean(locked);
-  };
-
-  if (CUSTOMER) {
-    // The server uses the session customer, so these are display-only and
-    // never block submission even if the account has no phone on file.
-    setField("firstName", CUSTOMER.firstName, true);
-    setField("lastName", CUSTOMER.lastName, true);
-    setField("cellphone", CUSTOMER.cellphone, true);
-    setField("email", CUSTOMER.email, true);
-
-    const addr = form.querySelector('[name="deliveryAddress"]');
-    if (addr) {
-      addr.value = CUSTOMER.addressLabel || "";
-      addr.disabled = false;
-      addr.placeholder = "House no & street, suburb, Worcester";
-    }
-
-    // Number(null) is 0, which is a valid coordinate - only treat real values as saved.
-    const savedLat = CUSTOMER.lat == null || CUSTOMER.lat === "" ? NaN : Number(CUSTOMER.lat);
-    const savedLng = CUSTOMER.lng == null || CUSTOMER.lng === "" ? NaN : Number(CUSTOMER.lng);
-    geo = Number.isFinite(savedLat) && Number.isFinite(savedLng)
-      ? { lat: savedLat, lng: savedLng }
-      : { lat: null, lng: null };
-    geoStatus = geo.lat != null && geo.lng != null
-      ? classifyGeoForCart(geo.lat, geo.lng).status
-      : addr?.value.trim() ? "unverified" : null;
-
-    if (banner) {
-      const name = `${CUSTOMER.firstName || ""} ${CUSTOMER.lastName || ""}`.trim();
-      banner.innerHTML =
-        "<span>Ordering as <b>" + esc(name || "your account") + "</b>" +
-        (CUSTOMER.cellphone ? " \u00b7 " + esc(CUSTOMER.cellphone) : "") +
-        "</span><a href=\"/portal#details\">Edit details</a>";
-      banner.hidden = false;
-    }
-
-    const loc = form.querySelector('button[data-action="use-location"]');
-    if (loc) loc.disabled = false;
-    refreshDeliveryHint();
-    populateDeliveryLocations();
+  if (rows.length) {
+    const def = rows.find((a) => a.isDefault) || rows[0];
+    sel.value = "addr:" + def.id;
+    applySelectedDeliveryLocation();
+    if (empty) empty.hidden = true;
   } else {
-    // A guest session must never inherit account fields from an earlier signed-in view.
-    ["firstName", "lastName", "cellphone", "email"].forEach((name) => {
-      const el = form.querySelector('[name="' + name + '"]');
-      if (!el) return;
-      if (el.readOnly || el.disabled) el.value = "";
-      el.readOnly = false;
-      el.disabled = false;
-      el.required = name !== "email";
-    });
-    if (banner) {
-      banner.innerHTML =
-        "<span>Ordering as a guest. <b>Sign in</b> to pre-fill your details and unlock delivery.</span>" +
-        "<a href=\"/portal?next=/order\">Sign in</a>";
-      banner.hidden = false;
-    }
+    sel.value = "";
+    geo = { lat: null, lng: null };
+    geoStatus = null;
+    if (addrText) addrText.textContent = "";
+    if (empty) { empty.textContent = "You don't have a saved delivery location yet. Add one below."; empty.hidden = false; }
   }
 }
 
-function checkoutSummaryText() {
-  const gross = Shop.gross();
-  const dealSaving = Shop.deals().saving;
-  const count = CART.reduce((s, l) => s + l.qty, 0);
-  let summary = count + " item" + (count === 1 ? "" : "s") + " \u00b7 " + money(gross);
-  if (dealSaving > 0) summary += " \u2212 deal saving " + money(dealSaving) + " = " + money(gross - dealSaving);
-  if (geoStatus === "fee" && deliveryCfg) summary += " + R" + deliveryCfg.feeAmount + " delivery";
-  if (geoStatus === "beyond" && deliveryCfg) summary += " + R" + deliveryCfg.beyondFeeAmount + " delivery";
-  if (geoStatus === "unverified" && deliveryCfg) summary += " + R" + deliveryCfg.feeAmount + " delivery (to confirm)";
-  return summary;
+function applySelectedDeliveryLocation() {
+  const sel = $("#delivery-location");
+  const addrText = $("#delivery-addr-text");
+  const val = sel ? sel.value : "";
+  if (!val || !val.startsWith("addr:")) {
+    geo = { lat: null, lng: null };
+    geoStatus = null;
+    if (addrText) addrText.textContent = "";
+    refreshDeliveryHint();
+    refreshCheckoutSummary();
+    return;
+  }
+  const opt = sel.selectedOptions[0];
+  const a = opt?.dataset.address || "";
+  const lat = opt?.dataset.lat ? Number(opt.dataset.lat) : null;
+  const lng = opt?.dataset.lng ? Number(opt.dataset.lng) : null;
+  if (addrText) addrText.textContent = a;
+  geo = { lat, lng };
+  geoStatus = geo.lat != null && geo.lng != null ? classifyGeoForCart(geo.lat, geo.lng).status : (a ? "unverified" : null);
+  refreshDeliveryHint();
+  refreshCheckoutSummary();
 }
 
-function refreshCheckoutSummary() {
-  const el = $("#checkout-summary");
-  if (el) el.textContent = checkoutSummaryText();
-}
+$("#delivery-location").addEventListener("change", () => {
+  applySelectedDeliveryLocation();
+});
 
 let deliveryMap = null;
 let deliveryMarker = null;
@@ -1336,7 +1240,55 @@ function initDeliveryMap() {
   // Leaflet needs a resize after the modal becomes visible
   setTimeout(() => { try { deliveryMap.invalidateSize(); } catch (e) {} }, 200);
 }
-function openCheckout() {
+async function fillCheckoutAccount() {
+  const form = $("#checkout-form");
+  const banner = $("#checkout-account");
+  if (!form) return;
+
+  const setField = (name, value, locked) => {
+    const el = form.querySelector('[name="' + name + '"]');
+    if (!el) return;
+    el.value = value == null ? "" : String(value);
+    el.readOnly = Boolean(locked);
+    el.disabled = Boolean(locked);
+  };
+
+  if (CUSTOMER) {
+    setField("firstName", CUSTOMER.firstName, true);
+    setField("lastName", CUSTOMER.lastName, true);
+    setField("cellphone", CUSTOMER.cellphone, true);
+    setField("email", CUSTOMER.email, true);
+
+    geo = { lat: null, lng: null };
+    geoStatus = null;
+
+    if (banner) {
+      const name = `${CUSTOMER.firstName || ""} ${CUSTOMER.lastName || ""}`.trim();
+      banner.innerHTML =
+        "<span>Ordering as <b>" + esc(name || "your account") + "</b>" +
+        (CUSTOMER.cellphone ? " \u00b7 " + esc(CUSTOMER.cellphone) : "") +
+        "</span><a href=\"/portal#locations\">Manage locations</a>";
+      banner.hidden = false;
+    }
+    refreshDeliveryHint();
+    await populateDeliveryLocations();
+  } else {
+    ["firstName", "lastName", "cellphone", "email"].forEach((name) => {
+      const el = form.querySelector('[name="' + name + '"]');
+      if (!el) return;
+      if (el.readOnly || el.disabled) el.value = "";
+      el.readOnly = false;
+      el.disabled = false;
+    });
+    geo = { lat: null, lng: null };
+    geoStatus = null;
+    if (banner) banner.hidden = true;
+    refreshDeliveryHint();
+    await populateDeliveryLocations();
+  }
+}
+
+async function openCheckout() {
   if (!CART.length) { toast("Your cart is empty"); return; }
   if (shopCfg && shopCfg.onlineEnabled === false) { toast("Online ordering is paused right now \u2014 please call us."); return; }
   if (shopCfg && !shopCfg.open) { toast("We\u2019re closed \u2014 checkout opens " + shopCfg.openTime + " to " + shopCfg.closeTime + "."); return; }
@@ -1348,31 +1300,35 @@ function openCheckout() {
   }
   $("#cart-drawer").classList.remove("open");
   $("#checkout-error").hidden = true;
+  const review = $("#checkout-review");
+  if (review) review.hidden = true;
+  const form = $("#checkout-form");
+  if (form) form.hidden = false;
   $("#checkout-overlay").hidden = false;
-  fillCheckoutAccount();
-  initDeliveryMap();
+  await fillCheckoutAccount();
+  const startStep = CUSTOMER ? 2 : 1;
+  checkoutStep = startStep;
+  setCheckoutStep(startStep);
   syncOrderMethod();
 
-  // Unregistered (guest) customers may only place collection orders.
-  const addr = $("#checkout-form input[name=deliveryAddress]");
-  const loc = $("#checkout-form button[data-action=\"use-location\"]");
   const geoHint = $("#geo-hint");
+  const addToggle = $("#delivery-add-toggle");
   if (!CUSTOMER) {
     const deliveryRadio = document.querySelector('input[name="orderMethod"][value="delivery"]');
     const collectionRadio = document.querySelector('input[name="orderMethod"][value="collection"]');
     if (collectionRadio) collectionRadio.checked = true;
     if (deliveryRadio) deliveryRadio.disabled = true;
-    if (addr) { addr.value = ""; addr.disabled = true; addr.placeholder = "Collection only - sign in for delivery"; }
-    if (loc) loc.disabled = true;
+    const block = $("#delivery-block");
+    if (block) block.style.display = "none";
     geo = { lat: null, lng: null };
     geoStatus = null;
     if (geoHint) geoHint.textContent = "Collection only - sign in for delivery. No address = collection.";
+    if (addToggle) addToggle.hidden = true;
     syncOrderMethod();
   } else {
     const deliveryRadio = document.querySelector('input[name="orderMethod"][value="delivery"]');
     if (deliveryRadio) deliveryRadio.disabled = false;
-    if (addr) { addr.disabled = false; addr.placeholder = "House no & street, suburb, Worcester"; }
-    if (loc) loc.disabled = false;
+    if (addToggle) addToggle.hidden = false;
   }
   refreshCheckoutSummary();
 }
@@ -1387,42 +1343,268 @@ $("#checkout-overlay").addEventListener("change", (e) => {
   $("#pay-hint").textContent = hints[e.target.value] || "";
 });
 
-$("#checkout-overlay").addEventListener("submit", async (e) => {
-  if (!e.target.matches("#checkout-form")) return;
-  e.preventDefault();
-  const f = new FormData(e.target);
-  const payload = {
-    firstName: String(f.get("firstName") || "").trim(),
-    lastName: String(f.get("lastName") || "").trim(),
-    cellphone: String(f.get("cellphone") || "").trim() || null,
-    email: String(f.get("email") || "").trim() || null,
-    ...(String(f.get("orderMethod")) === "delivery" ? {
-      deliveryAddress: String(f.get("deliveryAddress") || "").trim() || null,
-      deliveryLat: geo.lat, deliveryLng: geo.lng,
-    } : { deliveryAddress: null, deliveryLat: null, deliveryLng: null }),
-    notes: String(f.get("notes") || "").trim() || null,
-    couponCode: String(f.get("couponCode") || "").trim() || null,
-    paymentMethod: String(f.get("paymentMethod") || "cod_cash").trim(),
-    items: CART.map((l) =>
-      l.kind === "special"
-        ? {
-            specialId: l.specialId,
-            quantity: l.qty,
-            // A BOGO needs the pizzas the customer chose; a fixed-price deal
-            // applies itself server-side off the cart, so it sends none.
-            ...(l.pizzas
-              ? { pizzas: l.pizzas.map((p) => ({ itemId: p.itemId, sizeLabel: p.sizeLabel, extras: p.extras || [] })) }
-              : {}),
-          }
-        : { itemId: l.itemId, sizeLabel: l.sizeLabel, quantity: l.qty, extras: (l.extras || []).map((x) => ({ name: x.name, price: x.price })) }
-    ),
-  };
-  const btn = $("#submit-order");
-  btn.disabled = true;
-  btn.textContent = "Placing\u2026";
-  const errEl = $("#checkout-error");
-  errEl.hidden = true;
+// Add-location flow inside checkout (one map, only when adding).
+function initAddMap() {
+  const el = $("#delivery-map");
+  if (!el || typeof L === "undefined") return;
+  try {
+    if (deliveryMap && deliveryMap.getContainer && deliveryMap.getContainer() !== el) {
+      try { deliveryMap.remove(); } catch (e) {}
+      deliveryMap = null; deliveryMarker = null;
+    }
+  } catch (e) { deliveryMap = null; deliveryMarker = null; }
+  const center = (deliveryCfg && deliveryCfg.shop && deliveryCfg.shop.lat != null)
+    ? [deliveryCfg.shop.lat, deliveryCfg.shop.lng]
+    : [-33.644, 19.450];
+  if (!deliveryMap) {
+    deliveryMap = L.map(el).setView(center, 13);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors", maxZoom: 19,
+    }).addTo(deliveryMap);
+    if (Number.isFinite(center[0]) && Number.isFinite(center[1])) {
+      L.marker(center, { title: "Shop" }).addTo(deliveryMap);
+    }
+    deliveryMap.on("click", (e) => {
+      geo = { lat: e.latlng.lat, lng: e.latlng.lng };
+      if (!deliveryMarker) deliveryMarker = L.marker([geo.lat, geo.lng]).addTo(deliveryMap);
+      else deliveryMarker.setLatLng([geo.lat, geo.lng]);
+      const h = $("#new-addr-hint");
+      if (h) h.textContent = "Pin set (" + geo.lat.toFixed(4) + ", " + geo.lng.toFixed(4) + ").";
+      refreshDeliveryHint();
+      refreshCheckoutSummary();
+    });
+  }
+  setTimeout(() => { try { deliveryMap.invalidateSize(); } catch (e) {} }, 200);
+}
 
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("#delivery-add-toggle");
+  if (t) {
+    const panel = $("#delivery-add");
+    if (panel) { panel.hidden = !panel.hidden; if (!panel.hidden) initAddMap(); }
+  }
+});
+
+// Delegated close handlers (survive innerHTML swaps).
+document.addEventListener("click", (e) => {
+  if (e.target.closest('[data-action="cancel-checkout"]')) { resetCheckout(); return; }
+  if (e.target.closest('[data-action="close-customize"]')) { closeOverlay("#customize-overlay"); return; }
+  if (e.target.closest('[data-action="close-bogo"]')) { closeOverlay("#bogo-overlay"); return; }
+});
+
+// Backdrop click to close overlays.
+["#customize-overlay", "#bogo-overlay", "#checkout-overlay"].forEach((sel) => {
+  const el = $(sel);
+  if (!el) return;
+  el.addEventListener("click", (e) => {
+    if (e.target === el) {
+      if (sel === "#checkout-overlay") resetCheckout();
+      else closeOverlay(sel);
+    }
+  });
+});
+
+// Escape closes the topmost open overlay.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!$("#checkout-overlay").hidden) { resetCheckout(); return; }
+  if (!$("#bogo-overlay").hidden) { closeOverlay("#bogo-overlay"); return; }
+  if (!$("#customize-overlay").hidden) { closeOverlay("#customize-overlay"); return; }
+});
+
+const addSaveBtn = document.getElementById("delivery-add-save");
+if (addSaveBtn) addSaveBtn.addEventListener("click", async () => {
+  const label = $("#new-addr-label")?.value.trim() || "";
+  const address = $("#new-addr-text")?.value.trim() || "";
+  const err = $("#delivery-add-err");
+  if (!label) { if (err) { err.textContent = "Give this location a name."; err.hidden = false; } return; }
+  if (!address) { if (err) { err.textContent = "Address is required."; err.hidden = false; } return; }
+  if (geo.lat == null || geo.lng == null) { if (err) { err.textContent = "Drop a pin on the map."; err.hidden = false; } return; }
+  if (err) err.hidden = true;
+  try {
+    const row = await fetch("/api/customer/addresses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label, address, lat: geo.lat, lng: geo.lng }),
+    }).then(async (r) => {
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Could not save");
+      return d;
+    });
+    $("#new-addr-label").value = "";
+    $("#new-addr-text").value = "";
+    const panel = $("#delivery-add");
+    if (panel) panel.hidden = true;
+    if (deliveryMap) { try { deliveryMap.remove(); } catch (e) {} deliveryMap = null; deliveryMarker = null; }
+    await populateDeliveryLocations();
+    const sel = $("#delivery-location");
+    if (sel) sel.value = "addr:" + row.id;
+    applySelectedDeliveryLocation();
+  } catch (e) {
+    if (err) { err.textContent = e.message; err.hidden = false; }
+  }
+});
+
+let reviewMap = null, reviewMarkerDest = null, reviewMarkerShop = null;
+function destroyReviewMap() {
+  if (reviewMap) { try { reviewMap.remove(); } catch (e) {} reviewMap = null; reviewMarkerDest = null; reviewMarkerShop = null; }
+}
+function resetCheckout() {
+  try { destroyReviewMap(); } catch (e) {}
+  const overlay = $("#checkout-overlay");
+  if (overlay) overlay.hidden = true;
+  const modal = $("#checkout-modal");
+  if (modal) { modal.innerHTML = CHECKOUT_HTML; }
+  const f = $("#checkout-form");
+  if (f) { f.reset(); f.hidden = false; }
+  const review = $("#checkout-review");
+  if (review) review.hidden = true;
+  const err = $("#checkout-error");
+  if (err) err.hidden = true;
+  try { applyPaymentOptions(); } catch (e) {}
+  checkoutStep = 1;
+  try { setCheckoutStep(1); } catch (e) {}
+  geo = { lat: null, lng: null };
+  geoStatus = null;
+}
+function showCheckoutReview(quote, payload) {
+  window.__lastReview = { quote, payload };
+  window.__reviewCancel = function() {
+    try {
+      destroyReviewMap();
+      const overlay = $("#checkout-overlay");
+      if (overlay) overlay.hidden = true;
+      const modal = $("#checkout-modal");
+      if (modal) { modal.innerHTML = CHECKOUT_HTML; }
+      const f = $("#checkout-form");
+      if (f) f.reset();
+      applyPaymentOptions();
+      checkoutStep = 1;
+      try { setCheckoutStep(1); } catch (e) {}
+    } catch (e) { try { alert("Cancel error: " + e.message); } catch (_) {} }
+  };
+  window.__reviewBack = function() {
+    try {
+      const review = $("#checkout-review");
+      const form = $("#checkout-form");
+      if (review) review.hidden = true;
+      if (form) form.hidden = false;
+      destroyReviewMap();
+      checkoutStep = 3;
+      try { setCheckoutStep(3); } catch (e) {}
+    } catch (e) { try { alert("Back error: " + e.message); } catch (_) {} }
+  };
+  window.__reviewConfirm = function() {
+    try {
+      const ctx = window.__lastReview;
+      if (ctx) confirmCheckoutOrder(ctx.payload, ctx.quote);
+    } catch (e) { try { alert("Confirm error: " + e.message); } catch (_) {} }
+  };
+  const review = $("#checkout-review");
+  const form = $("#checkout-form");
+  if (!review) return;
+  form.hidden = true;
+  review.hidden = false;
+  const isDelivery = payload && payload.deliveryAddressId != null;
+  const shop = (deliveryCfg && deliveryCfg.shop) || {};
+  const destLat = quote.deliveryLat;
+  const destLng = quote.deliveryLng;
+  const hasCoords = Number.isFinite(Number(destLat)) && Number.isFinite(Number(destLng)) && Number.isFinite(Number(shop.lat)) && Number.isFinite(Number(shop.lng));
+
+  const linesHtml = (quote.lines || []).map((l) =>
+    '<div style="display:flex;justify-content:space-between;font-size:13px;margin:2px 0;">' +
+    '<span>' + esc(l.name) + (l.sizeLabel ? ' (' + esc(l.sizeLabel) + ')' : '') + ' x' + l.quantity + '</span>' +
+    '<span>' + money(l.total) + '</span></div>'
+  ).join("");
+
+  // Aggregate discount applications by name so "3 x 2 L Traditional Pizzas" is clear.
+  const agg = {};
+  for (const d of (quote.discounts || [])) {
+    const k = d.name || "Discount";
+    if (!agg[k]) agg[k] = { name: k, count: 0, saving: 0, dealPrice: d.price, dealCount: d.count };
+    agg[k].count += 1;
+    agg[k].saving += (d.saving || 0);
+  }
+  const aggList = Object.values(agg);
+  const discountsHtml = aggList.length
+    ? '<div style="margin:8px 0;padding:8px;border:1px dashed var(--line);border-radius:8px;background:#f8fafc;">' +
+      '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">Discounts applied</div>' +
+      aggList.map((d) => {
+        const times = d.count > 1 ? d.count + ' x ' : '';
+        const dealInfo = d.dealPrice ? ' (' + times + d.dealCount + ' for R' + d.dealPrice + ')' : '';
+        return '<div style="display:flex;justify-content:space-between;font-size:13px;margin:2px 0;">' +
+          '<span>' + esc(d.name) + dealInfo + '</span>' +
+          '<span style="color:#16a34a;">- ' + money(d.saving) + '</span></div>';
+      }).join("") +
+      '</div>'
+    : '';
+
+  const mapHtml = isDelivery
+    ? '<div id="review-map" style="height:240px;border-radius:10px;border:1px solid var(--line);margin:10px 0;"></div>'
+    : '<div class="hint" style="margin:10px 0;">Collection - pick up at 72 High Street, Q-Square, Worcester.</div>';
+
+  const distHtml = isDelivery && quote.delivery && quote.delivery.distanceKm != null
+    ? quote.delivery.distanceKm.toFixed(1) + ' km (straight line)'
+    : (isDelivery ? 'Distance to confirm' : '');
+
+  review.innerHTML =
+    '<h3 style="margin:0 0 8px;">Confirm your order</h3>' +
+    (isDelivery ? '<div class="muted" style="font-size:13px;margin-bottom:6px;">Delivering to: <b>' + esc(quote.addressLabel || '') + '</b> \u2014 ' + esc(quote.deliveryAddress || '') + '</div>' : '') +
+    mapHtml +
+    (isDelivery && distHtml ? '<div class="hint" style="margin-bottom:8px;">' + distHtml + ' \u00b7 ' + (quote.delivery.status === 'free' ? 'Free delivery' : 'R' + money(quote.delivery.fee).replace('R','') + ' delivery fee') + '</div>' : '') +
+    '<div style="margin:8px 0;">' + linesHtml + '</div>' +
+    discountsHtml +
+    '<div style="border-top:1px solid var(--line);padding-top:8px;margin-top:8px;font-size:14px;">' +
+    '<div style="display:flex;justify-content:space-between;"><span>Subtotal</span><span>' + money(quote.foodSubtotal) + '</span></div>' +
+    (quote.discountAmount > 0 ? '<div style="display:flex;justify-content:space-between;"><span>Discount' + (quote.discountLabel ? ' \u2014 ' + esc(quote.discountLabel) : '') + '</span><span>- ' + money(quote.discountAmount) + '</span></div>' : '') +
+    (isDelivery ? '<div style="display:flex;justify-content:space-between;"><span>Delivery fee</span><span>' + money(quote.deliveryFee) + '</span></div>' : '') +
+    '<div style="display:flex;justify-content:space-between;font-weight:700;margin-top:4px;"><span>Total</span><span>' + money(quote.grandTotal) + '</span></div>' +
+    '</div>' +
+    '<div class="muted" style="font-size:12px;margin-top:6px;">Paying by: ' + esc(payload.paymentMethod) + '</div>' +
+    '<div class="modal-actions" style="margin-top:12px;">' +
+    '<button type="button" class="ghost" id="review-back" onclick="window.__reviewBack && window.__reviewBack()">Back to checkout</button>' +
+    '<button type="button" class="ghost" id="review-cancel" onclick="window.__reviewCancel && window.__reviewCancel()">Cancel</button>' +
+    '<button type="button" class="primary" id="review-confirm" onclick="window.__reviewConfirm && window.__reviewConfirm()">' + (payload.paymentMethod === "paygate" ? "Confirm & pay online" : "Confirm & place order") + '</button>' +
+    '</div>';
+
+  // wire buttons (direct + delegated, so they survive innerHTML swaps)
+  const wireReviewButtons = () => {
+    const backBtn = $("#review-back");
+    if (backBtn && !backBtn.__wired) { backBtn.__wired = true; backBtn.addEventListener("click", () => {
+      review.hidden = true;
+      form.hidden = false;
+      destroyReviewMap();
+      checkoutStep = 3;
+      try { setCheckoutStep(3); } catch (e) {}
+    }); }
+    const confirmBtn = $("#review-confirm");
+    if (confirmBtn && !confirmBtn.__wired) { confirmBtn.__wired = true; confirmBtn.addEventListener("click", () => confirmCheckoutOrder(payload, quote)); }
+  };
+  wireReviewButtons();
+  setTimeout(wireReviewButtons, 60);
+
+  // map
+  destroyReviewMap();
+  if (isDelivery && hasCoords) {
+    setTimeout(() => {
+      const el = $("#review-map");
+      if (!el || typeof L === "undefined") return;
+      reviewMap = L.map(el).setView([shop.lat, shop.lng], 13);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "&copy; OpenStreetMap", maxZoom: 19 }).addTo(reviewMap);
+      reviewMarkerShop = L.marker([shop.lat, shop.lng], { title: "Beluchis" }).addTo(reviewMap).bindPopup("Beluchis \u2014 72 High Street, Q-Square");
+      reviewMarkerDest = L.marker([destLat, destLng], { title: "Deliver here" }).addTo(reviewMap).bindPopup("Deliver here");
+      const line = L.polyline([[shop.lat, shop.lng], [destLat, destLng]], { color: "#c0392b", weight: 2, dashArray: "6 6" }).addTo(reviewMap);
+      reviewMap.fitBounds(line.getBounds(), { padding: [30, 30] });
+      setTimeout(() => { try { reviewMap.invalidateSize(); } catch (e) {} }, 200);
+    }, 50);
+  }
+}
+
+async function confirmCheckoutOrder(payload, quote) {
+  const btn = $("#review-confirm");
+  if (btn) { btn.disabled = true; btn.textContent = "Placing\u2026"; }
+  const errEl = $("#checkout-error");
+  if (errEl) errEl.hidden = true;
   try {
     const res = await fetch("/api/orders", {
       method: "POST",
@@ -1435,8 +1617,13 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
       renderMenu();
     }
     if (!res.ok) throw new Error(data.error || "Something went wrong");
+    // If the final total differs from the quote, surface it.
+    if (quote && (data.grandTotal != null && quote.grandTotal != null) && Number(data.grandTotal) !== Number(quote.grandTotal)) {
+      toast("Total updated to R" + Number(data.grandTotal).toFixed(2) + " (delivery fee changed).");
+    }
     Shop.clear();
     localStorage.setItem("beluchis-recent-order", JSON.stringify({ id: data.id, phone: payload.cellphone || CUSTOMER?.cellphone || null }));
+    destroyReviewMap();
     closeOverlay("#checkout-overlay");
     $("#cart-drawer").classList.remove("open");
     const pay = data.grandTotal != null ? data.grandTotal : data.total;
@@ -1466,7 +1653,7 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
         : "";
       const totalTxt = data.discountAmount
         ? '<p class="sub" style="text-decoration:line-through">' + money(data.total) + "</p>" +
-          '<p class="sub">Discount −' + money(data.discountAmount) + "</p>" +
+          '<p class="sub">Discount \u2212' + money(data.discountAmount) + "</p>" +
           feeTxt +
           '<p class="sub" style="font-weight:700">Total ' + money(pay) + "</p>"
         : '<p class="sub">Total ' + money(pay) + "</p>" + feeTxt;
@@ -1481,33 +1668,101 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
       $("#checkout-overlay").hidden = false;
     }
   } catch (err) {
+    if (errEl) { errEl.textContent = err.message; errEl.hidden = false; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = payload.paymentMethod === "paygate" ? "Confirm & pay online" : "Confirm & place order"; }
+  }
+}
+
+$("#checkout-overlay").addEventListener("submit", async (e) => {
+  if (!e.target.matches("#checkout-form")) return;
+  e.preventDefault();
+  if (checkoutStep < 3) { checkoutNext(checkoutStep); return; }
+  const f = new FormData(e.target);
+  const isDelivery = String(f.get("orderMethod")) === "delivery";
+  if (isDelivery) {
+    const sel = $("#delivery-location");
+    const val = sel ? sel.value : "";
+    if (!val || !val.startsWith("addr:")) {
+      const errEl = $("#checkout-error");
+      errEl.textContent = "Choose a saved delivery location (or add one) before placing a delivery order.";
+      errEl.hidden = false;
+      return;
+    }
+  }
+  const deliveryAddressId = isDelivery ? Number(String($("#delivery-location").value).replace("addr:", "")) : null;
+  const payload = {
+    firstName: String(f.get("firstName") || "").trim(),
+    lastName: String(f.get("lastName") || "").trim(),
+    cellphone: String(f.get("cellphone") || "").trim() || null,
+    email: String(f.get("email") || "").trim() || null,
+    ...(isDelivery ? { deliveryAddressId } : { deliveryAddress: null, deliveryLat: null, deliveryLng: null }),
+    notes: String(f.get("notes") || "").trim() || null,
+    couponCode: String(f.get("couponCode") || "").trim() || null,
+    paymentMethod: String(f.get("paymentMethod") || "cod_cash").trim(),
+    items: CART.map((l) =>
+      l.kind === "special"
+        ? {
+            specialId: l.specialId,
+            quantity: l.qty,
+            ...(l.pizzas
+              ? { pizzas: l.pizzas.map((p) => ({ itemId: p.itemId, sizeLabel: p.sizeLabel, extras: p.extras || [] })) }
+              : {}),
+          }
+        : { itemId: l.itemId, sizeLabel: l.sizeLabel, quantity: l.qty, extras: (l.extras || []).map((x) => ({ name: x.name, price: x.price })) }
+    ),
+  };
+  window.__lastCheckoutPayload = payload;
+  const btn = $("#submit-order");
+  btn.disabled = true;
+  btn.textContent = "Checking\u2026";
+  const errEl = $("#checkout-error");
+  errEl.hidden = true;
+
+  try {
+    const res = await fetch("/api/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...payload, quote: true }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (res.status === 403 && data.code === "shop_closed") {
+        shopCfg = Object.assign({}, shopCfg, { open: false });
+        renderMenu();
+      }
+      throw new Error(data.error || "Something went wrong");
+    }
+    showCheckoutReview(data, payload);
+  } catch (err) {
     errEl.textContent = err.message;
     errEl.hidden = false;
   } finally {
     btn.disabled = false;
-    btn.textContent = "Place Order";
+    btn.textContent = "Review order";
   }
-});
+  return;
 
+});
 // Toggle delivery block based on Collection / Delivery radio.
 function syncOrderMethod() {
   const method = document.querySelector('input[name="orderMethod"]:checked')?.value || "delivery";
   const block = $("#delivery-block");
-  const addr = $("#checkout-form input[name=deliveryAddress]");
   if (method === "collection") {
     if (block) block.style.display = "none";
     geo = { lat: null, lng: null };
     geoStatus = null;
-    if (addr) addr.value = "";
-    if (deliveryMarker && deliveryMap) { deliveryMap.removeLayer(deliveryMarker); deliveryMarker = null; }
-    const s = $("#geo-status"); if (s) s.hidden = true;
+    refreshDeliveryHint();
+    refreshCheckoutSummary();
   } else {
     if (block) block.style.display = "";
-    if (geo.lat == null && addr?.value.trim()) geoStatus = "unverified";
+    applySelectedDeliveryLocation();
+    const add = $("#delivery-add");
+    if (add && !add.hidden) initAddMap();
+    setTimeout(() => { try { if (deliveryMap) deliveryMap.invalidateSize(); } catch (e) {} }, 200);
   }
-  refreshDeliveryHint();
-  refreshCheckoutSummary();
 }
+
 document.addEventListener("change", (e) => {
   if (e.target.matches('input[name="orderMethod"]')) syncOrderMethod();
 });
@@ -1537,10 +1792,11 @@ document.addEventListener("focusout", (e) => {
 function initDealsCarousel() {
   const carousel = document.querySelector(".deals-carousel");
   if (!carousel) return;
+  if (carousel.__autoTimer) { clearInterval(carousel.__autoTimer); carousel.__autoTimer = null; }
   const track = carousel.querySelector(".deals-track");
   const cards = [...track.querySelectorAll(".special-card")];
   if (!cards.length) return;
-  const perPage = 2;
+  const perPage = window.innerWidth < 640 ? 1 : 2;
   const pages = Math.ceil(cards.length / perPage);
   let page = 0;
   const dots = carousel.querySelector(".deals-dots");
@@ -1568,28 +1824,62 @@ function initDealsCarousel() {
   renderPage();
   // Auto-advance every 7 seconds, looping back to start.
   let autoTimer = setInterval(() => {
-    page = (page + 1) % pages;
+    page = (page + 1) % Math.ceil(cards.length / (window.innerWidth < 640 ? 1 : 2));
     renderPage();
   }, 7000);
+  carousel.__autoTimer = autoTimer;
   carousel.addEventListener("mouseenter", () => { clearInterval(autoTimer); });
   carousel.addEventListener("mouseleave", () => {
-    autoTimer = setInterval(() => { page = (page + 1) % pages; renderPage(); }, 7000);
+    autoTimer = setInterval(() => { page = (page + 1) % Math.ceil(cards.length / (window.innerWidth < 640 ? 1 : 2)); renderPage(); }, 7000); carousel.__autoTimer = autoTimer;
   });
 }
 
 const _origRenderMenu = renderMenu;
 renderMenu = function() { _origRenderMenu(); initDealsCarousel(); };
+let _resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(() => { const c = document.querySelector('.deals-carousel'); if (c) initDealsCarousel(); }, 200);
+});
 
 const CHECKOUT_HTML = $("#checkout-modal").innerHTML;
 $("#checkout-modal").addEventListener("click", (e) => {
   if (e.target.closest('[data-action="close-checkout"]')) {
+    destroyReviewMap();
     $("#checkout-overlay").hidden = true;
     $("#checkout-modal").innerHTML = CHECKOUT_HTML;
     $("#checkout-form").reset();
     applyPaymentOptions();
   }
+  // delegated review controls (survive innerHTML swaps)
+  if (e.target.closest("#review-back")) {
+    const review = $("#checkout-review");
+    const form = $("#checkout-form");
+    if (review) review.hidden = true;
+    if (form) form.hidden = false;
+    destroyReviewMap();
+    checkoutStep = 3;
+    try { setCheckoutStep(3); } catch (e) {}
+  }
+  if (e.target.closest("#review-confirm")) {
+    const ctx = window.__lastReview;
+    if (ctx) confirmCheckoutOrder(ctx.payload, ctx.quote);
+  }
 });
 
+function refreshCheckoutSummary() {
+  const el = $("#checkout-summary");
+  if (!el) return;
+  try {
+    const n = (typeof CART !== "undefined" && Array.isArray(CART)) ? CART.length : 0;
+    const grand = (Shop && typeof Shop.total === "function") ? Shop.total() : 0;
+    const method = document.querySelector('input[name="orderMethod"]:checked')?.value || "delivery";
+    const suffix = method === "collection" ? " (Collection)" : "";
+    el.textContent = (n ? n + " item" + (n === 1 ? "" : "s") + " \u00b7 " + money(grand) + suffix : "Your cart is empty");
+  } catch (e) {
+    el.textContent = "";
+  }
+}
 function applyPaymentOptions() {
   const prov = shopCfg && shopCfg.onlinePayment;
   document.querySelectorAll("[data-pay]").forEach((el) => {
@@ -1600,6 +1890,101 @@ function applyPaymentOptions() {
     if (cash) cash.checked = true;
   }
 }
+
+// ---------- Checkout accordion ----------
+let checkoutStep = 1;
+function checkoutStepSummary(n) {
+  if (n === 1) {
+    const f = $("#checkout-form");
+    const fn = f?.querySelector('[name="firstName"]')?.value.trim() || "";
+    const ln = f?.querySelector('[name="lastName"]')?.value.trim() || "";
+    const ph = f?.querySelector('[name="cellphone"]')?.value.trim() || "";
+    const name = (fn + " " + ln).trim();
+    return name ? name + (ph ? " · " + ph : "") : "";
+  }
+  if (n === 2) {
+    const m = document.querySelector('input[name="orderMethod"]:checked')?.value || "delivery";
+    if (m === "collection") return "Collection";
+    const sel = $("#delivery-location");
+    const opt = sel?.selectedOptions?.[0];
+    const label = opt?.dataset?.label;
+    const addr = opt?.dataset?.address;
+    return label ? label + (addr ? " — " + addr : "") : "Delivery";
+  }
+  if (n === 3) {
+    const pm = document.querySelector('input[name="paymentMethod"]:checked')?.value || "cod_cash";
+    const names = { cod_cash: "Cash on delivery", cod_card: "Card on delivery", paygate: "Paid online" };
+    return names[pm] || pm;
+  }
+  return "";
+}
+function setCheckoutStep(n) {
+  checkoutStep = n;
+  for (let i = 1; i <= 3; i++) {
+    const head = document.querySelector('.co-head[data-step-toggle="' + i + '"]');
+    const body = $("#co-body-" + i);
+    const open = i === n;
+    if (head) {
+      head.setAttribute("aria-expanded", open ? "true" : "false");
+      head.disabled = i > n; // can't jump ahead
+    }
+    if (body) body.hidden = !open;
+    const sum = $("#co-sum-" + i);
+    if (sum) sum.textContent = (i < n) ? checkoutStepSummary(i) : "";
+  }
+  // keep delivery map valid when step 2 opens
+  if (n === 2) {
+    const add = $("#delivery-add");
+    if (add && !add.hidden) setTimeout(() => { try { initAddMap(); } catch (e) {} }, 50);
+    syncOrderMethod();
+  }
+  // refresh payment options when step 3 opens
+  if (n === 3) { try { applyPaymentOptions(); } catch (e) {} }
+}
+function validateCheckoutStep(n) {
+  if (n === 1) {
+    const f = $("#checkout-form");
+    const fn = f?.querySelector('[name="firstName"]')?.value.trim();
+    const ln = f?.querySelector('[name="lastName"]')?.value.trim();
+    const ph = f?.querySelector('[name="cellphone"]')?.value.trim();
+    if (!fn || !ln || !ph) { toast("Please fill in your name and phone."); return false; }
+    return true;
+  }
+  if (n === 2) {
+    const m = document.querySelector('input[name="orderMethod"]:checked')?.value || "delivery";
+    if (m === "delivery") {
+      const sel = $("#delivery-location");
+      const val = sel ? sel.value : "";
+      if (!val || !val.startsWith("addr:")) {
+        toast("Choose a saved delivery location (or add one).");
+        return false;
+      }
+    }
+    return true;
+  }
+  return true;
+}
+function checkoutNext(from) {
+  if (!validateCheckoutStep(from)) return;
+  if (from < 3) setCheckoutStep(from + 1);
+}
+function checkoutPrev(from) {
+  if (from > 1) setCheckoutStep(from - 1);
+}
+
+// Delegated accordion controls.
+document.addEventListener("click", (e) => {
+  const nt = e.target.closest("[data-co-next]");
+  if (nt) { checkoutNext(Number(nt.dataset.coNext)); return; }
+  const pv = e.target.closest("[data-co-prev]");
+  if (pv) { checkoutPrev(Number(pv.dataset.coPrev)); return; }
+  const tg = e.target.closest("[data-step-toggle]");
+  if (tg) {
+    const i = Number(tg.dataset.stepToggle);
+    if (i <= checkoutStep) setCheckoutStep(i);
+    return;
+  }
+});
 
 async function load() {
   try {

@@ -143,22 +143,50 @@
       if (units.length < s.count) continue;
 
       const sorted = units.slice().sort((a, b) => a.base - b.base);
-      for (let i = 0; i + s.count <= sorted.length; i += s.count) {
-        const chunk = sorted.slice(i, i + s.count);
-        const normal = chunk.reduce((sum, u) => sum + u.base, 0);
-        const saving = Math.max(0, normal - s.price);
-        if (!saving) continue;
-        chunk.forEach((u) => claimed.add(u.key));
-        out.saving += saving;
-        out.rows.push({
-          id: s.id,
-          name: s.name,
-          sizeLabel: s.sizeLabel || chunk[0].sizeLabel || "",
-          count: s.count,
-          price: s.price,
-          normal,
-          saving,
-        });
+      if (s.count === 2) {
+        // Pair cheapest with most expensive so mixed-price carts still
+        // qualify for as many deals as possible (consecutive chunking
+        // strands cheap units and under-counts).
+        let lo = 0, hi = sorted.length - 1;
+        while (lo < hi) {
+          const chunk = [sorted[lo], sorted[hi]];
+          const normal = chunk.reduce((sum, u) => sum + u.base, 0);
+          const saving = Math.max(0, normal - s.price);
+          if (saving > 0) {
+            chunk.forEach((u) => claimed.add(u.key));
+            out.saving += saving;
+            out.rows.push({
+              id: s.id,
+              name: s.name,
+              sizeLabel: s.sizeLabel || chunk[0].sizeLabel || "",
+              count: s.count,
+              price: s.price,
+              normal,
+              saving,
+            });
+            lo++; hi--;
+          } else {
+            lo++;
+          }
+        }
+      } else {
+        for (let i = 0; i + s.count <= sorted.length; i += s.count) {
+          const chunk = sorted.slice(i, i + s.count);
+          const normal = chunk.reduce((sum, u) => sum + u.base, 0);
+          const saving = Math.max(0, normal - s.price);
+          if (!saving) continue;
+          chunk.forEach((u) => claimed.add(u.key));
+          out.saving += saving;
+          out.rows.push({
+            id: s.id,
+            name: s.name,
+            sizeLabel: s.sizeLabel || chunk[0].sizeLabel || "",
+            count: s.count,
+            price: s.price,
+            normal,
+            saving,
+          });
+        }
       }
     }
     return out;
@@ -318,9 +346,12 @@
     ).join("");
     const bundle = l.pizzas
       ? ""
-      : ((DATA.specials.find((x) => x.id === l.specialId) || {}).items || []).map((si) =>
-          '<div class="extras">' + (si.quantity > 1 ? si.quantity + "&times; " : "") + esc(si.item.name) + (si.sizeLabel ? " (" + esc(si.sizeLabel) + ")" : "") + "</div>"
-        ).join("");
+      : ((DATA.specials.find((x) => x.id === l.specialId) || {}).items || []).map((si) => {
+          let extras = [];
+          try { extras = si.extras ? JSON.parse(si.extras) : []; } catch (e) { extras = []; }
+          const extrasTxt = extras.length ? " + " + extras.map((e) => esc(e.name)).join(", ") : "";
+          return '<div class="extras">' + (si.quantity > 1 ? si.quantity + "&times; " : "") + esc(si.item.name) + (si.sizeLabel ? " (" + esc(si.sizeLabel) + ")" : "") + extrasTxt + "</div>";
+        }).join("");
     const meta = l.pizzas
       ? "Pick " + (l.pizzas.length) + ", pay " + Math.ceil(l.pizzas.length / 2) + " | R" + l.unitPrice + " each"
       : "Combo | R" + l.unitPrice + " each";

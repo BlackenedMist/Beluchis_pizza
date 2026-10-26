@@ -131,6 +131,17 @@ async function main() {
       createdCustomers.push(await tx.customer.create({ data: { ...c, passwordHash, claimedAt: new Date() } }));
     }
 
+    // Saved delivery locations (up to 3, uniquely named) for demo accounts.
+    const demoAddresses = [
+      { label: "Home", address: "42 Sandton Drive, Sandton", lat: -26.2041, lng: 28.0473, isDefault: true },
+      { label: "Work", address: "10 Rivonia Road, Sandton", lat: -26.1076, lng: 28.0567, isDefault: false },
+    ];
+    for (const c of createdCustomers) {
+      for (const a of demoAddresses) {
+        await tx.customerAddress.create({ data: { customerId: c.id, ...a } });
+      }
+    }
+
     const sizedItems = await tx.item.findMany({ where: { sizes: { some: {} } }, include: { sizes: true }, take: 4 });
     const toOrderItems = (items) =>
       items.map((item) => {

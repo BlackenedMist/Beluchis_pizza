@@ -321,7 +321,7 @@ const normalizeSettingsPayload = (raw) => {
 // ------------------------------------------------------------------- Auth
 const ADMIN_ROLES = new Set(["admin", "orders", "kitchen", "cashier", "driver"]);
 const ORDER_ROLES = new Set(["admin", "orders"]);
-const CASHIER_STATUSES = new Set(["out_for_delivery", "ReadyToCollect"]);
+const CASHIER_STATUSES = new Set(["preparing", "ReadyToCollect", "out_for_delivery", "delivered"]);
 const DRIVER_STATUSES = new Set(["out_for_delivery", "delivered"]);
 const KITCHEN_STATUSES = new Set(["preparing", "ReadyToCollect", "out_for_delivery", "delivered"]);
 const ALLOWED_STATUSES = ["placed", "preparing", "ReadyToCollect", "out_for_delivery", "delivered", "cancelled"];
@@ -662,6 +662,18 @@ app.put(
 );
 
 // ------------------------------------------------------------ Customer addresses (multiple delivery locations)
+const ADDRESS_LIMIT = 3;
+const normalizeAddressLabel = (raw) => String(raw == null ? "" : raw).trim().replace(/\\s+/g, " ");
+const addressLabelKey = (raw) => normalizeAddressLabel(raw).toLowerCase();
+const findAddressByLabel = async (tx, customerId, label, excludeId = null) => {
+  const rows = await tx.customerAddress.findMany({
+    where: { customerId },
+    select: { id: true, label: true },
+  });
+  const key = addressLabelKey(label);
+  return rows.find((r) => r.id !== excludeId && addressLabelKey(r.label) === key) || null;
+};
+
 app.get(
   "/api/customer/addresses",
   requireCustomerSession,
@@ -670,7 +682,7 @@ app.get(
       where: { customerId: req.customerSession.customerId },
       orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
     });
-    res.json(rows);
+    res.json({ items: rows, limit: ADDRESS_LIMIT, used: rows.length });
   })
 );
 
@@ -680,23 +692,37 @@ app.post(
   asyncHandler(async (req, res) => {
     const customerId = req.customerSession.customerId;
     const { label, address, lat, lng, isDefault } = req.body || {};
-    if (!String(address || "").trim()) return res.status(400).json({ error: "address is required" });
-    const latN = lat == null || lat === "" ? null : Number.isFinite(Number(lat)) ? Number(lat) : null;
-    const lngN = lng == null || lng === "" ? null : Number.isFinite(Number(lng)) ? Number(lng) : null;
+    const normLabel = normalizeAddressLabel(label);
+    const normAddress = String(address || "").trim();
+    if (!normLabel) return res.status(400).json({ error: "Give this location a name (e.g. Home, Work).", code: "label_required" });
+    if (normLabel.length > 30) return res.status(400).json({ error: "Location name is too long (max 30 characters).", code: "label_too_long" });
+    if (!normAddress) return res.status(400).json({ error: "Address is required.", code: "address_required" });
+    const latN = lat == null || lat === "" ? null : (Number.isFinite(Number(lat)) ? Number(lat) : null);
+    const lngN = lng == null || lng === "" ? null : (Number.isFinite(Number(lng)) ? Number(lng) : null);
+    if (latN == null || lngN == null)
+      return res.status(400).json({ error: "Drop a pin on the map so we can calculate your delivery fee.", code: "pin_required" });
     const makeDefault = Boolean(isDefault);
+
     const row = await prisma.$transaction(async (tx) => {
-      if (makeDefault) await tx.customerAddress.updateMany({ where: { customerId }, data: { isDefault: false } });
+      const count = await tx.customerAddress.count({ where: { customerId } });
+      if (count >= ADDRESS_LIMIT)
+        throw badRequest("You can save up to 3 locations. Delete one first.");
+      const dup = await findAddressByLabel(tx, customerId, normLabel);
+      if (dup) throw badRequest("You already have a location named " + JSON.stringify(dup.label) + ". Choose a different name.");
+      const first = count === 0;
+      const setDefault = first ? true : makeDefault;
+      if (setDefault) await tx.customerAddress.updateMany({ where: { customerId }, data: { isDefault: false } });
       return tx.customerAddress.create({
         data: {
           customerId,
-          label: String(label || "Home").trim() || "Home",
-          address: String(address).trim(),
+          label: normLabel,
+          address: normAddress,
           lat: latN,
           lng: lngN,
-          isDefault: makeDefault,
+          isDefault: setDefault,
         },
       });
-    });
+    }).catch((e) => { throw e; });
     res.status(201).json(row);
   })
 );
@@ -709,22 +735,48 @@ app.put(
     const id = Number(req.params.id);
     const existing = await prisma.customerAddress.findUnique({ where: { id } });
     if (!existing || existing.customerId !== customerId) return res.status(404).json({ error: "not found" });
+
     const { label, address, lat, lng, isDefault } = req.body || {};
-    const latN = lat === undefined ? undefined : lat === null || lat === "" ? null : Number.isFinite(Number(lat)) ? Number(lat) : null;
-    const lngN = lng === undefined ? undefined : lng === null || lng === "" ? null : Number.isFinite(Number(lng)) ? Number(lng) : null;
+    const normLabel = label !== undefined ? normalizeAddressLabel(label) : existing.label;
+    const normAddress = address !== undefined ? String(address || "").trim() : existing.address;
+    if (!normLabel) return res.status(400).json({ error: "Give this location a name (e.g. Home, Work).", code: "label_required" });
+    if (normLabel.length > 30) return res.status(400).json({ error: "Location name is too long (max 30 characters).", code: "label_too_long" });
+    if (!normAddress) return res.status(400).json({ error: "Address is required.", code: "address_required" });
+
+    const latProvided = lat !== undefined;
+    const lngProvided = lng !== undefined;
+    const nextLat = latProvided ? (lat === null || lat === "" ? null : (Number.isFinite(Number(lat)) ? Number(lat) : null)) : existing.lat;
+    const nextLng = lngProvided ? (lng === null || lng === "" ? null : (Number.isFinite(Number(lng)) ? Number(lng) : null)) : existing.lng;
+    if (nextLat == null || nextLng == null)
+      return res.status(400).json({ error: "Drop a pin on the map so we can calculate your delivery fee.", code: "pin_required" });
+
     const makeDefault = isDefault === undefined ? undefined : Boolean(isDefault);
+
     const row = await prisma.$transaction(async (tx) => {
-      if (makeDefault) await tx.customerAddress.updateMany({ where: { customerId }, data: { isDefault: false } });
-      return tx.customerAddress.update({
+      const dup = await findAddressByLabel(tx, customerId, normLabel, id);
+      if (dup) throw badRequest("You already have a location named " + JSON.stringify(dup.label) + ". Choose a different name.");
+
+      // Unsetting the only default keeps it default so one stays default.
+      let effectiveDefault = makeDefault;
+      if (makeDefault === false && existing.isDefault) {
+        const others = await tx.customerAddress.count({ where: { customerId, id: { not: id } } });
+        effectiveDefault = others === 0 ? true : false;
+      }
+
+      if (effectiveDefault === true) {
+        await tx.customerAddress.updateMany({ where: { customerId, id: { not: id } }, data: { isDefault: false } });
+      }
+      const updated = await tx.customerAddress.update({
         where: { id },
         data: {
-          ...(label !== undefined ? { label: String(label || "").trim() || existing.label } : {}),
-          ...(address !== undefined ? { address: String(address || "").trim() || existing.address } : {}),
-          ...(latN !== undefined ? { lat: latN } : {}),
-          ...(lngN !== undefined ? { lng: lngN } : {}),
-          ...(makeDefault !== undefined ? { isDefault: makeDefault } : {}),
+          label: normLabel,
+          address: normAddress,
+          lat: nextLat,
+          lng: nextLng,
+          ...(effectiveDefault !== undefined ? { isDefault: effectiveDefault } : {}),
         },
       });
+      return updated;
     });
     res.json(row);
   })
@@ -738,7 +790,15 @@ app.delete(
     const id = Number(req.params.id);
     const existing = await prisma.customerAddress.findUnique({ where: { id } });
     if (!existing || existing.customerId !== customerId) return res.status(404).json({ error: "not found" });
-    await prisma.customerAddress.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.customerAddress.delete({ where: { id } });
+      // Promote the oldest remaining row to default if the default was deleted.
+      const def = await tx.customerAddress.findFirst({ where: { customerId, isDefault: true } });
+      if (!def) {
+        const oldest = await tx.customerAddress.findFirst({ where: { customerId }, orderBy: { createdAt: "asc" } });
+        if (oldest) await tx.customerAddress.update({ where: { id: oldest.id }, data: { isDefault: true } });
+      }
+    });
     res.json({ ok: true });
   })
 );
@@ -1052,6 +1112,7 @@ app.post(
                   itemId: Number(i.itemId),
                   sizeLabel: normalizeSpecialSize(i.sizeLabel),
                   quantity: Math.max(1, Number(i.quantity) || 1),
+                  extras: i.extras ? JSON.stringify(i.extras) : null,
                 })),
               }
             : undefined,
@@ -1122,6 +1183,7 @@ app.put(
             itemId: Number(i.itemId),
             sizeLabel: normalizeSpecialSize(i.sizeLabel),
             quantity: Math.max(1, Number(i.quantity) || 1),
+            extras: i.extras ? JSON.stringify(i.extras) : null,
           })),
         });
       }
@@ -1680,16 +1742,21 @@ app.post(
       deliveryLat = null,
       deliveryLng = null,
       deliveryAddress = null,
+      deliveryAddressId = null,
       notes = null,
       status = "placed",
       couponCode = null,
       paymentMethod = "cod_cash",
+      quote = false,
     } = req.body || {};
 
     // Legacy field names from the original storefront (lat/lng) are accepted
     // alongside the canonical deliveryLat/deliveryLng.
-    const lat = deliveryLat != null ? deliveryLat : req.body?.lat;
-    const lng = deliveryLng != null ? deliveryLng : req.body?.lng;
+    let lat = deliveryLat != null ? deliveryLat : req.body?.lat;
+    let lng = deliveryLng != null ? deliveryLng : req.body?.lng;
+    let resolvedDeliveryAddress = deliveryAddress;
+    let resolvedAddressLabel = null;
+    const isQuote = quote === true || quote === "true" || quote === 1 || quote === "1";
 
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "items are required" });
 
@@ -1723,39 +1790,40 @@ app.post(
       }
     }
 
-    // Delivery pricing: free inside the free radius only when the food
-    // subtotal meets the threshold; otherwise the standard-fee band applies,
-    // then a "beyond" fee with no hard cutoff. No GPS captured means
-    // "unverified" - the standard fee applies and the restaurant confirms the
-    // address and rate with the customer.
-    const delivery = await classifyDelivery({ deliveryAddress, lat, lng });
-
     // Unregistered (guest) customers may only place collection orders.
-    const wantsDelivery = Boolean(deliveryAddress?.trim()) || Number.isFinite(nOr(lat)) || Number.isFinite(nOr(lng));
-    if (wantsDelivery) {
-      const sessCustomer = await currentCustomer(req);
-      if (!sessCustomer && !customerId) {
-        return res.status(400).json({ error: "Unregistered customers can only place collection orders. Please sign in for delivery, or clear the delivery address.", code: "guest_collection_only" });
-      }
+    const wantsDeliveryInitial =
+      deliveryAddressId != null ||
+      Boolean(deliveryAddress?.trim()) ||
+      Number.isFinite(nOr(lat)) ||
+      Number.isFinite(nOr(lng));
+    const sessCustomer = await currentCustomer(req);
+    if (wantsDeliveryInitial && !sessCustomer && !customerId) {
+      return res.status(400).json({
+        error: "Unregistered customers can only place collection orders. Please sign in for delivery, or clear the delivery address.",
+        code: "guest_collection_only",
+      });
     }
 
     // Customer resolution: a logged-in portal customer wins (guest orders placed
     // while signed in attach to their account), otherwise explicit customerId or
     // guest checkout that lazily finds/reuses/creates a Customer by cellphone/email.
-    const sessCustomer = await currentCustomer(req);
     let customer = null;
     if (sessCustomer) {
       customer = sessCustomer;
     } else if (!customerId) {
-      if (!firstName?.trim() || !lastName?.trim())
-        return res.status(400).json({ error: "customerId or guest firstName/lastName is required" });
-      if (!validContact(email, cellphone))
-        return res.status(400).json({ error: "email or cellphone is required for guest checkout" });
-      const lookupPhone = canonicalPhone(cellphone);
-      const lookup = lookupPhone
-        ? { cellphone: lookupPhone }
-        : { email: String(email).trim() };
-      customer = await prisma.customer.findUnique({ where: lookup });
+      if (isQuote) {
+        // Never create a customer row for a price-only quote.
+        customer = null;
+      } else {
+        if (!firstName?.trim() || !lastName?.trim())
+          return res.status(400).json({ error: "customerId or guest firstName/lastName is required" });
+        if (!validContact(email, cellphone))
+          return res.status(400).json({ error: "email or cellphone is required for guest checkout" });
+        const lookupPhone = canonicalPhone(cellphone);
+        const lookup = lookupPhone
+          ? { cellphone: lookupPhone }
+          : { email: String(email).trim() };
+        customer = await prisma.customer.findUnique({ where: lookup });
         if (!customer) {
           const guestUser = `guest-${String(cellphone || email).replace(/[^a-z0-9]/gi, "").slice(-10) || Math.random().toString(36).slice(2, 8)}`;
           customer = await prisma.customer.create({
@@ -1766,16 +1834,59 @@ app.post(
               cellphone: lookupPhone || null,
               username: guestUser,
               passwordHash: await bcrypt.hash(Math.random().toString(36).slice(2), 10),
-              lat: lat != null ? Number(lat) : null,
-              lng: lng != null ? Number(lng) : null,
-              addressLabel: deliveryAddress?.trim() || null,
             },
           });
         }
+      }
     } else {
       customer = await prisma.customer.findUnique({ where: { id: Number(customerId) } });
       if (!customer) return res.status(400).json({ error: "customer not found" });
     }
+
+    // Saved-locations-only delivery: a signed-in customer may only deliver to a
+    // location they have already saved. A deliveryAddressId is required and must
+    // belong to the customer; free-text / unsaved pins are rejected.
+    if (deliveryAddressId != null) {
+      if (!customer) {
+        return res.status(400).json({ error: "Unregistered customers can only place collection orders. Please sign in for delivery.", code: "guest_collection_only" });
+      }
+      const addrRow = await prisma.customerAddress.findFirst({
+        where: { id: Number(deliveryAddressId), customerId: customer.id },
+      });
+      if (!addrRow) {
+        return res.status(400).json({
+          error: "Choose one of your saved delivery locations.",
+          code: "saved_location_required",
+        });
+      }
+      resolvedDeliveryAddress = addrRow.address;
+      lat = addrRow.lat;
+      lng = addrRow.lng;
+      resolvedAddressLabel = addrRow.label;
+    } else {
+      const wantsDelivery = wantsDeliveryInitial;
+      if (wantsDelivery && customer) {
+        return res.status(400).json({
+          error: "Choose one of your saved delivery locations.",
+          code: "saved_location_required",
+        });
+      }
+      if (wantsDelivery && !customer) {
+        return res.status(400).json({
+          error: "Unregistered customers can only place collection orders. Please sign in for delivery.",
+          code: "guest_collection_only",
+        });
+      }
+    }
+
+    // Delivery pricing: free inside the free radius only when the food
+    // subtotal meets the threshold; otherwise the standard-fee band applies,
+    // then a "beyond" fee with no hard cutoff. No GPS captured means
+    // "unverified" - the standard fee applies and the restaurant confirms the
+    // address and rate with the customer.
+    const delivery = await classifyDelivery({ deliveryAddress: resolvedDeliveryAddress, lat, lng });
+
+    const wantsDelivery = wantsDeliveryInitial;
 
     const rows = [];
     // Regular item lines, remembered so the automatic-deal pass below can
@@ -1785,6 +1896,7 @@ app.post(
     // are folded into the Order-level discount together with any coupon.
     let dealSaving = 0;
     const dealLabels = new Set();
+    const dealApplications = [];
 
     for (const line of items) {
       // Bundle/special line — validated active.
@@ -1915,14 +2027,33 @@ app.post(
         if (units.length < s.count) continue;
 
         const sorted = units.slice().sort((a, b) => a.base - b.base);
-        for (let i = 0; i + s.count <= sorted.length; i += s.count) {
-          const chunk = sorted.slice(i, i + s.count);
-          const normal = chunk.reduce((sum, u) => sum + u.base, 0);
-          const saving = Math.max(0, normal - s.price);
-          if (!saving) continue;
-          chunk.forEach((u) => claimed.add(u.key));
-          dealSaving += saving;
-          dealLabels.add(s.name);
+        if (s.count === 2) {
+          let lo = 0, hi = sorted.length - 1;
+          while (lo < hi) {
+            const chunk = [sorted[lo], sorted[hi]];
+            const normal = chunk.reduce((sum, u) => sum + u.base, 0);
+            const saving = Math.max(0, normal - s.price);
+            if (saving > 0) {
+              chunk.forEach((u) => claimed.add(u.key));
+              dealSaving += saving;
+              dealLabels.add(s.name);
+              dealApplications.push({ name: s.name, count: s.count, price: s.price, normal, saving });
+              lo++; hi--;
+            } else {
+              lo++;
+            }
+          }
+        } else {
+          for (let i = 0; i + s.count <= sorted.length; i += s.count) {
+            const chunk = sorted.slice(i, i + s.count);
+            const normal = chunk.reduce((sum, u) => sum + u.base, 0);
+            const saving = Math.max(0, normal - s.price);
+            if (!saving) continue;
+            chunk.forEach((u) => claimed.add(u.key));
+            dealSaving += saving;
+            dealLabels.add(s.name);
+            dealApplications.push({ name: s.name, count: s.count, price: s.price, normal, saving });
+          }
         }
       }
     }
@@ -1976,7 +2107,44 @@ app.post(
     const discountLabel = [dealLabel, couponLabel].filter(Boolean).join(" + ") || null;
     const grandTotal = orderTotal - discountAmount;
 
-    // ----- Online (PayGate / PayFast) flow -------------------------------------
+    // Price-only quote: validate everything, return totals, never create an
+    // order, never touch coupons, never call the payment gateway.
+    if (isQuote) {
+      return res.status(200).json({
+        quote: true,
+        lines: rows.map((r) => ({
+          name: r.itemName,
+          sizeLabel: r.sizeLabel,
+          quantity: r.quantity,
+          total: r.total,
+          extras: r.extras ? JSON.parse(r.extras) : [],
+        })),
+        foodSubtotal,
+        dealSaving,
+        couponDiscount,
+        discountAmount,
+        discountLabel,
+        discounts: [
+          ...dealApplications,
+          ...(couponDiscount > 0 ? [{ name: couponLabel || "Coupon", count: 1, price: 0, normal: couponDiscount, saving: couponDiscount }] : []),
+        ],
+        deliveryFee,
+        delivery: {
+          status: delivery.status,
+          distanceKm: delivery.distanceKm,
+          fee: delivery.fee,
+          minOrderAmount: delivery.minOrderAmount,
+          standardFee: delivery.standardFee,
+        },
+        orderTotal,
+        subtotal,
+        grandTotal,
+        deliveryAddress: resolvedDeliveryAddress,
+        deliveryLat: lat != null ? Number(lat) : null,
+        deliveryLng: lng != null ? Number(lng) : null,
+        addressLabel: resolvedAddressLabel,
+      });
+    }
     // Build the gateway request BEFORE the order is persisted so a gateway
     // failure leaves no orphan order. A fully-discounted order has nothing to
     // charge: mark it paid.
@@ -2050,7 +2218,7 @@ app.post(
           grandTotal,
           deliveryLat: lat != null ? Number(lat) : null,
           deliveryLng: lng != null ? Number(lng) : null,
-          deliveryAddress,
+          deliveryAddress: resolvedDeliveryAddress,
           deliveryDistance: delivery.distanceKm,
           deliveryFee,
           deliveryStatus: delivery.status,
@@ -2072,31 +2240,8 @@ app.post(
       return created;
     });
 
-    // Remember the last delivery address on the customer profile so the next
-    // checkout can pre-fill it. Collection orders never erase a saved address.
-    if (customer && wantsDelivery) {
-      const addr = String(deliveryAddress || "").trim();
-      const savedAddr = String(customer.addressLabel || "").trim();
-      const addrChanged = Boolean(addr) && addr !== savedAddr;
-      const latN = lat != null && Number.isFinite(Number(lat)) ? Number(lat) : null;
-      const lngN = lng != null && Number.isFinite(Number(lng)) ? Number(lng) : null;
-      const hasGeo = latN != null && lngN != null;
-      // Number(null) is 0, which is a valid coordinate - only treat real saved values as coordinates.
-      const savedLat = customer.lat == null || customer.lat === "" ? NaN : Number(customer.lat);
-      const savedLng = customer.lng == null || customer.lng === "" ? NaN : Number(customer.lng);
-      const geoUnchanged = hasGeo && latN === savedLat && lngN === savedLng;
-      const patch = {};
-      if (addr) patch.addressLabel = addr;
-      // A new address paired with the old coordinates means the form did not
-      // clear them; drop the stale location instead of saving a mismatch.
-      if (hasGeo && !(addrChanged && geoUnchanged)) { patch.lat = latN; patch.lng = lngN; }
-      else if (addrChanged) { patch.lat = null; patch.lng = null; }
-      if (Object.keys(patch).length) {
-        await prisma.customer.update({ where: { id: customer.id }, data: patch }).catch((e) => {
-          console.error("[customer] could not save delivery details:", e.message);
-        });
-      }
-    }
+    // Delivery address is no longer mirrored onto the Customer profile; saved
+    // CustomerAddress rows are the source of truth (see /api/customer/addresses).
 
     const full = await prisma.order.findUnique({ where: { id: order.id }, include: orderIncludes });
     const payload = publicOrder(full);
@@ -2333,7 +2478,7 @@ app.put(
     if (role === "kitchen") {
       if (!KITCHEN_STATUSES.has(status)) return res.status(403).json({ error: "kitchen cannot set this status" });
     } else if (role === "cashier") {
-      if (!CASHIER_STATUSES.has(status)) return res.status(403).json({ error: "cashier can only mark orders out for delivery" });
+      if (!CASHIER_STATUSES.has(status)) return res.status(403).json({ error: "cashier cannot set this status" });
     } else if (role === "driver") {
       if (!DRIVER_STATUSES.has(status)) return res.status(403).json({ error: "driver can only mark orders out for delivery or delivered" });
     } else if (!ORDER_ROLES.has(role)) {
