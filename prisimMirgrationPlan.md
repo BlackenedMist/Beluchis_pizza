@@ -3,16 +3,18 @@
 **File:** `prisimMirgrationPlan.md`
 **Status:** Draft / Planning only — NOT yet executed.
 **Created:** 2026-10-24
+**Revised:** 2026-10-26 (added cost/risk review, version pin, split-commit strategy)
 **Owner:** Beluchis engineering
-**Execution:** Local dev first (`C:\Beluchis_pizza` dev machine), then live via agent after local validation.
+**Execution:** Local dev first (dev machine), then live via agent after local validation.
 **Live target:** `ubuntu@154.65.100.89` (xneelo) — app dir `/srv/beluchis/app`, service `beluchis.service`.
 
 ---
 
 ## 0. Purpose & Scope
 
-This document plans the upgrade of Prisma ORM from **6.19.3** to **Prisma 7 (latest stable 7.x)**, plus the
-**safe patch-level vulnerability fixes** identified during the 2026-10-24 npm audit:
+This document plans the upgrade of Prisma ORM from **6.19.3** to **Prisma 7 (7.2.x or newer,
+verified stable on the dev machine first)**, plus the **safe patch-level vulnerability fixes**
+identified during the 2026-10-24 npm audit:
 
 - `proxy-addr` 2.0.7 → 2.0.8 (critical — IP spoofing)
 - `body-parser` 1.20.8 → 1.20.9 (high — DoS)
@@ -41,7 +43,7 @@ Prisma 7 upgrade **is** the fix for `deepmerge-ts`, so no separate action is nee
 | Prisma usage | `new PrismaClient()` in `server/index.mjs`, `scripts/*`, `prisma/seed.ts` |
 | Middleware (`$use`) | **None** — no migration needed |
 | `Prisma.validator` | **None** — no migration needed |
-| Migrations | 13 applied; latest `20261024165702_add_customer_addresses` |
+| Migrations | 15 applied; latest `20261027120000_add_special_item_extras` |
 | Runtime | ESM (`"type": "module"`); Node `--env-file-if-exists` |
 
 ### Files that must change
@@ -60,7 +62,7 @@ Prisma 7 upgrade **is** the fix for `deepmerge-ts`, so no separate action is nee
 
 | Item | Value |
 |---|---|
-| Prisma version | 7.x (latest stable at migration time) |
+| Prisma version | 7.2.x or newer (pinned after dev validation; avoid 7.0/7.1 rough edges) |
 | Generator | `prisma-client` (new Rust-free client) with explicit `output` |
 | Driver adapter | `@prisma/adapter-better-sqlite3` (native, fast) |
 | Config file | `prisma.config.ts` (replaces `url` in schema) |
@@ -132,11 +134,12 @@ export default defineConfig({
 
 ### 4.3 `package.json`
 
-- Bump `prisma` and `@prisma/client` to `^7.0.0` (latest stable at migration time).
+- Bump `prisma` and `@prisma/client` to `^7.2.0` (pinned after dev validation).
 - Add dependency: `@prisma/adapter-better-sqlite3` (version matching Prisma 7).
 - Add dependency: `better-sqlite3` (peer of the adapter).
 - Keep `tsx`, `@types/*` as needed.
 - `postinstall` still runs `prisma generate` (verify it picks up new config).
+- **Verify `generated/` is gitignored** before committing; regenerate via `postinstall` in CI/deploy.
 
 ### 4.4 `.env` / `.env.example`
 
@@ -167,9 +170,10 @@ sudo apt install -y build-essential python3
 
 ---
 
-## 5. Safe Vulnerability Patches (same plan, separate commit)
+## 5. Safe Vulnerability Patches (Commit A — do FIRST, separate commit)
 
-Apply **before** or alongside Prisma migration (recommended: separate commit for easy rollback):
+Apply **before** the Prisma migration. Separate commit so each change is independently
+rollback-able. This is the immediate security win (incl. critical `proxy-addr`).
 
 ```bash
 npm install express@^4.22.3 body-parser@^1.20.9 qs@^6.16.1 proxy-addr@^2.0.8 nodemailer@^10.2.1
@@ -189,16 +193,21 @@ Run on the local dev machine (`C:\Beluchis_pizza`). Do **not** touch live until 
 
 ```bash
 cd C:\Beluchis_pizza
+git tag v6-pre-prisma7   # bookmark v6 state for rollback
 git checkout -b prisma-7-migration
 git status   # must be clean
 node --version   # >= 20.19
 npx tsc --version # >= 5.4 (if installed)
+# Back up the v6 lockfile for rollback safety:
+cp package-lock.json package-lock.v6.json
 ```
 
-### 6.2 Back up local DB
+### 6.2 Back up local DB + restore dry-run
 
 ```bash
 cp prisma/dev.db prisma/dev.db.pre-prisma7  # or wherever local DB lives
+# Restore dry-run (verify backup is usable):
+cp prisma/dev.db.pre-prisma7 /tmp/dev.db.restore-test && echo "restore OK"
 ```
 
 ### 6.3 Apply code changes (§3/§4)
@@ -253,14 +262,14 @@ npm run ui-smoke
 - Kitchen bridge poll (if running locally)
 - Email sending (nodemailer patched version)
 
-### 6.9 Commit (local branch)
+### 6.9 Commit (local branch — Commit B)
 
 ```bash
 git add -A
 git commit -m "feat: migrate to Prisma 7 (driver adapter, generated client, config)"
 ```
 
-Do **not** merge to `main` until live execution (§7) is scheduled.
+Do **not** merge to `main` until live execution (§7) is scheduled and Commit A is stable.
 
 ---
 
@@ -339,36 +348,87 @@ are captured in the migration and can be reverted with `prisma migrate resolve` 
 
 ---
 
-## 9. Risks & Mitigations
+## 9. Implementation Costs
 
-| Risk | Mitigation |
+### 9.1 Developer time (realistic, solo dev)
+
+| Phase | Estimate |
 |---|---|
-| Native `better-sqlite3` fails to compile on server | Install `build-essential` + `python3` first; test on dev machine with same Node ABI |
-| Generated client import paths break scripts | Update all 6 files in §1; run `npm run storefront-smoke` |
-| `prisma migrate dev` generates unexpected SQL | Review generated migration before applying; dry-run on local first |
-| 15s query timeout breaks slow operations | Monitor logs; raise via client config if needed |
-| Seeding not auto-run in v7 | Call `npm run db:seed` explicitly in §6.6 and §7.3 |
-| Downtime during cutover | Maintenance window; rollback ready (§8) |
-| `npm audit fix` downgrade trap | Never run bare `npm audit fix`; use targeted installs (§5) |
-| Env var changes in v7 | Keep `DATABASE_URL`; verify `prisma.config.ts` loads it |
+| Commit A — vulnerability patches + re-test | 1–2 h |
+| Commit B — code changes (generator, config, imports, adapter) | 4–8 h |
+| Local testing (smoke, regression, orders, payments) | 4–8 h |
+| Debugging generated-client import paths / ESM issues | 2–6 h (common pain point) |
+| Live pre-flight + execution (maintenance window) | 1–2 h |
+| Post-deploy monitoring + hotfixes | 2–4 h |
+| **Total** | **~2–4 working days** |
+
+### 9.2 Infrastructure / money
+
+- **No new servers or licenses** — existing xneelo VM suffices.
+- **Build toolchain:** `apt install build-essential python3` — free, minutes.
+- **better-sqlite3 native compile:** needs RAM during build; 2 vCPU/4 GB tier is fine.
+- **Rollback safety net:** backup DB (~1 MB) — negligible disk.
+
+### 9.3 Downtime
+
+- **Maintenance window:** 5–15 min (`stop → reset → npm ci → migrate deploy → start`).
+- `npm ci` on live ~7–11 s (observed); `migrate deploy` <1 s; dominated by restart + smoke.
+- **No zero-downtime path** in this plan — acceptable per stated tolerance.
+
+### 9.4 Coordination cost
+
+- Dev machine is elsewhere; live execution is gated on your local validation + approval.
+- Add ~1 day of calendar latency for the handoff.
 
 ---
 
-## 10. Open Questions / Decisions Needed Before Execution
+## 10. Risk Factors
 
-1. **Prisma 7 exact version** — pin to a specific 7.x at migration time (latest stable).
-2. **Seed on live?** — decide whether `npm run db:seed` runs on live (it re-seeds demo data;
-   production should probably NOT re-seed). Recommend: skip seed on live; only run migrate deploy.
-3. **Generated client location** — confirm `./generated/prisma` is gitignored or committed.
-   Recommend: gitignore `generated/`, regenerate in CI/deploy via `postinstall`.
-4. **Vuln patches timing** — apply §5 before or after Prisma migration? Recommend: before,
-   as a separate commit, so each change is independently rollback-able.
-5. **Staging** — user has a local dev instance elsewhere; validate there first.
+### 10.1 Technical risks
+
+| # | Risk | Likelihood | Impact | Mitigation |
+|---|---|---|---|---|
+| R1 | Native `better-sqlite3` fails to compile on live | Medium | High | Install `build-essential`+`python3` first; test on dev with same Node ABI (22.23.2) |
+| R2 | Generated-client import paths break scripts (miss one of 6 files) | Medium | Medium | Update all 6; run `storefront-smoke`/`ui-smoke`; grep for `@prisma/client` after |
+| R3 | `prisma migrate dev` generates unexpected SQL (schema drift) | Low | High | Review generated migration; dry-run on local first |
+| R4 | Prisma 7 default 15 s query timeout breaks slow ops | Low | Medium | Monitor logs; raise via client config if needed |
+| R5 | Seeding not auto-run in v7 — forgotten seed leaves stale demo data | Medium | Low | Explicit seed step; recommend skipping seed on live |
+| R6 | Community-reported rough edges in Prisma 7.0/7.1 | Medium | Medium | Pin to 7.2+ (done in §2/§4.3); validate on dev first |
+| R7 | Bare `npm audit fix` downgrades Prisma to 6.12.0 | Medium | High | Plan forbids it; targeted installs only (§5) |
+| R8 | Rollback `npm ci` needs v6 `package-lock.json` | Medium | High | Keep v6 lockfile backed up (§6.1 tag + `package-lock.v6.json`) |
+| R9 | Env/config loading fails in v7 (`prisma.config.ts`) | Low | High | Test config load locally first; verify `migrate status` |
+
+### 10.2 Operational risks
+
+| # | Risk | Mitigation |
+|---|---|---|
+| R10 | Downtime during maintenance window | Acceptable per tolerance; keep window 5–15 min |
+| R11 | Backup never restored/tested | Add restore dry-run in §6.2 (done) |
+| R12 | Kitchen bridge polling delays if app down >30 min | Schedule window; accept overnight 30-min cadence |
+| R13 | PayGate notify missed during downtime | Keep window short; PayGate retries; check `journalctl` after |
+
+### 10.3 Security risks
+
+| # | Risk | Mitigation |
+|---|---|---|
+| R14 | 8 npm vulnerabilities remain until migration + §5 land | Apply §5 (Commit A) first — immediate security win |
+| R15 | Critical `proxy-addr` (IP spoofing) with nginx in front | Patch proxy-addr first, independent of Prisma |
+
+---
+
+## 11. Open Questions / Decisions Needed Before Execution
+
+1. **Prisma exact version** — pin to 7.2.x+ (updated from "latest stable 7.x").
+2. **Seed on live?** — recommend skip seed on live; only `migrate deploy`.
+3. **Generated client location** — confirm `./generated/prisma` is gitignored; regenerate via `postinstall`.
+4. **Vuln patches timing** — Commit A (§5) first, then Commit B (Prisma 7). Independently rollback-able.
+5. **Staging** — user has local dev instance elsewhere; validate there first.
 6. **Execution date** — TBD; agent runs live steps after local validation.
+7. **Backup tag** — create `v6-pre-prisma7` tag + `package-lock.v6.json` before migration (§6.1).
 
 ---
 
-## 11. References
+## 12. References
 
 - Prisma v7 upgrade guide: https://www.prisma.io/docs/guides/upgrade-prisma-orm/v7
 - Prisma v7 migration community guides (driver adapters, prisma.config.ts, output path)
