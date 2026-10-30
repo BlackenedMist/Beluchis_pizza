@@ -1,9 +1,9 @@
 # Customer Location Hardening — Deployment Plan
 
 **File:** `customerLocationHardeningPlan.md`
-**Status:** Planned — deployment deferred to the week of **2026-11-02**
-**Code status:** Committed and pushed (`37432d0`), **not deployed**
-**Production code:** `75c8d29` (unchanged)
+**Status:** Deployed on **2026-10-30** (early hotfix for the broken delete button)
+**Code status:** Committed and pushed (`a8c3d71`), **deployed**
+**Production code:** `a8c3d71`
 **Owner:** Beluchis engineering
 **Live target:** `ubuntu@154.65.100.89` — app `/srv/beluchis/app`, service `beluchis.service`
 **Database:** `/var/lib/beluchis/dev.db` (SQLite)
@@ -59,6 +59,19 @@ deployed yet. This document is the checklist for doing that safely next week.
 Commit: `37432d0` — pushed to `origin/main`.
 
 ---
+
+## 2.5 Deployment record (2026-10-30)
+
+Deployed early because the portal delete button was broken in production
+(`DELETE /api/customer/addresses/' + a.id + '`), which blocked Elda from
+removing a location.
+
+- Pre-deploy backup: `/var/lib/beluchis/backups/dev-pre-a8c3d71-20261030-125942.db` (`PRAGMA integrity_check` = ok)
+- Pulled `75c8d29` → `a8c3d71`
+- Restarted `beluchis.service` (active, no startup errors)
+- Smoke checks passed: portal serves `addr-limit-msg` and `data-addr-del`, `/order` 200,
+  unauthenticated `/api/customer/addresses` returns 401, commit `a8c3d71`
+- No DB migration or dependency change
 
 ## 3. Current production/data state
 
