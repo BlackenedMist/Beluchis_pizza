@@ -1656,6 +1656,8 @@ function showCheckoutReview(quote, payload, activeOrders) {
 }
 
 async function confirmCheckoutOrder(payload, quote) {
+  if (window.__placingOrder) return;
+  window.__placingOrder = true;
   const btn = $("#review-confirm");
   if (btn) { btn.disabled = true; btn.textContent = "Placing\u2026"; }
   const errEl = $("#checkout-error");
@@ -1725,6 +1727,7 @@ async function confirmCheckoutOrder(payload, quote) {
   } catch (err) {
     if (errEl) { errEl.textContent = err.message; errEl.hidden = false; }
   } finally {
+    window.__placingOrder = false;
     if (btn) { btn.disabled = false; btn.textContent = payload.paymentMethod === "paygate" ? "Confirm & pay online" : "Confirm & place order"; }
   }
 }
