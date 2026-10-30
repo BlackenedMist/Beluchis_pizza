@@ -788,6 +788,7 @@ app.post(
         },
       });
     }).catch((e) => { throw e; });
+    console.info("customer-address", { action: "create", customerId, id: row.id, label: row.label });
     res.status(201).json(row);
   })
 );
@@ -850,6 +851,7 @@ app.put(
       });
       return updated;
     });
+    console.info("customer-address", { action: "update", customerId, id: row.id, label: row.label });
     res.json(row);
   })
 );
@@ -871,6 +873,7 @@ app.delete(
         if (oldest) await tx.customerAddress.update({ where: { id: oldest.id }, data: { isDefault: true } });
       }
     });
+    console.info("customer-address", { action: "delete", customerId, id });
     res.json({ ok: true });
   })
 );

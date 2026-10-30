@@ -262,9 +262,12 @@
     </div>
 
     <div class="panel" id="details">
-      <h3>My details</h3>
-      <p class="muted" style="margin-top:-6px;">We use these details to pre-fill your checkout and keep your delivery address handy.</p>
-      <form id="details-form">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+        <h3 style="margin:0;">My details</h3>
+        <button class="ghost" type="button" id="edit-profile-btn">Edit profile</button>
+      </div>
+      <p class="muted" style="margin-top:6px;">We use these details to pre-fill your checkout and keep your delivery address handy.</p>
+      <form id="details-form" hidden>
         <div class="row">
           <div class="col field">
             <label for="det-first">First name</label>
@@ -513,6 +516,10 @@ $("#details-form").addEventListener("submit", async (e) => {
     $("#dash-name").textContent = `${me.firstName} ${me.lastName || ""}`.trim() || "Welcome back";
     $("#dash-phone").textContent = me.cellphone || me.email || "";
     dashNote("Your details were saved.");
+    const detailsForm = document.getElementById("details-form");
+    if (detailsForm) detailsForm.hidden = true;
+    const editBtn = document.getElementById("edit-profile-btn");
+    if (editBtn) editBtn.textContent = "Edit profile";
   } catch (ex) {
     err.textContent = ex.message;
     err.hidden = false;
@@ -521,6 +528,21 @@ $("#details-form").addEventListener("submit", async (e) => {
     btn.textContent = old;
   }
 });
+
+const editProfileBtn = document.getElementById("edit-profile-btn");
+if (editProfileBtn) {
+  editProfileBtn.addEventListener("click", () => {
+    const form = document.getElementById("details-form");
+    if (!form) return;
+    const show = form.hidden;
+    form.hidden = !show;
+    editProfileBtn.textContent = show ? "Cancel editing" : "Edit profile";
+    if (show) {
+      const first = document.getElementById("det-first");
+      if (first) first.focus();
+    }
+  });
+}
 
 // ---------------------------------------------------------------- Dashboard
 const STATUS_NAMES = {
@@ -645,6 +667,19 @@ window.copyCode = async (code, btn) => {
 };
 
 let PROFILE = null;
+function populateDetails(me) {
+  PROFILE = me || null;
+  const set = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value == null ? "" : value;
+  };
+  set("det-first", me?.firstName);
+  set("det-last", me?.lastName);
+  set("det-phone", me?.cellphone);
+  set("det-email", me?.email);
+  const err = document.getElementById("details-err");
+  if (err) err.hidden = true;
+}
 let addrMap = null, addrMarker = null, addrGeo = { lat: null, lng: null };
 let editingAddressId = null;
 function initAddrMap() {
@@ -721,7 +756,7 @@ async function loadAddresses() {
         limitMsg.hidden = true;
       }
     }
-    if (!list) return;
+    if (!list) return rows;
     if (!rows.length) {
       list.innerHTML = '<div class="muted">No saved locations yet. Add your first one below.</div>';
       return;
@@ -776,9 +811,11 @@ async function loadAddresses() {
       if (limitMsg) limitMsg.hidden = true;
       $("#addr-label").focus();
     }));
+    return rows;
   } catch (e) {
     if (count) count.textContent = "Could not load saved locations";
     if (list) list.innerHTML = '<div class="err">Could not load your saved locations. Please refresh and try again.</div>';
+    return [];
   }
 }
 
@@ -795,13 +832,17 @@ document.addEventListener("DOMContentLoaded", () => {
     if (err) err.hidden = true;
     try {
       const body = { label, address, lat: addrGeo.lat, lng: addrGeo.lng };
+      let saved = null;
       if (editingAddressId) {
-        await api("/api/customer/addresses/" + editingAddressId, { method: "PUT", body: JSON.stringify(body) });
+        saved = await api("/api/customer/addresses/" + editingAddressId, { method: "PUT", body: JSON.stringify(body) });
       } else {
-        await api("/api/customer/addresses", { method: "POST", body: JSON.stringify(body) });
+        saved = await api("/api/customer/addresses", { method: "POST", body: JSON.stringify(body) });
       }
       resetAddrForm();
-      await loadAddresses();
+      const rows = await loadAddresses();
+      if (saved && Array.isArray(rows) && !rows.some((r) => r.id === saved.id)) {
+        if (err) { err.textContent = "Saved, but the list did not refresh. Please refresh the page."; err.hidden = false; }
+      }
       initAddrMap();
     } catch (e) { if (err) { err.textContent = e.message; err.hidden = false; } }
   });
