@@ -711,7 +711,7 @@ app.put(
 
 // ------------------------------------------------------------ Customer addresses (multiple delivery locations)
 const ADDRESS_LIMIT = 3;
-const normalizeAddressLabel = (raw) => String(raw == null ? "" : raw).trim().replace(/\\s+/g, " ");
+const normalizeAddressLabel = (raw) => String(raw == null ? "" : raw).trim().replace(/\s+/g, " ");
 const addressLabelKey = (raw) => normalizeAddressLabel(raw).toLowerCase();
 const findAddressByLabel = async (tx, customerId, label, excludeId = null) => {
   const rows = await tx.customerAddress.findMany({
@@ -720,6 +720,20 @@ const findAddressByLabel = async (tx, customerId, label, excludeId = null) => {
   });
   const key = addressLabelKey(label);
   return rows.find((r) => r.id !== excludeId && addressLabelKey(r.label) === key) || null;
+};
+const normalizeAddressKey = (raw) =>
+  String(raw == null ? "" : raw)
+    .toLowerCase()
+    .replace(/[.,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+const findAddressByAddress = async (tx, customerId, address, excludeId = null) => {
+  const rows = await tx.customerAddress.findMany({
+    where: { customerId },
+    select: { id: true, label: true, address: true },
+  });
+  const key = normalizeAddressKey(address);
+  return rows.find((r) => r.id !== excludeId && normalizeAddressKey(r.address) === key) || null;
 };
 
 app.get(
@@ -757,6 +771,9 @@ app.post(
         throw badRequest("You can save up to 3 locations. Delete one first.");
       const dup = await findAddressByLabel(tx, customerId, normLabel);
       if (dup) throw badRequest("You already have a location named " + JSON.stringify(dup.label) + ". Choose a different name.");
+      const dupAddress = await findAddressByAddress(tx, customerId, normAddress);
+      if (dupAddress)
+        throw badRequest("That address is already saved as " + JSON.stringify(dupAddress.label) + ". Edit that location instead of adding a duplicate.");
       const first = count === 0;
       const setDefault = first ? true : makeDefault;
       if (setDefault) await tx.customerAddress.updateMany({ where: { customerId }, data: { isDefault: false } });
@@ -801,8 +818,15 @@ app.put(
     const makeDefault = isDefault === undefined ? undefined : Boolean(isDefault);
 
     const row = await prisma.$transaction(async (tx) => {
-      const dup = await findAddressByLabel(tx, customerId, normLabel, id);
-      if (dup) throw badRequest("You already have a location named " + JSON.stringify(dup.label) + ". Choose a different name.");
+      if (label !== undefined) {
+        const dup = await findAddressByLabel(tx, customerId, normLabel, id);
+        if (dup) throw badRequest("You already have a location named " + JSON.stringify(dup.label) + ". Choose a different name.");
+      }
+      if (address !== undefined) {
+        const dupAddress = await findAddressByAddress(tx, customerId, normAddress, id);
+        if (dupAddress)
+          throw badRequest("That address is already saved as " + JSON.stringify(dupAddress.label) + ". Edit that location instead of adding a duplicate.");
+      }
 
       // Unsetting the only default keeps it default so one stays default.
       let effectiveDefault = makeDefault;

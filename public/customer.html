@@ -292,10 +292,11 @@
 
     <div class="panel" id="addresses-panel">
       <h3>Delivery locations</h3>
-      <p class="muted" style="margin-top:-6px;">Save up to 3 spots. Each needs a unique name and a pin on the map — we use the pin to calculate your delivery fee.</p>
+      <p class="muted" style="margin-top:-6px;">Save up to 3 spots. Each needs a unique name and a pin on the map — we use the pin to calculate your delivery fee. Select the location you want for delivery, or delete one you no longer use.</p>
       <div class="row" style="align-items:center;justify-content:space-between;margin-bottom:6px;">
         <span class="muted" id="addr-count">0 of 3 saved</span>
       </div>
+      <div id="addr-limit-msg" class="hint" hidden></div>
       <div id="addresses-list"></div>
       <div id="addr-form">
         <div class="field" style="margin-top:10px;">
@@ -693,47 +694,69 @@ function resetAddrForm() {
   const e = $("#addr-err"); if (e) e.hidden = true;
 }
 async function loadAddresses() {
+  const list = document.getElementById("addresses-list");
+  const count = document.getElementById("addr-count");
+  const form = document.getElementById("addr-form");
+  const limitMsg = document.getElementById("addr-limit-msg");
   try {
     const res = await api("/api/customer/addresses");
     const rows = Array.isArray(res) ? res : (res.items || []);
     const used = (res && res.used != null) ? res.used : rows.length;
     const limit = (res && res.limit != null) ? res.limit : 3;
-    const list = document.getElementById("addresses-list");
-    const count = document.getElementById("addr-count");
+    const unpinned = rows.filter((a) => a.lat == null || a.lng == null).length;
     if (count) count.textContent = used + " of " + limit + " saved";
-    const form = document.getElementById("addr-form");
-    const limitMsg = document.getElementById("addr-limit-msg");
     if (form) {
+      const atCap = used >= limit && editingAddressId == null;
+      form.style.opacity = atCap ? "0.55" : "";
+      form.style.pointerEvents = atCap ? "none" : "";
+      form.setAttribute("aria-disabled", atCap ? "true" : "false");
+    }
+    if (limitMsg) {
       if (used >= limit && editingAddressId == null) {
-        form.style.opacity = "0.5";
-        form.style.pointerEvents = "none";
-        if (limitMsg) { limitMsg.textContent = "You've saved " + limit + " of " + limit + " locations. Delete one to add another."; limitMsg.hidden = false; }
+        limitMsg.textContent = unpinned
+          ? "You've saved " + used + " of " + limit + " locations, and " + unpinned + " still need a pin. Edit one to drop a pin, or delete one to add another."
+          : "You've saved " + used + " of " + limit + " locations. Select one for delivery, or delete one to add another.";
+        limitMsg.hidden = false;
       } else {
-        form.style.opacity = "";
-        form.style.pointerEvents = "";
-        if (limitMsg) limitMsg.hidden = true;
+        limitMsg.hidden = true;
       }
     }
     if (!list) return;
-    if (!rows.length) { list.innerHTML = '<div class="muted">No saved locations yet.</div>'; return; }
-    list.innerHTML = rows.map((a) => `
-      <div class="order-card" style="margin-bottom:8px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
+    if (!rows.length) {
+      list.innerHTML = '<div class="muted">No saved locations yet. Add your first one below.</div>';
+      return;
+    }
+    list.innerHTML = rows.map((a) => {
+      const needsPin = a.lat == null || a.lng == null;
+      return `
+      <div class="order-card" style="margin-bottom:8px;${a.isDefault ? "border-color:#c2410c;" : ""}">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
           <b>${esc(a.label)}</b>
-          ${a.isDefault ? '<span class="tag ok">Default</span>' : ''}
+          <span style="display:flex;gap:4px;flex-wrap:wrap;">
+            ${a.isDefault ? '<span class="tag ok">Selected for delivery</span>' : ''}
+            ${needsPin ? '<span class="tag" style="background:#fee2e2;color:#991b1b;">Pin needed</span>' : ''}
+          </span>
         </div>
         <div class="muted" style="font-size:13px;">${esc(a.address)}</div>
-        ${a.lat != null ? '<div class="muted" style="font-size:12px;">' + Number(a.lat).toFixed(4) + ', ' + Number(a.lng).toFixed(4) + '</div>' : '<div class="muted" style="font-size:12px;color:#b91c1c;">Pin needed - edit to drop a pin</div>'}
+        ${needsPin
+          ? '<div class="muted" style="font-size:12px;color:#b91c1c;">Drop a pin so we can calculate your delivery fee.</div>'
+          : '<div class="muted" style="font-size:12px;">' + Number(a.lat).toFixed(4) + ', ' + Number(a.lng).toFixed(4) + '</div>'}
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
-          ${a.isDefault ? '' : '<button class="ghost mini" data-addr-default="' + a.id + '">Set default</button>'}
-          <button class="ghost mini" data-addr-edit="' + a.id + '">Edit</button>
+          ${a.isDefault ? '' : '<button class="ghost mini" data-addr-default="' + a.id + '">Use for delivery</button>'}
+          <button class="ghost mini" data-addr-edit="' + a.id + '">' + (needsPin ? 'Edit &amp; drop pin' : 'Edit') + '</button>
           <button class="ghost mini" data-addr-del="' + a.id + '">Delete</button>
         </div>
       </div>
-    `).join("");
+    `;
+    }).join("");
     list.querySelectorAll("[data-addr-del]").forEach((b) => b.addEventListener("click", async () => {
-      if (!confirm("Delete this location?")) return;
-      try { await api("/api/customer/addresses/" + b.dataset.addrDel, { method: "DELETE" }); await loadAddresses(); } catch (e) { alert(e.message); }
+      const row = rows.find((r) => r.id === Number(b.dataset.addrDel));
+      if (!confirm("Delete " + (row ? row.label : "this location") + "?")) return;
+      try {
+        await api("/api/customer/addresses/" + b.dataset.addrDel, { method: "DELETE" });
+        if (editingAddressId === Number(b.dataset.addrDel)) resetAddrForm();
+        await loadAddresses();
+      } catch (e) { alert(e.message); }
     }));
     list.querySelectorAll("[data-addr-default]").forEach((b) => b.addEventListener("click", async () => {
       try { await api("/api/customer/addresses/" + b.dataset.addrDefault, { method: "PUT", body: JSON.stringify({ isDefault: true }) }); await loadAddresses(); } catch (e) { alert(e.message); }
@@ -749,11 +772,14 @@ async function loadAddresses() {
       if (row.lat != null && row.lng != null) setAddrPin(row.lat, row.lng);
       $("#addr-save").textContent = "Update location";
       $("#addr-cancel").hidden = false;
-      const form = document.getElementById("addr-form");
-      if (form) { form.style.opacity = ""; form.style.pointerEvents = ""; }
-      const lm = document.getElementById("addr-limit-msg"); if (lm) lm.hidden = true;
+      if (form) { form.style.opacity = ""; form.style.pointerEvents = ""; form.setAttribute("aria-disabled", "false"); }
+      if (limitMsg) limitMsg.hidden = true;
+      $("#addr-label").focus();
     }));
-  } catch (e) {}
+  } catch (e) {
+    if (count) count.textContent = "Could not load saved locations";
+    if (list) list.innerHTML = '<div class="err">Could not load your saved locations. Please refresh and try again.</div>';
+  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {

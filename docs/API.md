@@ -135,9 +135,9 @@ storefront and homepage poll this on load.
 | `POST /api/customer/auth/logout` | customer | Clears customer session |
 | `GET /api/customer/auth/me` | customer | Current customer profile (password hash never serialized) |
 | `PUT /api/customer/profile` | customer | Update `{ firstName?, lastName?, email?, cellphone?, addressLabel?, lat?, lng? }`. Cellphone stays required because it is the login id; duplicate cellphone/email returns `400`. Returns the updated profile |
-| `GET /api/customer/addresses` | customer | List saved delivery locations (max 3, uniquely named) |
-| `POST /api/customer/addresses` | customer | Create `{ label, address, lat, lng, isDefault? }`. `lat`/`lng` are the map pin (required). Max 3 per customer; duplicate label (case-insensitive) returns 409. Returns the created row |
-| `PUT /api/customer/addresses/:id` | customer | Update any of `{ label, address, lat, lng, isDefault }` (same validation) |
+| `GET /api/customer/addresses` | customer | List saved delivery locations (max 3, uniquely named). Returns `{ items, limit, used }` |
+| `POST /api/customer/addresses` | customer | Create `{ label, address, lat, lng, isDefault? }`. `lat`/`lng` are the map pin (required). Max 3 per customer; duplicate label or duplicate address (case/whitespace/punctuation-insensitive) returns 400. Returns the created row |
+| `PUT /api/customer/addresses/:id` | customer | Update any of `{ label, address, lat, lng, isDefault }` (same validation). Duplicate checks only apply to fields being changed, so setting a location as default still works |
 | `DELETE /api/customer/addresses/:id` | customer | Delete a saved location; promotes another to default if needed |
 | `POST /api/orders` with `quote: true` | public | Price-only quote: runs the full pricing pipeline and returns totals + delivery fee/distance without creating an order |
 
