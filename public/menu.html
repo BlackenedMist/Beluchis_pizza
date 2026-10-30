@@ -1662,18 +1662,80 @@ async function confirmCheckoutOrder(payload, quote) {
   if (btn) { btn.disabled = true; btn.textContent = "Placing\u2026"; }
   const errEl = $("#checkout-error");
   if (errEl) errEl.hidden = true;
+
+  // Transaction-style progress UI
+  const review = $("#checkout-review");
+  let prog = document.getElementById("order-progress");
+  if (!prog && review) {
+    prog = document.createElement("div");
+    prog.id = "order-progress";
+    prog.style.cssText = "margin:12px 0 8px;";
+    prog.innerHTML =
+      '<div style="height:8px;background:#eee;border-radius:4px;overflow:hidden;">' +
+        '<div id="order-progress-fill" style="height:100%;width:0%;background:#c2410c;transition:width .25s;"></div>' +
+      '</div>' +
+      '<div id="order-progress-text" class="muted" style="font-size:13px;margin-top:6px;">Connecting to queue\u2026</div>' +
+      '<div id="order-progress-steps" class="muted" style="font-size:12px;margin-top:4px;"></div>';
+    review.appendChild(prog);
+  }
+  const setProgress = (pct, text, step) => {
+    const fill = document.getElementById("order-progress-fill");
+    const txt = document.getElementById("order-progress-text");
+    const steps = document.getElementById("order-progress-steps");
+    if (fill) fill.style.width = pct + "%";
+    if (txt) txt.textContent = text;
+    if (steps && step) steps.textContent = step;
+  };
+
+  let data = null;
   try {
-    const res = await fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (res.status === 403 && data.code === "shop_closed") {
-      shopCfg = Object.assign({}, shopCfg, { open: false });
-      renderMenu();
+    setProgress(15, "Connecting to queue\u2026", "Step 1 of 4: connecting");
+    // Step 2: check if an identical order already exists on the queue.
+    setProgress(35, "Checking for existing order\u2026", "Step 2 of 4: checking queue");
+    let existingOrder = null;
+    try {
+      const phone = (payload.cellphone || CUSTOMER?.cellphone || "").trim();
+      const activeRes = await fetch("/api/customer/active-orders?" + new URLSearchParams({ phone }));
+      if (activeRes.ok) {
+        const ao = await activeRes.json();
+        const now = Date.now();
+        if (ao && Array.isArray(ao.orders)) {
+          existingOrder = ao.orders.find((o) => {
+            const recent = now - new Date(o.createdAt).getTime() < 120000;
+            return recent && Number(o.total) === Number(quote.grandTotal);
+          }) || null;
+        }
+      }
+    } catch (e) { /* if check fails, proceed to place */ }
+
+    if (existingOrder) {
+      setProgress(100, "Order already on the queue. Thank you for your business!", "Step 4 of 4: complete");
+      data = {
+        id: existingOrder.id,
+        total: existingOrder.total,
+        grandTotal: quote.grandTotal,
+        discountAmount: quote.discountAmount || 0,
+        deliveryFee: quote.deliveryFee || 0,
+        redirect: null,
+      };
+    } else {
+      // Step 3: place the order on the queue.
+      setProgress(60, "Placing order on the queue\u2026", "Step 3 of 4: placing order");
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (res.status === 403 && json.code === "shop_closed") {
+        shopCfg = Object.assign({}, shopCfg, { open: false });
+        renderMenu();
+      }
+      if (!res.ok) throw new Error(json.error || "Something went wrong");
+      data = json;
+      setProgress(85, "Finalising\u2026", "Step 4 of 4: finalising");
     }
-    if (!res.ok) throw new Error(data.error || "Something went wrong");
+    setProgress(100, "Success! Thank you for your business.", "Step 4 of 4: complete");
     // If the final total differs from the quote, surface it.
     if (quote && (data.grandTotal != null && quote.grandTotal != null) && Number(data.grandTotal) !== Number(quote.grandTotal)) {
       toast("Total updated to R" + Number(data.grandTotal).toFixed(2) + " (delivery fee changed).");
