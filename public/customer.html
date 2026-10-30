@@ -743,8 +743,8 @@ async function loadAddresses() {
           : '<div class="muted" style="font-size:12px;">' + Number(a.lat).toFixed(4) + ', ' + Number(a.lng).toFixed(4) + '</div>'}
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
           ${a.isDefault ? '' : '<button class="ghost mini" data-addr-default="' + a.id + '">Use for delivery</button>'}
-          <button class="ghost mini" data-addr-edit="' + a.id + '">' + (needsPin ? 'Edit &amp; drop pin' : 'Edit') + '</button>
-          <button class="ghost mini" data-addr-del="' + a.id + '">Delete</button>
+          <button class="ghost mini" data-addr-edit="${a.id}">${needsPin ? 'Edit &amp; drop pin' : 'Edit'}</button>
+          <button class="ghost mini" data-addr-del="${a.id}">Delete</button>
         </div>
       </div>
     `;
