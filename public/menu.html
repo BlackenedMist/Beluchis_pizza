@@ -437,6 +437,7 @@
               <label class="pay-opt"><input type="radio" name="paymentMethod" value="cod_cash" checked /><span>Cash on delivery</span></label>
               <label class="pay-opt"><input type="radio" name="paymentMethod" value="cod_card" /><span>Card on delivery</span></label>
               <label class="pay-opt" data-pay="paygate" hidden><input type="radio" name="paymentMethod" value="paygate" /><span>Paid online now (PayGate)</span></label>
+              <label class="pay-opt" data-pay="counter" hidden><input type="radio" name="paymentMethod" value="pay_at_counter" /><span>Pay at counter</span></label>
             </div>
             <div class="hint" id="pay-hint">Pay cash when your order arrives.</div>
           </div>
@@ -1317,12 +1318,28 @@ async function openCheckout() {
     const deliveryRadio = document.querySelector('input[name="orderMethod"][value="delivery"]');
     const collectionRadio = document.querySelector('input[name="orderMethod"][value="collection"]');
     if (collectionRadio) collectionRadio.checked = true;
-    if (deliveryRadio) deliveryRadio.disabled = true;
+    if (deliveryRadio) {
+      deliveryRadio.disabled = true;
+      const deliveryLabel = deliveryRadio.closest(".pay-opt");
+      if (deliveryLabel) {
+        deliveryLabel.style.opacity = "0.5";
+        deliveryLabel.style.cursor = "pointer";
+        deliveryLabel.title = "Sign in to order for delivery";
+        deliveryLabel.addEventListener("click", function handleGuestDeliveryClick(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          toast("Please sign in to order for delivery");
+          setTimeout(() => { location.href = "/portal?next=/order"; }, 900);
+        }, { once: false });
+      }
+    }
     const block = $("#delivery-block");
     if (block) block.style.display = "none";
     geo = { lat: null, lng: null };
     geoStatus = null;
-    if (geoHint) geoHint.textContent = "Collection only - sign in for delivery. No address = collection.";
+    if (geoHint) {
+      geoHint.innerHTML = 'Collection only &mdash; <a href="/portal?next=/order" style="color:var(--accent);font-weight:700;text-decoration:underline">sign in</a> for delivery.';
+    }
     if (addToggle) addToggle.hidden = true;
     syncOrderMethod();
   } else {
@@ -1339,6 +1356,7 @@ $("#checkout-overlay").addEventListener("change", (e) => {
     cod_cash: "Pay cash when your order arrives.",
     cod_card: "Bring your card - we\u2019ll swipe or tap it on delivery.",
     paygate: "You\u2019ll be redirected to PayGate\u2019s secure page to pay now.",
+    pay_at_counter: "Pay when you collect your order at the counter.",
   };
   $("#pay-hint").textContent = hints[e.target.value] || "";
 });
@@ -1467,7 +1485,7 @@ function resetCheckout() {
   geo = { lat: null, lng: null };
   geoStatus = null;
 }
-function showCheckoutReview(quote, payload) {
+function showCheckoutReview(quote, payload, activeOrders) {
   window.__lastReview = { quote, payload };
   window.__reviewCancel = function() {
     try {
@@ -1547,8 +1565,26 @@ function showCheckoutReview(quote, payload) {
     ? quote.delivery.distanceKm.toFixed(1) + ' km (straight line)'
     : (isDelivery ? 'Distance to confirm' : '');
 
+  // Duplicate-order warning: if the customer already has an active order,
+  // show a confirmation banner. The confirm button requires an explicit click
+  // on "Place another order" to proceed.
+  const hasActiveOrders = activeOrders && activeOrders.hasActive;
+  let dupeHtml = "";
+  if (hasActiveOrders) {
+    const ordersList = (activeOrders.orders || []).map((o) =>
+      '<span style="font-size:12px;">#' + o.id + ' (' + esc(o.status) + ')</span>'
+    ).join(", ");
+    dupeHtml =
+      '<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:10px;padding:12px 14px;margin:10px 0;font-size:13px;color:#856404;">' +
+      '<strong>&#9888; You already have ' + activeOrders.count + ' active order' + (activeOrders.count > 1 ? "s" : "") + ' on the queue.</strong><br />' +
+      'Existing: ' + ordersList + '<br />' +
+      'Are you sure you want to place another?' +
+      '</div>';
+  }
+
   review.innerHTML =
     '<h3 style="margin:0 0 8px;">Confirm your order</h3>' +
+    dupeHtml +
     (isDelivery ? '<div class="muted" style="font-size:13px;margin-bottom:6px;">Delivering to: <b>' + esc(quote.addressLabel || '') + '</b> \u2014 ' + esc(quote.deliveryAddress || '') + '</div>' : '') +
     mapHtml +
     (isDelivery && distHtml ? '<div class="hint" style="margin-bottom:8px;">' + distHtml + ' \u00b7 ' + (quote.delivery.status === 'free' ? 'Free delivery' : 'R' + money(quote.delivery.fee).replace('R','') + ' delivery fee') + '</div>' : '') +
@@ -1560,11 +1596,15 @@ function showCheckoutReview(quote, payload) {
     (isDelivery ? '<div style="display:flex;justify-content:space-between;"><span>Delivery fee</span><span>' + money(quote.deliveryFee) + '</span></div>' : '') +
     '<div style="display:flex;justify-content:space-between;font-weight:700;margin-top:4px;"><span>Total</span><span>' + money(quote.grandTotal) + '</span></div>' +
     '</div>' +
-    '<div class="muted" style="font-size:12px;margin-top:6px;">Paying by: ' + esc(payload.paymentMethod) + '</div>' +
+    '<div class="muted" style="font-size:12px;margin-top:6px;">Paying by: ' + esc(({ cod_cash: "Cash on delivery", cod_card: "Card on delivery", paygate: "Paid online", pay_at_counter: "Pay at counter" }[payload.paymentMethod] || payload.paymentMethod)) + '</div>' +
     '<div class="modal-actions" style="margin-top:12px;">' +
     '<button type="button" class="ghost" id="review-back" onclick="window.__reviewBack && window.__reviewBack()">Back to checkout</button>' +
     '<button type="button" class="ghost" id="review-cancel" onclick="window.__reviewCancel && window.__reviewCancel()">Cancel</button>' +
-    '<button type="button" class="primary" id="review-confirm" onclick="window.__reviewConfirm && window.__reviewConfirm()">' + (payload.paymentMethod === "paygate" ? "Confirm & pay online" : "Confirm & place order") + '</button>' +
+    '<button type="button" class="primary" id="review-confirm" onclick="window.__reviewConfirm && window.__reviewConfirm()">' +
+    (payload.paymentMethod === "paygate"
+      ? (hasActiveOrders ? "Confirm & pay online (another order)" : "Confirm & pay online")
+      : (hasActiveOrders ? "Yes, place another order" : "Confirm & place order")) +
+    '</button>' +
     '</div>';
 
   // wire buttons (direct + delegated, so they survive innerHTML swaps)
@@ -1578,7 +1618,21 @@ function showCheckoutReview(quote, payload) {
       try { setCheckoutStep(3); } catch (e) {}
     }); }
     const confirmBtn = $("#review-confirm");
-    if (confirmBtn && !confirmBtn.__wired) { confirmBtn.__wired = true; confirmBtn.addEventListener("click", () => confirmCheckoutOrder(payload, quote)); }
+    if (confirmBtn && !confirmBtn.__wired) {
+      confirmBtn.__wired = true;
+      if (hasActiveOrders) {
+        // Duplicate order: require explicit confirmation via a dialog before placing.
+        confirmBtn.addEventListener("click", () => {
+          const ctx = window.__lastReview;
+          if (!ctx) return;
+          const existing = (activeOrders.orders || []).map(o => "#" + o.id + " (" + o.status + ")").join(", ");
+          const ok = confirm("You already have an active order on the queue: " + existing + ".\n\nAre you sure you want to place another order?");
+          if (ok) confirmCheckoutOrder(ctx.payload, ctx.quote);
+        });
+      } else {
+        confirmBtn.addEventListener("click", () => confirmCheckoutOrder(payload, quote));
+      }
+    }
   };
   wireReviewButtons();
   setTimeout(wireReviewButtons, 60);
@@ -1733,7 +1787,14 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
       }
       throw new Error(data.error || "Something went wrong");
     }
-    showCheckoutReview(data, payload);
+    // Check for active/duplicate orders before showing the review screen.
+    let activeOrders = null;
+    try {
+      const phone = (payload.cellphone || "").trim();
+      const activeRes = await fetch("/api/customer/active-orders?" + new URLSearchParams({ phone }));
+      if (activeRes.ok) activeOrders = await activeRes.json();
+    } catch (e) { /* if the check fails, just proceed normally */ }
+    showCheckoutReview(data, payload, activeOrders);
   } catch (err) {
     errEl.textContent = err.message;
     errEl.hidden = false;
@@ -1761,6 +1822,8 @@ function syncOrderMethod() {
     if (add && !add.hidden) initAddMap();
     setTimeout(() => { try { if (deliveryMap) deliveryMap.invalidateSize(); } catch (e) {} }, 200);
   }
+  // Payment options depend on delivery vs collection (guest collection = pay at counter only).
+  applyPaymentOptions();
 }
 
 document.addEventListener("change", (e) => {
@@ -1882,12 +1945,37 @@ function refreshCheckoutSummary() {
 }
 function applyPaymentOptions() {
   const prov = shopCfg && shopCfg.onlinePayment;
+  const isCollection = (document.querySelector('input[name="orderMethod"]:checked')?.value || "delivery") === "collection";
+  const guest = !CUSTOMER;
   document.querySelectorAll("[data-pay]").forEach((el) => {
-    el.hidden = el.dataset.pay !== prov;
+    const pay = el.dataset.pay;
+    if (pay === "counter") {
+      // "Pay at counter" only for guests on collection orders.
+      el.hidden = !(guest && isCollection);
+    } else {
+      el.hidden = el.dataset.pay !== prov;
+    }
   });
-  if (!prov) {
-    const cash = document.querySelector('input[name=paymentMethod][value="cod_cash"]');
-    if (cash) cash.checked = true;
+  // If guest + collection: force "pay at counter" (hide the COD options too).
+  if (guest && isCollection) {
+    document.querySelectorAll('input[name="paymentMethod"][value="cod_cash"], input[name="paymentMethod"][value="cod_card"]').forEach((el) => {
+      const opt = el.closest(".pay-opt");
+      if (opt) opt.hidden = true;
+    });
+    const counterEl = document.querySelector('input[name="paymentMethod"][value="pay_at_counter"]');
+    if (counterEl) counterEl.checked = true;
+    const payHint = $("#pay-hint");
+    if (payHint) payHint.textContent = "Pay when you collect your order at the counter.";
+  } else {
+    const hasChecked = document.querySelector('input[name="paymentMethod"]:checked');
+    if (!hasChecked || hasChecked.closest(".pay-opt")?.hidden) {
+      const cash = document.querySelector('input[name=paymentMethod][value="cod_cash"]');
+      if (cash && !cash.closest(".pay-opt")?.hidden) cash.checked = true;
+    }
+    if (!prov) {
+      const cash = document.querySelector('input[name=paymentMethod][value="cod_cash"]');
+      if (cash && !cash.closest(".pay-opt")?.hidden) cash.checked = true;
+    }
   }
 }
 
@@ -1913,7 +2001,7 @@ function checkoutStepSummary(n) {
   }
   if (n === 3) {
     const pm = document.querySelector('input[name="paymentMethod"]:checked')?.value || "cod_cash";
-    const names = { cod_cash: "Cash on delivery", cod_card: "Card on delivery", paygate: "Paid online" };
+    const names = { cod_cash: "Cash on delivery", cod_card: "Card on delivery", paygate: "Paid online", pay_at_counter: "Pay at counter" };
     return names[pm] || pm;
   }
   return "";

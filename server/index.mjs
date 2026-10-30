@@ -51,7 +51,7 @@ const onlinePaymentProvider = () => (PAYGATE_ENABLED ? "paygate" : null);
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
 const PUBLIC_ORIGIN = (PUBLIC_BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
 
-const PAYMENT_METHODS = new Set(["cod_cash", "cod_card", "paygate", "payfast"]);
+const PAYMENT_METHODS = new Set(["cod_cash", "cod_card", "paygate", "payfast", "pay_at_counter"]);
 const PAYMENT_STATUSES = new Set(["pending", "paid", "failed"]);
 
 app.use(express.json({ limit: "8mb" }));
@@ -611,6 +611,54 @@ app.get(
     const customer = await currentCustomer(req);
     if (!customer) return res.status(401).json({ error: "not logged in" });
     res.json(publicCustomer(customer));
+  })
+);
+
+// Active-order check: before placing an order, the storefront asks whether
+// the customer already has an open order so they can confirm they really want
+// a second one. Works for both logged-in customers (by session) and guests
+// (by cellphone).
+const ACTIVE_ORDER_STATUSES = ["placed", "preparing", "out_for_delivery"];
+app.get(
+  "/api/customer/active-orders",
+  asyncHandler(async (req, res) => {
+    // Logged-in customer: identify by session.
+    const sessCustomer = await currentCustomer(req);
+    if (sessCustomer) {
+      const rows = await prisma.order.findMany({
+        where: {
+          customerId: sessCustomer.id,
+          status: { in: ACTIVE_ORDER_STATUSES },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: { id: true, status: true, total: true, createdAt: true },
+      });
+      return res.json({
+        hasActive: rows.length > 0,
+        count: rows.length,
+        orders: rows.map((o) => ({ id: o.id, status: o.status, total: Number(o.total), createdAt: o.createdAt })),
+      });
+    }
+    // Guest: identify by cellphone query param.
+    const phone = canonicalPhone(req.query.phone || "");
+    if (!phone) return res.json({ hasActive: false, count: 0, orders: [] });
+    const customer = await prisma.customer.findUnique({ where: { cellphone: phone } });
+    if (!customer) return res.json({ hasActive: false, count: 0, orders: [] });
+    const rows = await prisma.order.findMany({
+      where: {
+        customerId: customer.id,
+        status: { in: ACTIVE_ORDER_STATUSES },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { id: true, status: true, total: true, createdAt: true },
+    });
+    res.json({
+      hasActive: rows.length > 0,
+      count: rows.length,
+      orders: rows.map((o) => ({ id: o.id, status: o.status, total: Number(o.total), createdAt: o.createdAt })),
+    });
   })
 );
 
@@ -1774,6 +1822,21 @@ app.post(
           ? "Online payment is only available through PayGate."
           : "Online payment is not configured on this server. Please choose cash or card on delivery.",
       });
+    }
+
+    // "pay_at_counter" is only valid for collection orders — it means the
+    // customer will pay when they pick up, so there's nothing to collect on
+    // delivery. Reject it for delivery orders.
+    if (paymentMethod === "pay_at_counter") {
+      const deliveryById = deliveryAddressId != null;
+      const deliveryByAddr = Boolean(deliveryAddress?.trim());
+      const deliveryByGeo = Number.isFinite(nOr(lat)) || Number.isFinite(nOr(lng));
+      if (deliveryById || deliveryByAddr || deliveryByGeo) {
+        return res.status(400).json({
+          error: "'Pay at counter' is only available for collection orders. Choose cash or card on delivery.",
+          code: "pay_at_counter_collection_only",
+        });
+      }
     }
 
     // Storefront hours: online ordering pauses outside the owner-set window,
