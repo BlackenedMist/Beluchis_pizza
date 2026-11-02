@@ -417,8 +417,8 @@ async function loadAll() {
   state.items = items; state.toppings = toppings; state.bases = bases; state.categories = categories; state.specials = specials;
   $("#stats").textContent = `${stats.items} items · ${stats.specials} specials · ${stats.toppings} toppings · ${stats.bases} bases · ${stats.categories} categories · ${stats.orders} orders`;
   if (state.me?.role === "admin") {
-    try { state.settings = (await api("/api/settings")).settings; state.delivery = (await api("/api/delivery/config")); }
-    catch { state.settings = {}; state.delivery = null; }
+    try { state.settings = (await api("/api/settings")).settings; state.delivery = (await api("/api/delivery/config")); state.shop = await api("/api/shop/config"); }
+    catch { state.settings = {}; state.delivery = null; state.shop = null; }
   }
   render();
 }
@@ -2311,6 +2311,7 @@ async function loadSettings() {
   try {
     state.settings = (await api("/api/settings")).settings;
     state.delivery = await api("/api/delivery/config");
+    state.shop = await api("/api/shop/config");
     state.shopConfig = await api("/api/shop/social");
     renderDelivery();
     renderDeliveries();
