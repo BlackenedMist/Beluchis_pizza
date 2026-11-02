@@ -2579,6 +2579,11 @@ async function loadPrinters() {
   try {
     const data = await api("/api/kitchen/printers");
     state.printers = data.printers || [];
+    try {
+      const k = await api("/api/kitchen/print-key");
+      state.printKey = k.key || "";
+      localStorage.setItem("beluchis_print_key", state.printKey);
+    } catch { state.printKey = localStorage.getItem("beluchis_print_key") || ""; }
     renderPrinters();
   } catch (e) { toast(e.message, true); }
 }
@@ -2591,6 +2596,7 @@ function renderPrinters() {
   const alertHtml = anyOffline
     ? '<div class="hint" style="background:#fdecea;border:1px solid #f5c6cb;color:#b3351f;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-weight:600;">&#9888; A printer is offline or failed to print. Check the list below.</div>'
     : "";
+  const keyVal = (state.printKey || "").replace(/"/g, "&quot;");
   el.innerHTML = `
     <div class="toolbar">
       <h2>Printers</h2>
@@ -2598,6 +2604,14 @@ function renderPrinters() {
         <button class="ghost" onclick="loadPrinters()">Refresh</button>
         <button class="ghost" onclick="scanPrinters()">Scan network</button>
         <button class="primary" onclick="addPrinter()">+ Add printer</button>
+      </div>
+    </div>
+    <div class="order-card" style="margin-bottom:12px;">
+      <div style="font-weight:700;margin-bottom:6px;">Kitchen daemon auth password</div>
+      <div class="muted" style="font-size:12px;margin-bottom:8px;">Used to authenticate scan/print requests to the kitchen daemon (port 3101). Must match the daemon's PRINT_KEY environment variable. Leave blank to disable auth.</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input id="print-key-input" type="text" value="${keyVal}" style="flex:1;min-width:200px;padding:8px 10px;border:1px solid var(--line,#e4dccd);border-radius:8px;font-size:13px;" />
+        <button class="ghost" onclick="savePrintKey()">Save key</button>
       </div>
     </div>
     ${alertHtml}
@@ -2668,9 +2682,20 @@ window.testPrinter = async (id) => {
   } catch (e) { toast(e.message, true); }
 };
 
+window.savePrintKey = async () => {
+  const inp = document.getElementById("print-key-input");
+  const key = inp ? inp.value.trim() : "";
+  try {
+    await api("/api/kitchen/print-key", { method: "PUT", body: JSON.stringify({ key }) });
+    state.printKey = key;
+    localStorage.setItem("beluchis_print_key", key);
+    toast("Auth key saved");
+  } catch (e) { toast(e.message, true); }
+};
+
 window.scanPrinters = async () => {
   try {
-    const res = await fetch("http://localhost:3101/api/scan", { headers: { "x-print-key": (window.PRINT_KEY || "") } });
+    const res = await fetch("http://localhost:3101/api/scan", { headers: { "x-print-key": (state.printKey || localStorage.getItem("beluchis_print_key") || "") } });
     if (!res.ok) throw new Error("scan failed");
     const data = await res.json();
     toast("Scan found: " + (data.found || []).join(", ") || "no printers");

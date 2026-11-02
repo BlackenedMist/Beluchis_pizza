@@ -27,29 +27,84 @@ The admin portal has a sidebar of tabs. The main ones:
 - Change an order's status as it progresses (placed → preparing → out for delivery → delivered). Cancel if needed.
 - New-order notifications fire only while an order is still being processed.
 
-## 4. Menu management
+## 4. Menu management (step by step)
 
-- **Categories** — create/rename/reorder; set a deal text badge per category.
-- **Items** — name, description, slug, category, image, sizes & prices, active toggle, "show on home".
-- **Custom items** — add bases and extra toppings with per-size pricing; seasonal swaps for out-of-season toppings.
-- Images upload to `/uploads`.
+### 4.1 Adding a category
+1. Open the admin portal -> **Menu -> Categories**.
+2. Click **+ Add category**.
+3. Enter a name (e.g. "Pizzas") and an optional deal badge text (e.g. "2 for 1").
+4. Set the sort order, then **Save**.
 
-## 5. Specials (deals)
+### 4.2 Adding an item
+1. Go to **Menu -> Items** -> **+ Add item**.
+2. Fill in: name, description, slug (URL-friendly, e.g. `bbq-chicken`), category.
+3. Upload an image (stored under `/uploads`).
+4. Add sizes: click **+ Size**, enter label (Small/Medium/Large) and price for each.
+5. Toggle **Active** (visible on the menu) and **Show on home** (appears on the home page tiles).
+6. **Save**.
 
-Tap **+ Add Special** to open the accordion form. Sections (click to expand):
+### 4.3 Editing / deactivating an item
+1. Find the item in the list (use the search box at the top).
+2. Click **Edit**, change fields, **Save**.
+3. To hide an item temporarily, toggle **Active** off (it stays in the database but disappears from the menu).
 
-1. **Name & kind** — choose the deal type:
-   - **Combo (fixed price)** — a set of items for one price.
-   - **BOGO (buy one get one)** — pick N, pay N/2.
-   - **Deal (automatic)** — applies when the right items are in the cart.
-   - **Pick (buy N get 1 free)** — customer picks N pizzas from a category (or a curated list), pays for N−1.
-2. **Category & size** — which category and size the deal applies to.
-3. **Item selection** (pick deals only) — curated list of eligible pizzas; toggle **Pay** per item in fixed mode (otherwise cheapest are free).
-4. **Description** — short text shown on the card.
-5. **Schedule** — weekdays (Mon–Sun) and/or a start/end date range. Only active specials on the current day show on the storefront.
-6. **Home page & social** — tile or banner display, "Show on home", "Post to Facebook".
+### 4.4 Custom items (bases & extra toppings)
+1. Open an item -> **Customise** section.
+2. **Bases**: add each base option with its per-size price (0 for the default base).
+3. **Extra toppings**: add each topping with its per-size price.
+4. For seasonal items, tick "out of season" on a topping - customers will be offered a free swap for an in-season topping of the same value.
+5. **Save**.
 
-Tap **Save**. Tick "Post to Facebook" to publish the special to the connected page.
+### 4.5 Reordering
+Drag items/categories by their handle, or set the sort order number and save.
+
+### 4.6 Images
+- Upload JPG/PNG. Recommended: square, at least 600x600 px for tiles.
+- The first image is used as the thumbnail; multiple images show as a gallery in the customiser.
+
+## 5. Specials (deals) - step by step
+
+### 5.1 Creating a special
+1. Open **Menu -> Specials** -> **+ Add Special**.
+2. The accordion form opens. Expand each section by clicking its header.
+
+### 5.2 Section 1 - Name & kind
+1. Enter a **Name** (shown on the card, e.g. "2 Large for R200").
+2. Choose the **Kind**:
+   - **Combo (fixed price)** - a set of items for one price. Enter the price and quantity.
+   - **BOGO** - "Pick N, pay N/2". Set the count (e.g. 2 = pick 2, pay 1).
+   - **Deal (automatic)** - applies automatically when the right items are in the cart. Set count and price.
+   - **Pick (buy N get 1 free)** - customer picks N pizzas, pays for N-1. Set buy count and pay count.
+3. Expand the next section.
+
+### 5.3 Section 2 - Category & size
+1. Choose the **Category** the deal applies to (e.g. Pizzas).
+2. Choose a **Size** (or "any size").
+3. For pick deals, optionally tick "Curated items" to limit which pizzas qualify.
+
+### 5.4 Section 3 - Item selection (pick deals only)
+1. Tick the pizzas that qualify.
+2. In **fixed** pay mode, tick the **Pay** box on items the customer must pay for; unticked items are free. In **cheapest** mode (default), the cheapest picks are free automatically.
+3. **Save** the selection.
+
+### 5.5 Section 4 - Description
+Enter a short description shown under the name on the card (optional).
+
+### 5.6 Section 5 - Schedule
+1. Tick the **weekdays** the special is active (Mon-Sun).
+2. Optionally set a **start date** and **end date** for a limited run.
+3. Leave both empty for an always-on special.
+4. Only specials active on the current day appear on the storefront.
+
+### 5.7 Section 6 - Home page & social
+1. Choose **Display type**: **Tile** (square, in the grid) or **Banner** (full-width row above the grid).
+2. Tick **Show on home** to publish to the home page.
+3. Tick **Post to Facebook** to publish the special to the connected Facebook page on save.
+4. **Save** the special.
+
+### 5.8 Editing / deleting
+- Click a special in the list -> **Edit** to change any field, then **Save**.
+- Click **Delete** to remove (confirms first).
 
 ## 6. Printers
 
@@ -60,6 +115,13 @@ Tab **Printers** under Store. Each printer: name, type (network/file), host, por
 - **Scan network** — asks the daemon to scan the local subnet for printers on port 9100.
 - **Offline alert** — a red banner appears on admin and cashier when any printer is offline or a print failed.
 - The kitchen daemon polls this config on startup and every poll; it auto-resolves a changed IP by scanning the subnet and updating the server.
+
+### 6.1 Kitchen daemon auth password
+At the top of the Printers tab there is a **Kitchen daemon auth password** field.
+1. Enter the password the daemon uses (its `PRINT_KEY` environment variable).
+2. Click **Save key**. The value is stored on the server and in your browser.
+3. Leave blank to disable auth (daemon must also have no `PRINT_KEY` set).
+4. The **Scan network** button sends this password to the daemon. If scans fail with 403, the password does not match the daemon's `PRINT_KEY`.
 
 ## 7. Shop settings
 

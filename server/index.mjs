@@ -1511,6 +1511,29 @@ app.post(
   })
 );
 
+app.get(
+  "/api/kitchen/print-key",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    const s = await prisma.setting.findUnique({ where: { key: "kitchen.printKey" } });
+    res.json({ key: s?.value || process.env.PRINT_KEY || "" });
+  })
+);
+
+app.put(
+  "/api/kitchen/print-key",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    const key = String(req.body?.key || "").trim();
+    await prisma.setting.upsert({
+      where: { key: "kitchen.printKey" },
+      update: { value: key },
+      create: { key: "kitchen.printKey", value: key },
+    });
+    res.json({ ok: true, key });
+  })
+);
+
 // -------------------------------------------------------------- Customers
 app.get(
   "/api/customers",

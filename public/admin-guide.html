@@ -78,25 +78,88 @@
 <li>New-order notifications fire only while an order is still being processed.</li>
 </ul>
 
-<h2 id="en-menu">4. Menu management</h2>
+<h2 id="en-menu">4. Menu management (step by step)</h2>
+<h3>4.1 Adding a category</h3>
+<ol>
+<li>Admin portal -> <b>Menu -> Categories</b>.</li>
+<li>Click <b>+ Add category</b>.</li>
+<li>Enter name (e.g. "Pizzas") and optional deal badge text.</li>
+<li>Set sort order, then <b>Save</b>.</li>
+</ol>
+<h3>4.2 Adding an item</h3>
+<ol>
+<li>Go to <b>Menu -> Items</b> -> <b>+ Add item</b>.</li>
+<li>Fill in name, description, slug, category.</li>
+<li>Upload an image (stored under <code>/uploads</code>).</li>
+<li>Add sizes: click <b>+ Size</b>, enter label and price for each.</li>
+<li>Toggle <b>Active</b> and <b>Show on home</b>.</li>
+<li><b>Save</b>.</li>
+</ol>
+<h3>4.3 Editing / deactivating</h3>
+<ol>
+<li>Find the item (use search box).</li>
+<li>Click <b>Edit</b>, change fields, <b>Save</b>.</li>
+<li>To hide temporarily, toggle <b>Active</b> off.</li>
+</ol>
+<h3>4.4 Custom items (bases &amp; extra toppings)</h3>
+<ol>
+<li>Open an item -> <b>Customise</b> section.</li>
+<li><b>Bases</b>: add each base option with per-size price (0 for default).</li>
+<li><b>Extra toppings</b>: add each topping with per-size price.</li>
+<li>For seasonal items, tick "out of season" - customers get a free swap for an in-season topping of the same value.</li>
+<li><b>Save</b>.</li>
+</ol>
+<h3>4.5 Images</h3>
 <ul>
-<li><b>Categories</b> — create/rename/reorder; deal text badge per category.</li>
-<li><b>Items</b> — name, description, slug, category, image, sizes &amp; prices, active toggle, show on home.</li>
-<li><b>Custom items</b> — bases and extra toppings with per-size pricing; seasonal swaps for out-of-season toppings.</li>
-<li>Images upload to <code>/uploads</code>.</li>
+<li>Upload JPG/PNG. Recommended: square, at least 600x600 px.</li>
+<li>First image = thumbnail; multiple images = gallery in the customiser.</li>
 </ul>
 
-<h2 id="en-specials">5. Specials (deals)</h2>
-<p>Tap <b>+ Add Special</b> to open the accordion form. Sections:</p>
+<h2 id="en-specials">5. Specials (deals) - step by step</h2>
+<h3>5.1 Creating a special</h3>
 <ol>
-<li><b>Name &amp; kind</b> — Combo (fixed price), BOGO (buy one get one), Deal (automatic), Pick (buy N get 1 free).</li>
-<li><b>Category &amp; size</b> — which category and size.</li>
-<li><b>Item selection</b> (pick only) — curated list; toggle Pay per item in fixed mode (otherwise cheapest are free).</li>
-<li><b>Description</b> — short text on the card.</li>
-<li><b>Schedule</b> — weekdays and/or start/end date range. Only active specials on the current day show on the storefront.</li>
-<li><b>Home page &amp; social</b> — tile or banner display, Show on home, Post to Facebook.</li>
+<li>Open <b>Menu -> Specials</b> -> <b>+ Add Special</b>.</li>
+<li>The accordion form opens. Expand each section by clicking its header.</li>
 </ol>
-<p>Tick "Post to Facebook" to publish the special to the connected page.</p>
+<h3>5.2 Section 1 - Name &amp; kind</h3>
+<ol>
+<li>Enter a <b>Name</b> (shown on the card, e.g. "2 Large for R200").</li>
+<li>Choose the <b>Kind</b>: Combo (fixed price), BOGO (buy one get one), Deal (automatic), Pick (buy N get 1 free).</li>
+<li>Set price and quantity as needed.</li>
+</ol>
+<h3>5.3 Section 2 - Category &amp; size</h3>
+<ol>
+<li>Choose the <b>Category</b> the deal applies to.</li>
+<li>Choose a <b>Size</b> (or "any size").</li>
+<li>For pick deals, optionally tick "Curated items".</li>
+</ol>
+<h3>5.4 Section 3 - Item selection (pick only)</h3>
+<ol>
+<li>Tick the pizzas that qualify.</li>
+<li>In fixed pay mode, tick the <b>Pay</b> box on items the customer must pay for; unticked are free. In cheapest mode (default), cheapest picks are free automatically.</li>
+<li><b>Save</b> the selection.</li>
+</ol>
+<h3>5.5 Section 4 - Description</h3>
+<p>Enter a short description shown under the name on the card (optional).</p>
+<h3>5.6 Section 5 - Schedule</h3>
+<ol>
+<li>Tick the <b>weekdays</b> the special is active (Mon-Sun).</li>
+<li>Optionally set a <b>start date</b> and <b>end date</b> for a limited run.</li>
+<li>Leave both empty for an always-on special.</li>
+<li>Only specials active on the current day appear on the storefront.</li>
+</ol>
+<h3>5.7 Section 6 - Home page &amp; social</h3>
+<ol>
+<li>Choose <b>Display type</b>: Tile or Banner.</li>
+<li>Tick <b>Show on home</b> to publish.</li>
+<li>Tick <b>Post to Facebook</b> to publish on save.</li>
+<li><b>Save</b> the special.</li>
+</ol>
+<h3>5.8 Editing / deleting</h3>
+<ul>
+<li>Click a special -> <b>Edit</b> -> change -> <b>Save</b>.</li>
+<li>Click <b>Delete</b> to remove (confirms first).</li>
+</ul>
 
 <h2 id="en-printers">6. Printers</h2>
 <p>Tab <b>Printers</b> under Store. Each printer: name, type (network/file), host, port, copies per order, enabled, sort order.</p>
@@ -107,6 +170,14 @@
 <li>Offline alert — red banner on admin and cashier when any printer is offline or a print failed.</li>
 <li>Daemon polls this config on startup and every poll; auto-resolves a changed IP by scanning the subnet and updating the server.</li>
 </ul>
+<h3>6.1 Kitchen daemon auth password</h3>
+<p>At the top of the Printers tab there is a <b>Kitchen daemon auth password</b> field.</p>
+<ol>
+<li>Enter the password the daemon uses (its <code>PRINT_KEY</code> env var).</li>
+<li>Click <b>Save key</b>. Stored on the server and in your browser.</li>
+<li>Leave blank to disable auth (daemon must also have no <code>PRINT_KEY</code> set).</li>
+<li>The <b>Scan network</b> button sends this password to the daemon. If scans fail with 403, the password does not match the daemon's <code>PRINT_KEY</code>.</li>
+</ol>
 
 <h2 id="en-shop">7. Shop settings</h2>
 <p>Tab <b>Shop (Delivery)</b>:</p>
@@ -199,25 +270,88 @@
 <li>Nuwe-bestelling-kennisgewings vuur slegs terwyl 'n bestelling nog verwerk word.</li>
 </ul>
 
-<h2 id="af-menu">4. Spyskaartbestuur</h2>
+<h2 id="af-menu">4. Spyskaartbestuur (stap vir stap)</h2>
+<h3>4.1 Voeg 'n kategorie by</h3>
+<ol>
+<li>Admin-portaal -> <b>Menu -> Categories</b>.</li>
+<li>Klik <b>+ Add category</b>.</li>
+<li>Voer naam in en opsionele aanbod-teksmerker.</li>
+<li>Stel sorteerorde, dan <b>Save</b>.</li>
+</ol>
+<h3>4.2 Voeg 'n item by</h3>
+<ol>
+<li>Gaan na <b>Menu -> Items</b> -> <b>+ Add item</b>.</li>
+<li>Vul naam, beskrywing, slug, kategorie in.</li>
+<li>Laai 'n beeld op (onder <code>/uploads</code>).</li>
+<li>Voeg groottes by: klik <b>+ Size</b>, voer etiket en prys in.</li>
+<li>Skakel <b>Active</b> en <b>Show on home</b> aan.</li>
+<li><b>Save</b>.</li>
+</ol>
+<h3>4.3 Wysig / deaktiveer</h3>
+<ol>
+<li>Vind die item (gebruik soekboks).</li>
+<li>Klik <b>Edit</b>, verander velde, <b>Save</b>.</li>
+<li>Om tydelik te versteek, skakel <b>Active</b> af.</li>
+</ol>
+<h3>4.4 Pasgemaakte items (basisse &amp; ekstra toppings)</h3>
+<ol>
+<li>Maak 'n item oop -> <b>Customise</b>-afdeling.</li>
+<li><b>Basisse</b>: voeg elke basisopsie by met per-grootte prys (0 vir verstek).</li>
+<li><b>Ekstra toppings</b>: voeg elke topping by met per-grootte prys.</li>
+<li>Vir seisoenale items, merk "out of season" - kliënte kry 'n gratis ruil vir 'n in-seisoen topping van dieselfde waarde.</li>
+<li><b>Save</b>.</li>
+</ol>
+<h3>4.5 Beelde</h3>
 <ul>
-<li><b>Kategorieë</b> — skep/hernoem/herorden; aanbod-teksmerker per kategorie.</li>
-<li><b>Items</b> — naam, beskrywing, slug, kategorie, beeld, groottes en pryse, aktiewe skakelaar, show on home.</li>
-<li><b>Pasgemaakte items</b> — basisse en ekstra toppings met per-grootte pryse; seisoenale ruil vir buite-seisoen toppings.</li>
-<li>Beelde laai op na <code>/uploads</code>.</li>
+<li>Laai JPG/PNG op. Aanbeveel: vierkantig, minstens 600x600 px.</li>
+<li>Eerste beeld = miniatuur; veelvuldige beelde = gallery in die aanpasser.</li>
 </ul>
 
-<h2 id="af-specials">5. Spesiale (aanbiedinge)</h2>
-<p>Tik <b>+ Add Special</b> om die akkordeonvorm oop te maak. Afdelings:</p>
+<h2 id="af-specials">5. Spesiale (aanbiedinge) - stap vir stap</h2>
+<h3>5.1 Skep 'n spesiale</h3>
 <ol>
-<li><b>Naam &amp; tipe</b> — Combo (vaste prys), BOGO (koop een kry een), Deal (outomaties), Pick (koop N kry 1 gratis).</li>
-<li><b>Kategorie &amp; grootte</b> — watter kategorie en grootte.</li>
-<li><b>Itemkeuse</b> (slegs pick) — gekuurde lys; skakel Pay per item in vaste modus (anders is die goedkoopste gratis).</li>
-<li><b>Beskrywing</b> — kort teks op die kaart.</li>
-<li><b>Skedule</b> — weekdae en/of begin/einddatum-reeks. Slegs aktiewe spesiale op die huidige dag wys op die voorkant.</li>
-<li><b>Tuisblad &amp; sosiaal</b> — teël- of banniervertoning, Show on home, Post to Facebook.</li>
+<li>Maak <b>Menu -> Specials</b> oop -> <b>+ Add Special</b>.</li>
+<li>Die akkordeonvorm open. Vou elke afdeling uit deur op die kop te klik.</li>
 </ol>
-<p>Merk "Post to Facebook" om die spesiale na die gekoppelde bladsy te publiseer.</p>
+<h3>5.2 Afdeling 1 - Naam &amp; tipe</h3>
+<ol>
+<li>Voer 'n <b>Naam</b> in (wys op die kaart, bv. "2 Large for R200").</li>
+<li>Kies die <b>Kind</b>: Combo (vaste prys), BOGO (koop een kry een), Deal (outomaties), Pick (koop N kry 1 gratis).</li>
+<li>Stel prys en hoeveelheid soos nodig.</li>
+</ol>
+<h3>5.3 Afdeling 2 - Kategorie &amp; grootte</h3>
+<ol>
+<li>Kies die <b>Kategorie</b> waarop die aanbod van toepassing is.</li>
+<li>Kies 'n <b>Grootte</b> (of "any size").</li>
+<li>Vir pick-aanbiedinge, merk opsioneel "Curated items".</li>
+</ol>
+<h3>5.4 Afdeling 3 - Itemkeuse (slegs pick)</h3>
+<ol>
+<li>Merk die pizzas wat kwalifiseer.</li>
+<li>In vaste betaalmodus, merk die <b>Pay</b>-boksie op items wat die kliënt moet betaal; ongemerkte is gratis. In cheapest-modus (verstek), is die goedkoopste keuses outomaties gratis.</li>
+<li><b>Save</b> die keuse.</li>
+</ol>
+<h3>5.5 Afdeling 4 - Beskrywing</h3>
+<p>Voer 'n kort beskrywing in wat onder die naam op die kaart wys (opsioneel).</p>
+<h3>5.6 Afdeling 5 - Skedule</h3>
+<ol>
+<li>Merk die <b>weekdae</b> waarop die spesiale aktief is (Ma-So).</li>
+<li>Stel opsioneel 'n <b>begin-</b> en <b>einddatum</b> vir 'n beperkte lopie.</li>
+<li>Laat albei leeg vir 'n altyd-aan spesiale.</li>
+<li>Slegs spesiale wat op die huidige dag aktief is, verskyn op die voorkant.</li>
+</ol>
+<h3>5.7 Afdeling 6 - Tuisblad &amp; sosiaal</h3>
+<ol>
+<li>Kies <b>Vertoningstipe</b>: Tile of Banner.</li>
+<li>Merk <b>Show on home</b> om te publiseer.</li>
+<li>Merk <b>Post to Facebook</b> om by stoor te publiseer.</li>
+<li><b>Save</b> die spesiale.</li>
+</ol>
+<h3>5.8 Wysig / verwyder</h3>
+<ul>
+<li>Klik 'n spesiale -> <b>Edit</b> -> verander -> <b>Save</b>.</li>
+<li>Klik <b>Delete</b> om te verwyder (bevestig eers).</li>
+</ul>
 
 <h2 id="af-printers">6. Drukkers</h2>
 <p>Oortjie <b>Printers</b> onder Store. Elke drukker: naam, tipe (netwerk/lêer), gasheer, poort, kopieë per bestelling, geaktiveer, sorteerorde.</p>
@@ -228,6 +362,14 @@
 <li>Vanlyn-waarskuwing — rooi baniere op admin en kassier wanneer enige drukker vanlyn is of 'n druk misluk het.</li>
 <li>Daemon peil hierdie konfig by opstart en elke peiling; los 'n veranderde IP outomaties op.</li>
 </ul>
+<h3>6.1 Kombuis-daemon auth-wagwoord</h3>
+<p>Boaan die Printers-oortjie is 'n <b>Kitchen daemon auth password</b>-veld.</p>
+<ol>
+<li>Voer die wagwoord in wat die daemon gebruik (sy <code>PRINT_KEY</code>-omgewingsveranderlike).</li>
+<li>Klik <b>Save key</b>. Die waarde word op die bediener en in jou blaaier gestoor.</li>
+<li>Laat leeg om auth te deaktiveer (daemon moet ook geen <code>PRINT_KEY</code> gestel hê).</li>
+<li>Die <b>Scan network</b>-knoppie stuur hierdie wagwoord na die daemon. As skanderings met 403 misluk, stem die wagwoord nie ooreen met die daemon se <code>PRINT_KEY</code> nie.</li>
+</ol>
 
 <h2 id="af-shop">7. Winkelinstellings</h2>
 <p>Oortjie <b>Shop (Delivery)</b>:</p>
