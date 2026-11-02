@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Beluchi's Pizzas — Staff Guide</title>
+<style>
+  :root { --ink:#2a2520; --muted:#6f675d; --line:#e4dccd; --accent:#b3351f; --bg:#faf7f0; --panel:#fff; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; margin:0; background:var(--bg); color:var(--ink); line-height:1.55; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 24px 20px 60px; }
+  header { background:var(--ink); color:#fff; padding:16px 22px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .tools { display:flex; gap:8px; }
+  header button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:8px 14px; cursor:pointer; font-weight:700; font-size:13px; }
+  header button.ghost { background:transparent; border:1px solid #fff; }
+  h2 { font-size:20px; margin:26px 0 8px; border-bottom:2px solid var(--accent); padding-bottom:4px; }
+  h3 { font-size:16px; margin:16px 0 4px; color:var(--accent); }
+  p, li { font-size:14.5px; }
+  ul { padding-left:20px; }
+  .lang { display:none; }
+  .lang.active { display:block; }
+  .toc { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 16px; margin:12px 0 20px; }
+  .toc a { display:block; font-size:13px; color:var(--accent); text-decoration:none; padding:2px 0; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; margin:8px 0; }
+  th, td { border:1px solid var(--line); padding:6px 8px; text-align:left; }
+  th { background:#f3ecdf; }
+  @media print {
+    header .tools { display:none; }
+    body { background:#fff; }
+    .lang { display:none !important; }
+    .lang.print-active { display:block !important; }
+  }
+  footer { text-align:center; color:var(--muted); font-size:12px; margin-top:30px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Beluchi's Pizzas — Staff Guide</h1>
+  <div class="tools">
+    <button class="ghost" onclick="setLang('en')">English</button>
+    <button class="ghost" onclick="setLang('af')">Afrikaans</button>
+    <button onclick="window.print()">Print</button>
+  </div>
+</header>
+<div class="wrap">
+
+<div id="en" class="lang active">
+<h2>Contents</h2>
+<div class="toc">
+<a href="#en-login">1. Logging in</a>
+<a href="#en-overview">2. Admin portal overview</a>
+<a href="#en-orders">3. Orders queue</a>
+<a href="#en-menu">4. Menu management</a>
+<a href="#en-specials">5. Specials</a>
+<a href="#en-printers">6. Printers</a>
+<a href="#en-shop">7. Shop settings</a>
+<a href="#en-users">8. Users</a>
+<a href="#en-deliveries">9. Deliveries</a>
+<a href="#en-cashier">10. Cashier page</a>
+<a href="#en-daemon">11. Kitchen daemon</a>
+<a href="#en-standalone">12. StandAlone bridge</a>
+<a href="#en-receipts">13. Receipts</a>
+</div>
+
+<h2 id="en-login">1. Logging in</h2>
+<p>Open <code>/admin</code> and sign in with your admin account (username + PIN). Cashiers use <code>/cashier</code>. Drivers use <code>/driver</code>.</p>
+
+<h2 id="en-overview">2. Admin portal overview</h2>
+<p>Sidebar tabs: Orders, Users, Menu/Items, Specials, Printers, Shop (Delivery), Deliveries.</p>
+
+<h2 id="en-orders">3. Orders queue</h2>
+<ul>
+<li>Orders appear newest first with status, items, total and payment method.</li>
+<li>Paid-online orders show "Total R… · Paid online R…" instead of R0.00.</li>
+<li>Status filter and date filter ("All days" available).</li>
+<li>Change status as it progresses: placed → preparing → out for delivery → delivered. Cancel if needed.</li>
+<li>New-order notifications fire only while an order is still being processed.</li>
+</ul>
+
+<h2 id="en-menu">4. Menu management</h2>
+<ul>
+<li><b>Categories</b> — create/rename/reorder; deal text badge per category.</li>
+<li><b>Items</b> — name, description, slug, category, image, sizes &amp; prices, active toggle, show on home.</li>
+<li><b>Custom items</b> — bases and extra toppings with per-size pricing; seasonal swaps for out-of-season toppings.</li>
+<li>Images upload to <code>/uploads</code>.</li>
+</ul>
+
+<h2 id="en-specials">5. Specials (deals)</h2>
+<p>Tap <b>+ Add Special</b> to open the accordion form. Sections:</p>
+<ol>
+<li><b>Name &amp; kind</b> — Combo (fixed price), BOGO (buy one get one), Deal (automatic), Pick (buy N get 1 free).</li>
+<li><b>Category &amp; size</b> — which category and size.</li>
+<li><b>Item selection</b> (pick only) — curated list; toggle Pay per item in fixed mode (otherwise cheapest are free).</li>
+<li><b>Description</b> — short text on the card.</li>
+<li><b>Schedule</b> — weekdays and/or start/end date range. Only active specials on the current day show on the storefront.</li>
+<li><b>Home page &amp; social</b> — tile or banner display, Show on home, Post to Facebook.</li>
+</ol>
+<p>Tick "Post to Facebook" to publish the special to the connected page.</p>
+
+<h2 id="en-printers">6. Printers</h2>
+<p>Tab <b>Printers</b> under Store. Each printer: name, type (network/file), host, port, copies per order, enabled, sort order.</p>
+<ul>
+<li>Add / Edit / Delete — prompt-based quick editing.</li>
+<li>Test — queues a test print; daemon prints a test slip.</li>
+<li>Scan network — daemon scans local subnet for printers on port 9100.</li>
+<li>Offline alert — red banner on admin and cashier when any printer is offline or a print failed.</li>
+<li>Daemon polls this config on startup and every poll; auto-resolves a changed IP by scanning the subnet and updating the server.</li>
+</ul>
+
+<h2 id="en-shop">7. Shop settings</h2>
+<p>Tab <b>Shop (Delivery)</b>:</p>
+<ul>
+<li><b>Hours</b> — open/close time, online orders toggle. Changes email the owner (if an alert email is set).</li>
+<li><b>Open/closed</b> — toggles the shop flag on the home page.</li>
+<li><b>Delivery config</b> — enable, shop location (lat/lng), free radius, fee, max radius, beyond fee, minimum order for free delivery.</li>
+<li><b>Social</b> — Facebook Page ID, Page Access Token, Instagram User ID, owner alert email.</li>
+<li><b>Connect with Facebook</b> — opens FB login dialog to obtain a token.</li>
+</ul>
+
+<h2 id="en-users">8. Users</h2>
+<p>View customer accounts, reset passwords, view order counts.</p>
+
+<h2 id="en-deliveries">9. Deliveries</h2>
+<p>Track deliveries, assign drivers, mark delivered.</p>
+
+<h2 id="en-cashier">10. Cashier page (/cashier)</h2>
+<ul>
+<li>Live order queue with the same filters.</li>
+<li>New order alert — sound/notification when a new order arrives.</li>
+<li>Printer offline banner — red warning if a printer is down.</li>
+<li>Receipt reprint button per order.</li>
+</ul>
+
+<h2 id="en-daemon">11. Kitchen daemon (kitchen/)</h2>
+<p>Headless Node service (port 3101) that polls the server for new orders and prints receipts.</p>
+<table>
+<tr><th>Variable</th><th>Purpose</th></tr>
+<tr><td>SOURCE_BASE_URL</td><td>Server URL (default http://localhost:3100)</td></tr>
+<tr><td>PRINT_KEY</td><td>Shared key for printer endpoints</td></tr>
+<tr><td>POLL_SECONDS</td><td>Poll interval (default 15)</td></tr>
+<tr><td>AUTO_PRINT</td><td>true/false (default true)</td></tr>
+<tr><td>AUTO_MARK_PREPARING</td><td>true/false (default true)</td></tr>
+</table>
+<p>Endpoints: <code>/health</code>, <code>/api/print/:id</code>, <code>/api/scan?port=9100</code>.</p>
+<ul>
+<li>Polls orders; prints each new order on all enabled printers, respecting copies.</li>
+<li>Auto-marks order as "preparing" after a successful print.</li>
+<li>On print failure, scans the subnet to auto-resolve the printer IP and retries.</li>
+<li>Reports heartbeat (per-printer status) to the server.</li>
+</ul>
+
+<h2 id="en-standalone">12. StandAlone bridge (StandAlone/)</h2>
+<p>Local bridge (port 3102) used when the kitchen PC is the print source. Stores printers locally in <code>data/printers.json</code> and syncs with the server. Local edits push to the server; server config overwrites local on poll.</p>
+
+<h2 id="en-receipts">13. Receipts</h2>
+<p>Kitchen and StandAlone receipts include:</p>
+<ul>
+<li>Shop name, website, phone, VAT number.</li>
+<li>Order number, type (delivery/collection), time, payment method.</li>
+<li>Items with quantities and prices (free items show R0).</li>
+<li>Customer, phone, delivery address.</li>
+<li>Subtotal, discount, <b>TOTAL AMOUNT</b>, and for paid-online orders: "Paid online R…" + "No balance due".</li>
+<li>VAT breakdown: Total Excl VAT / VAT Incl. (15%).</li>
+</ul>
+<p><i>Beluchi's Pizzas — Authentic &amp; Hand Crafted. © 2026</i></p>
+</div>
+
+<div id="af" class="lang">
+<h2>Inhoud</h2>
+<div class="toc">
+<a href="#af-login">1. Inteken</a>
+<a href="#af-overview">2. Admin-portaal oorsig</a>
+<a href="#af-orders">3. Bestellingry</a>
+<a href="#af-menu">4. Spyskaartbestuur</a>
+<a href="#af-specials">5. Spesiale</a>
+<a href="#af-printers">6. Drukkers</a>
+<a href="#af-shop">7. Winkelinstellings</a>
+<a href="#af-users">8. Gebruikers</a>
+<a href="#af-deliveries">9. Aflewerings</a>
+<a href="#af-cashier">10. Kassierblad</a>
+<a href="#af-daemon">11. Kombuis-daemon</a>
+<a href="#af-standalone">12. StandAlone-brug</a>
+<a href="#af-receipts">13. Strokies</a>
+</div>
+
+<h2 id="af-login">1. Inteken</h2>
+<p>Maak <code>/admin</code> oop en teken in met jou admin-rekening (gebruikersnaam + PIN). Kassiere gebruik <code>/cashier</code>. Bestuurders gebruik <code>/driver</code>.</p>
+
+<h2 id="af-overview">2. Admin-portaal oorsig</h2>
+<p>Sybalk-oortjies: Orders, Users, Menu/Items, Specials, Printers, Shop (Delivery), Deliveries.</p>
+
+<h2 id="af-orders">3. Bestellingry</h2>
+<ul>
+<li>Bestellings verskyn nuutste eerste met status, items, totaal en betaalmetode.</li>
+<li>Aanlyn-betaalde bestellings wys "Total R… · Paid online R…" in plaas van R0.00.</li>
+<li>Statusfilter en datumfilter ("All days" beskikbaar).</li>
+<li>Verander status soos dit vorder: placed → preparing → out for delivery → delivered. Kanselleer indien nodig.</li>
+<li>Nuwe-bestelling-kennisgewings vuur slegs terwyl 'n bestelling nog verwerk word.</li>
+</ul>
+
+<h2 id="af-menu">4. Spyskaartbestuur</h2>
+<ul>
+<li><b>Kategorieë</b> — skep/hernoem/herorden; aanbod-teksmerker per kategorie.</li>
+<li><b>Items</b> — naam, beskrywing, slug, kategorie, beeld, groottes en pryse, aktiewe skakelaar, show on home.</li>
+<li><b>Pasgemaakte items</b> — basisse en ekstra toppings met per-grootte pryse; seisoenale ruil vir buite-seisoen toppings.</li>
+<li>Beelde laai op na <code>/uploads</code>.</li>
+</ul>
+
+<h2 id="af-specials">5. Spesiale (aanbiedinge)</h2>
+<p>Tik <b>+ Add Special</b> om die akkordeonvorm oop te maak. Afdelings:</p>
+<ol>
+<li><b>Naam &amp; tipe</b> — Combo (vaste prys), BOGO (koop een kry een), Deal (outomaties), Pick (koop N kry 1 gratis).</li>
+<li><b>Kategorie &amp; grootte</b> — watter kategorie en grootte.</li>
+<li><b>Itemkeuse</b> (slegs pick) — gekuurde lys; skakel Pay per item in vaste modus (anders is die goedkoopste gratis).</li>
+<li><b>Beskrywing</b> — kort teks op die kaart.</li>
+<li><b>Skedule</b> — weekdae en/of begin/einddatum-reeks. Slegs aktiewe spesiale op die huidige dag wys op die voorkant.</li>
+<li><b>Tuisblad &amp; sosiaal</b> — teël- of banniervertoning, Show on home, Post to Facebook.</li>
+</ol>
+<p>Merk "Post to Facebook" om die spesiale na die gekoppelde bladsy te publiseer.</p>
+
+<h2 id="af-printers">6. Drukkers</h2>
+<p>Oortjie <b>Printers</b> onder Store. Elke drukker: naam, tipe (netwerk/lêer), gasheer, poort, kopieë per bestelling, geaktiveer, sorteerorde.</p>
+<ul>
+<li>Add / Edit / Delete — vinnige redigering via boodskappe.</li>
+<li>Test — plaas 'n toetsdruk in die tou; daemon druk 'n toetsstrook.</li>
+<li>Scan network — daemon skandeer plaaslike subnet vir drukkers op poort 9100.</li>
+<li>Vanlyn-waarskuwing — rooi baniere op admin en kassier wanneer enige drukker vanlyn is of 'n druk misluk het.</li>
+<li>Daemon peil hierdie konfig by opstart en elke peiling; los 'n veranderde IP outomaties op.</li>
+</ul>
+
+<h2 id="af-shop">7. Winkelinstellings</h2>
+<p>Oortjie <b>Shop (Delivery)</b>:</p>
+<ul>
+<li><b>Ure</b> — oop/sluit tyd, aanlyn bestellings skakelaar. Veranderinge e-pos die eienaar (as waarskuwings-e-pos gestel is).</li>
+<li><b>Oop/gesluit</b> — skakel die winkelvlag op die tuisblad.</li>
+<li><b>Afleweringskonfig</b> — aktiveer, winkel-ligging (lat/lng), gratis radius, fooi, maksimum radius, verder-fooi, minimum bestelling vir gratis aflewering.</li>
+<li><b>Sosiaal</b> — Facebook Bladsy-ID, Bladsy-toegangstoken, Instagram Gebruiker-ID, eienaar-waarskuwings-e-pos.</li>
+<li><b>Connect with Facebook</b> — open FB-inteken-dialoog om 'n token te verkry.</li>
+</ul>
+
+<h2 id="af-users">8. Gebruikers</h2>
+<p>Bekyk kliëntrekeninge, herstel wagwoorde, bekyk bestellingtellings.</p>
+
+<h2 id="af-deliveries">9. Aflewerings</h2>
+<p>Spoor aflewerings, ken bestuurders toe, merk as afgelewer.</p>
+
+<h2 id="af-cashier">10. Kassierblad (/cashier)</h2>
+<ul>
+<li>Lewendige bestellingry met dieselfde filters.</li>
+<li>Nuwe-bestelling-waarskuwing — klank/kennisgewing wanneer 'n nuwe bestelling aankom.</li>
+<li>Drukker-vanlyn-baniere — rooi waarskuwing as 'n drukker af is.</li>
+<li>Herdruk-knoppie per bestelling.</li>
+</ul>
+
+<h2 id="af-daemon">11. Kombuis-daemon (kitchen/)</h2>
+<p>Koplose Node-diens (poort 3101) wat die bediener vir nuwe bestellings peil en strokies druk.</p>
+<table>
+<tr><th>Veranderlike</th><th>Doel</th></tr>
+<tr><td>SOURCE_BASE_URL</td><td>Bediener-URL (verstek http://localhost:3100)</td></tr>
+<tr><td>PRINT_KEY</td><td>Gedeelde sleutel vir drukker-eindpunte</td></tr>
+<tr><td>POLL_SECONDS</td><td>Peilinterval (verstek 15)</td></tr>
+<tr><td>AUTO_PRINT</td><td>true/false (verstek true)</td></tr>
+<tr><td>AUTO_MARK_PREPARING</td><td>true/false (verstek true)</td></tr>
+</table>
+<p>Eindpunte: <code>/health</code>, <code>/api/print/:id</code>, <code>/api/scan?port=9100</code>.</p>
+<ul>
+<li>Peil bestellings; druk elke nuwe bestelling op alle geaktiveerde drukkers, met respek vir kopieë.</li>
+<li>Merk bestelling outomaties as "preparing" na 'n suksesvolle druk.</li>
+<li>By drukmislukking, skandeer die subnet om die drukker-IP outomaties op te los en probeer weer.</li>
+<li>Rapporteer hartklop (per-drukker-status) aan die bediener.</li>
+</ul>
+
+<h2 id="af-standalone">12. StandAlone-brug (StandAlone/)</h2>
+<p>Plaaslike brug (poort 3102) wat gebruik word wanneer die kombuis-PC die drukbron is. Stoor drukkers plaaslik in <code>data/printers.json</code> en sinkroniseer met die bediener. Plaaslike wysigings stoot na die bediener; bediener-konfig oorskryf plaaslik by peiling.</p>
+
+<h2 id="af-receipts">13. Strokies</h2>
+<p>Kombuis- en StandAlone-strokies sluit in:</p>
+<ul>
+<li>Winkelnaam, webwerf, telefoon, BTW-nommer.</li>
+<li>Bestellingsnommer, tipe (aflewering/afhaal), tyd, betaalmetode.</li>
+<li>Items met hoeveelhede en pryse (gratis items wys R0).</li>
+<li>Kliënt, telefoon, afleweringsadres.</li>
+<li>Subtotaal, afslag, <b>TOTAL AMOUNT</b>, en vir aanlyn-betaalde bestellings: "Paid online R…" + "No balance due".</li>
+<li>BTW-opsplitsing: Total Excl VAT / VAT Incl. (15%).</li>
+</ul>
+<p><i>Beluchi's Pizzas — Authentic &amp; Hand Crafted. © 2026</i></p>
+</div>
+
+<script>
+function setLang(l) {
+  document.querySelectorAll('.lang').forEach(e => e.classList.remove('active'));
+  document.getElementById(l).classList.add('active');
+  document.querySelectorAll('.lang').forEach(e => e.classList.remove('print-active'));
+  document.getElementById(l).classList.add('print-active');
+}
+setLang('en');
+</script>
+</body>
+</html>

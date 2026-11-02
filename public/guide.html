@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Beluchi's Pizzas — Customer Guide</title>
+<style>
+  :root { --ink:#2a2520; --muted:#6f675d; --line:#e4dccd; --accent:#b3351f; --bg:#faf7f0; --panel:#fff; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; margin:0; background:var(--bg); color:var(--ink); line-height:1.55; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  header { background:var(--ink); color:#fff; padding:16px 22px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .tools { display:flex; gap:8px; }
+  header button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:8px 14px; cursor:pointer; font-weight:700; font-size:13px; }
+  header button.ghost { background:transparent; border:1px solid #fff; }
+  h2 { font-size:20px; margin:26px 0 8px; border-bottom:2px solid var(--accent); padding-bottom:4px; }
+  h3 { font-size:16px; margin:16px 0 4px; color:var(--accent); }
+  p, li { font-size:14.5px; }
+  ul { padding-left:20px; }
+  img.shot { width:100%; max-width:720px; border:1px solid var(--line); border-radius:10px; margin:10px 0; display:block; }
+  .lang { display:none; }
+  .lang.active { display:block; }
+  .toc { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 16px; margin:12px 0 20px; }
+  .toc a { display:block; font-size:13px; color:var(--accent); text-decoration:none; padding:2px 0; }
+  .print-hide { }
+  @media print {
+    header .tools { display:none; }
+    body { background:#fff; }
+    .shot { max-width:100%; page-break-inside:avoid; }
+    h2 { page-break-before:auto; }
+    .lang { display:none !important; }
+    .lang.print-active { display:block !important; }
+  }
+  footer { text-align:center; color:var(--muted); font-size:12px; margin-top:30px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Beluchi's Pizzas — Customer Guide</h1>
+  <div class="tools">
+    <button class="ghost" onclick="setLang('en')">English</button>
+    <button class="ghost" onclick="setLang('af')">Afrikaans</button>
+    <button onclick="window.print()">Print</button>
+  </div>
+</header>
+<div class="wrap">
+
+<div id="en" class="lang active">
+<h2>Contents</h2>
+<div class="toc">
+<a href="#en-welcome">1. Welcome</a>
+<a href="#en-home">2. Home page</a>
+<a href="#en-menu">3. Menu & ordering</a>
+<a href="#en-checkout">4. Checkout</a>
+<a href="#en-account">5. Your account</a>
+<a href="#en-tips">6. Tips</a>
+<a href="#en-contact">7. Contact</a>
+</div>
+
+<h2 id="en-welcome">1. Welcome</h2>
+<p>Beluchi's Pizzas — authentic &amp; hand crafted. 72 High Street, Q-Square, Worcester. Phone 023 347 5447. Open daily 10:00–21:00.</p>
+<img class="shot" src="/screenshots/home.png" alt="Home page" />
+
+<h2 id="en-home">2. Home page</h2>
+<ul>
+<li><b>Shop status pill</b> — shows Open now / Closed — opens 10:00. When closed, checkout is paused but you can still browse and build your cart.</li>
+<li><b>Specials tiles &amp; banners</b> — current deals. Tap a dish to add it, or "View menu".</li>
+<li><b>Napoletana section</b> — 48-hour fermented dough base info.</li>
+<li><b>Get in Touch card</b> — address, phone, email, hours.</li>
+<li><b>Contact form</b> — send a message. No orders by email — use the order page or WhatsApp.</li>
+</ul>
+<p>Top bar: HOME, MENU, SIGN IN / MY ORDERS, CONTACT US, ORDER NOW!</p>
+
+<h2 id="en-menu">3. Menu &amp; ordering</h2>
+<img class="shot" src="/screenshots/menu.png" alt="Menu page" />
+<h3>Browsing</h3>
+<p>Dishes grouped by category with photo, name, description, sizes and prices. Tap the heart (♡) to save to favourites (login required).</p>
+<h3>Choosing a size</h3>
+<p>Tap a size button (e.g. Medium · R95) to add. Use +/− to set quantity first. Some dishes have a "Choose" button that opens a customiser.</p>
+<h3>Customising</h3>
+<p>Pick size, base (some free, some extra), extra toppings (price shown), seasonal swaps for out-of-season toppings, quantity, then Add to Order.</p>
+<h3>Deals</h3>
+<ul>
+<li><b>BOGO</b> — Pick N, pay N/2. Tap "Build your deal".</li>
+<li><b>Combo / fixed price</b> — set of items for one price. Tap "Add to Order".</li>
+<li><b>Automatic deals</b> — apply when the right items are in the cart.</li>
+<li><b>Pick deals</b> — pick N pizzas, pay for N−1.</li>
+</ul>
+<h3>Cart</h3>
+<p>Tap "Cart" (top right) to open the drawer. Change quantities or remove lines. Floating bar at the bottom shows count and total.</p>
+
+<h2 id="en-checkout">4. Checkout</h2>
+<p>Three steps (accordion). Each must be completed before the next opens.</p>
+<h3>Step 1 — Your details</h3>
+<p>First name, last name, phone, optional email.</p>
+<h3>Step 2 — Delivery or collection</h3>
+<ul>
+<li>Delivery: pick a saved location or add a new one. Drop a pin on the map (or "Use my current location").</li>
+<li>Free delivery within 3 km on orders from R200. R85 up to 10 km. R95 beyond 10 km. No address = collection.</li>
+<li>Add notes (e.g. "call on arrival").</li>
+</ul>
+<h3>Step 3 — Payment</h3>
+<ul>
+<li>Optional coupon code.</li>
+<li>Pay by: cash on delivery, card on delivery, paid online now (if enabled), pay at counter (if enabled).</li>
+<li>Tap "Review order", check the summary, confirm.</li>
+</ul>
+<p>After ordering you get an <b>Order #</b>. Track it in My Orders.</p>
+
+<h2 id="en-account">5. Your account</h2>
+<img class="shot" src="/screenshots/portal.png" alt="Portal" />
+<h3>Logging in</h3>
+<ul>
+<li>Enter cellphone + password → Log in.</li>
+<li>Claim guest account: enter the cellphone you ordered with, first name, choose password. Past orders link to your account.</li>
+<li>Forgot password: enter cellphone + first name, set new password.</li>
+<li>Create account: register with name, cellphone, optional email, password.</li>
+</ul>
+<h3>Dashboard</h3>
+<ul>
+<li><b>My details</b> — view/edit name, phone, email.</li>
+<li><b>Delivery locations</b> — save up to 3 spots (name + map pin). Select one for delivery.</li>
+<li><b>Offers for you</b> — personalised coupons. Tap Copy.</li>
+<li><b>Favourites</b> — hearted dishes/deals. Tap Order or Remove.</li>
+<li><b>Order history</b> — all orders with status, items, totals, progress timeline. Tap Reorder.</li>
+</ul>
+<h3>Status timeline</h3>
+<p>Placed → Preparing → Out for delivery → Delivered. Cancelled shows a red strip. "Awaiting payment" while payment confirms.</p>
+<h3>Notifications</h3>
+<p>Allow browser notifications for pop-ups when an order status changes (checked every 30s while portal is open).</p>
+
+<h2 id="en-tips">6. Tips</h2>
+<ul>
+<li>Closed? Browse and build your cart; checkout opens at 10:00.</li>
+<li>Delivery fee depends on distance and order amount — drop a pin for accuracy.</li>
+<li>Reorder is the quickest way to repeat an order.</li>
+<li>Favourites are saved to your account.</li>
+<li>No orders by email — use the website or WhatsApp.</li>
+</ul>
+
+<h2 id="en-contact">7. Contact</h2>
+<ul>
+<li>Visit: 72 High Street, Q-Square, Worcester</li>
+<li>Phone: 023 347 5447</li>
+<li>Email: beluchis.worcester@gmail.com</li>
+<li>Facebook: facebook.com/beluchisworcesterpizza</li>
+<li>WhatsApp: +27 71 461 7381</li>
+<li>Contact form on the Home page.</li>
+</ul>
+<p><i>Beluchi's Pizzas — Authentic &amp; Hand Crafted. © 2026</i></p>
+</div>
+
+<div id="af" class="lang">
+<h2>Inhoud</h2>
+<div class="toc">
+<a href="#af-welcome">1. Welkom</a>
+<a href="#af-home">2. Tuisblad</a>
+<a href="#af-menu">3. Spyskaart &amp; bestel</a>
+<a href="#af-checkout">4. Afrekening</a>
+<a href="#af-account">5. Jou rekening</a>
+<a href="#af-tips">6. Wenke</a>
+<a href="#af-contact">7. Kontak</a>
+</div>
+
+<h2 id="af-welcome">1. Welkom</h2>
+<p>Beluchi's Pizzas — eg &amp; handgemaak. 72 High Street, Q-Square, Worcester. Telefoon 023 347 5447. Oop daagliks 10:00–21:00.</p>
+<img class="shot" src="/screenshots/home.png" alt="Tuisblad" />
+
+<h2 id="af-home">2. Tuisblad</h2>
+<ul>
+<li><b>Winkelstatus (pil)</b> — wys Nou oop / Gesluit — oop 10:00. Wanneer gesluit, is afrekening gepouseer maar jy kan steeds blaai en jou mandjie bou.</li>
+<li><b>Spesiale teëls &amp; baniere</b> — huidige aanbiedinge. Tik 'n gereg om by te voeg, of "Bekyk spyskaart".</li>
+<li><b>Napoletana-afdeling</b> — 48-uur gegiste deegbasis inligting.</li>
+<li><b>Kontakkaart</b> — adres, telefoon, e-pos, ure.</li>
+<li><b>Kontakvorm</b> — stuur 'n boodskap. Geen bestellings per e-pos nie — gebruik die bestelblad of WhatsApp.</li>
+</ul>
+<p>Bo-balk: HOME, MENU, SIGN IN / MY ORDERS, CONTACT US, ORDER NOW!</p>
+
+<h2 id="af-menu">3. Spyskaart &amp; bestel</h2>
+<img class="shot" src="/screenshots/menu.png" alt="Spyskaart" />
+<h3>Blaai</h3>
+<p>Geregte per kategorie met foto, naam, beskrywing, groottes en pryse. Tik die hartjie (♡) om as gunsteling te stoor (inteken nodig).</p>
+<h3>Kies 'n grootte</h3>
+<p>Tik 'n grootteknoppie (bv. Medium · R95) om by te voeg. Gebruik +/− om hoeveelheid te stel. Sommige geregte het 'n "Choose"-knoppie wat 'n aanpasser open.</p>
+<h3>Aanpassing</h3>
+<p>Kies grootte, basis (sommige gratis, sommige ekstra), ekstra toppings (prys gewys), seisoenale ruil vir buite-seisoen toppings, hoeveelheid, dan Add to Order.</p>
+<h3>Aanbiedinge</h3>
+<ul>
+<li><b>BOGO</b> — Kies N, betaal N/2. Tik "Build your deal".</li>
+<li><b>Kombo / vaste prys</b> — stel items vir een prys. Tik "Add to Order".</li>
+<li><b>Outomatiese aanbiedinge</b> — pas toe wanneer die regte items in die mandjie is.</li>
+<li><b>Kies-aanbiedinge</b> — kies N pizzas, betaal vir N−1.</li>
+</ul>
+<h3>Mandjie</h3>
+<p>Tik "Cart" (regs bo) om die laai oop te maak. Verander hoeveelhede of verwyder lyne. Sweefbalk onder wys telling en totaal.</p>
+
+<h2 id="af-checkout">4. Afrekening</h2>
+<p>Drie stappe (akkordeon). Elke stap moet voltooi word voor die volgende oopmaak.</p>
+<h3>Stap 1 — Jou besonderhede</h3>
+<p>Voornaam, van, telefoon, opsionele e-pos.</p>
+<h3>Stap 2 — Aflewering of afhaal</h3>
+<ul>
+<li>Aflewering: kies 'n gestoorde ligging of voeg 'n nuwe by. Laat 'n pen op die kaart val (of "Use my current location").</li>
+<li>Gratis aflewering binne 3 km op bestellings van R200. R85 tot 10 km. R95 verder as 10 km. Geen adres = afhaal.</li>
+<li>Voeg notas by (bv. "bel by aankoms").</li>
+</ul>
+<h3>Stap 3 — Betaling</h3>
+<ul>
+<li>Opsionele koeponkode.</li>
+<li>Betaal met: kontant by aflewering, kaart by aflewering, nou aanlyn betaal (indien geaktiveer), betaal by toonbank (indien geaktiveer).</li>
+<li>Tik "Review order", kontroleer opsomming, bevestig.</li>
+</ul>
+<p>Na bestel kry jy 'n <b>Bestelling #</b>. Spoort op in My Orders.</p>
+
+<h2 id="af-account">5. Jou rekening</h2>
+<img class="shot" src="/screenshots/portal.png" alt="Portaal" />
+<h3>Inteken</h3>
+<ul>
+<li>Voer selfoon + wagwoord in → Log in.</li>
+<li>Claim guest account: voer selfoon waarmee bestel, voornaam, kies wagwoord. Vorige bestellings koppel aan rekening.</li>
+<li>Forgot password: voer selfoon + voornaam in, stel nuwe wagwoord.</li>
+<li>Create account: registreer met naam, selfoon, opsionele e-pos, wagwoord.</li>
+</ul>
+<h3>Dashboard</h3>
+<ul>
+<li><b>My details</b> — bekyk/wysig naam, telefoon, e-pos.</li>
+<li><b>Delivery locations</b> — stoor tot 3 plekke (naam + kaartpen). Kies een vir aflewering.</li>
+<li><b>Offers for you</b> — persoonlike koepons. Tik Copy.</li>
+<li><b>Favourites</b> — hartjie-geregte/aanbiedinge. Tik Order of Remove.</li>
+<li><b>Order history</b> — alle bestellings met status, items, totale, vorderings-tydlyn. Tik Reorder.</li>
+</ul>
+<h3>Status-tydlyn</h3>
+<p>Placed → Preparing → Out for delivery → Delivered. Gekanselleer wys rooi strook. "Awaiting payment" terwyl betaling bevestig.</p>
+<h3>Kennisgewings</h3>
+<p>Laat blaaier-kennisgewings toe vir opspringers wanneer 'n bestellingstatus verander (elke 30s terwyl portaal oop is).</p>
+
+<h2 id="af-tips">6. Wenke</h2>
+<ul>
+<li>Gesluit? Blaai en bou jou mandjie; afrekening open om 10:00.</li>
+<li>Afleweringsfooi hang af van afstand en bestelbedrag — laat 'n pen val vir akkuraatheid.</li>
+<li>Reorder is die vinnigste manier om 'n bestelling te herhaal.</li>
+<li>Gunstelinge word op jou rekening gestoor.</li>
+<li>Geen bestellings per e-pos nie — gebruik die webwerf of WhatsApp.</li>
+</ul>
+
+<h2 id="af-contact">7. Kontak</h2>
+<ul>
+<li>Besoek: 72 High Street, Q-Square, Worcester</li>
+<li>Telefoon: 023 347 5447</li>
+<li>E-pos: beluchis.worcester@gmail.com</li>
+<li>Facebook: facebook.com/beluchisworcesterpizza</li>
+<li>WhatsApp: +27 71 461 7381</li>
+<li>Kontakvorm op die Tuisblad.</li>
+</ul>
+<p><i>Beluchi's Pizzas — Authentic &amp; Hand Crafted. © 2026</i></p>
+</div>
+
+<script>
+function setLang(l) {
+  document.querySelectorAll('.lang').forEach(e => e.classList.remove('active'));
+  document.getElementById(l).classList.add('active');
+  // print only active
+  document.querySelectorAll('.lang').forEach(e => e.classList.remove('print-active'));
+  document.getElementById(l).classList.add('print-active');
+}
+setLang('en');
+</script>
+</body>
+</html>

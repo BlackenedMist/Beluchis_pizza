@@ -68,6 +68,10 @@ app.use(
 );
 app.use(express.static(path.join(__dirname, "..", "public")));
 
+// Printable guides (served as HTML for printing from the admin portal).
+app.get("/guide", (_req, res) => res.sendFile(path.join(__dirname, "..", "public", "guide.html")));
+app.get("/admin-guide", (_req, res) => res.sendFile(path.join(__dirname, "..", "public", "admin-guide.html")));
+
 // -------------------------------------------------------------------- Routes
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "..", "public", "home.html")));
 app.get("/order", (_req, res) => res.sendFile(path.join(__dirname, "..", "public", "menu.html")));
