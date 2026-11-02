@@ -1412,7 +1412,7 @@ function printerAccess(req) {
 
 // -------------------------------------------------------------- Shop config
 app.get(
-  "/api/shop/config",
+  "/api/shop/social",
   requireAuth,
   requireRole("admin"),
   asyncHandler(async (_req, res) => {
@@ -1422,7 +1422,7 @@ app.get(
 );
 
 app.put(
-  "/api/shop/config",
+  "/api/shop/social",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const { fbPageId, fbToken, igUserId } = req.body || {};

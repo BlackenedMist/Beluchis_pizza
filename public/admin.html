@@ -2311,7 +2311,7 @@ async function loadSettings() {
   try {
     state.settings = (await api("/api/settings")).settings;
     state.delivery = await api("/api/delivery/config");
-    state.shopConfig = await api("/api/shop/config");
+    state.shopConfig = await api("/api/shop/social");
     renderDelivery();
     renderDeliveries();
     renderSocial();
@@ -2602,7 +2602,7 @@ window.saveShopConfig = async () => {
   const btn = event?.target;
   if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
   try {
-    const res = await api("/api/shop/config", { method: "PUT", body: JSON.stringify({
+    const res = await api("/api/shop/social", { method: "PUT", body: JSON.stringify({
       fbPageId: $("#f-fb-page").value.trim() || null,
       fbToken: $("#f-fb-token").value.trim() || null,
       igUserId: $("#f-ig-user").value.trim() || null,
