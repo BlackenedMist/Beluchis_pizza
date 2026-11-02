@@ -253,7 +253,7 @@ function orderHead(o) {
   return `
     <div class="order-head">
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <span class="order-id">#${o.id}</span>
+        <span class="order-id">#${o.dailyNumber || o.id}</span>
         <span class="status-badge s-${o.status}">${STATUS_NAMES[o.status]}</span>
         <span class="order-time">${orderTime(o.createdAt)}</span>
         ${payChip}
@@ -278,7 +278,7 @@ function orderDest(o) {
 window.setOrderStatus = async (id, status) => {
   try {
     const updated = await api(`/api/orders/${id}`, { method: "PUT", body: JSON.stringify({ status }) });
-    toast(`#${updated.id} → ${STATUS_NAMES[updated.status]}`);
+    toast(`#${updated.dailyNumber || updated.id} → ${STATUS_NAMES[updated.status]}`);
     await loadOrders();
   } catch (e) { toast(e.message, true); }
 };
@@ -332,7 +332,7 @@ function checkNewOrders(orders) {
   const fresh = orders.filter((o) => o.status === "placed" && !state.known.has(o.id) && !state.showed.includes(o.id));
   for (const o of fresh) state.showed.push(o.id);
   if (fresh.length) {
-    const names = fresh.map((o) => `#${o.id}`).join(", ");
+    const names = fresh.map((o) => `#${o.dailyNumber || o.id}`).join(", ");
     $("#alert-text").textContent = `New order${fresh.length > 1 ? "s" : ""}: ${names}`;
     $("#alert").classList.add("show");
     beep();
@@ -362,7 +362,7 @@ async function loadPrinterStatus() {
 
 async function loadOrders() {
   try {
-    const orders = await api("/api/orders");
+    const orders = await api("/api/orders?today=1");
     checkNewOrders(orders);
     state.orders = orders;
     render();

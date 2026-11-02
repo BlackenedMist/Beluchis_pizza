@@ -602,7 +602,7 @@ function orderCard(o) {
   <details class="order-card">
     <summary>
       <div class="order-head">
-        <span class="id">Order #${o.id}</span>
+        <span class="id">Order #${o.dailyNumber || o.id}</span>
         <span class="meta">${esc(date)}</span>
         ${statusBadge(o.status)}
         <span class="meta">${o.items.reduce((n, i) => n + i.quantity, 0)} item(s)</span>
@@ -883,7 +883,7 @@ function startOrderPolling() {
       for (const o of orders) {
         const prev = _lastOrderStatus[o.id];
         if (prev && prev !== o.status) {
-          const msg = "Order #" + o.id + ": " + (o.status === "preparing" ? "being prepared" : o.status === "out_for_delivery" ? "out for delivery" : o.status === "delivered" ? "delivered" : o.status);
+          const msg = "Order #" + (o.dailyNumber || o.id) + ": " + (o.status === "preparing" ? "being prepared" : o.status === "out_for_delivery" ? "out for delivery" : o.status === "delivered" ? "delivered" : o.status);
           try { if (typeof toast === "function") toast(msg); } catch (e) {}
           if (window.Notification && Notification.permission === "granted") {
             try { new Notification("Beluchis order update", { body: msg }); } catch (e) {}

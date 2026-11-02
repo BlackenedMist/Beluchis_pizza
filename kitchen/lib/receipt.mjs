@@ -68,7 +68,7 @@ export function buildReceipt(order) {
   segs.push({ text: padCentre('VAT #: 4550257150'), align: 'center' });
   segs.push({ text: padCentre('KITCHEN SLIP'), align: 'center' });
   segs.push(rule);
-  segs.push({ text: `ORDER #${order.id}`, align: 'center', bold: true, size: 2 });
+  segs.push({ text: `ORDER #${order.dailyNumber || order.id}`, align: 'center', bold: true, size: 2 });
   segs.push(rule);
   segs.push({ text: `Type: ${order.deliveryAddress ? 'DELIVERY' : 'COLLECTION'}`, bold: true });
   segs.push({ text: `Time: ${fmtTime(order.createdAt)}` });

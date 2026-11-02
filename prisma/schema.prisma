@@ -192,10 +192,13 @@ model Order {
   deliveryStatus   String?
   notes           String?
   createdAt       DateTime     @default(now())
+  dayKey          String?      // YYYY-MM-DD in CAT, for daily numbering/filtering
+  dailyNumber     Int          @default(0) // order number within that day, starting at 1
   items           OrderItem[]
   events          OrderStatusEvent[]
 
   @@index([customerId, createdAt])
+  @@index([dayKey])
 }
 
 model OrderStatusEvent {

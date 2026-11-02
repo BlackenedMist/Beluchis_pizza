@@ -1998,13 +1998,32 @@ app.get(
     // calls this endpoint without the flag.
     const canSeePending = req.session?.role === "admin" || req.session?.role === "orders";
     const includePending = canSeePending && String(req.query.includePending || "") === "1";
+    const showAll = String(req.query.all || "") === "1";
+    // Date filter: ?date=YYYY-MM-DD or ?today=1 (CAT). Defaults to no filter
+    // (so kitchen/StandAlone polling keeps working). Admin/cashier pass ?today=1.
+    let dateFilter = {};
+    if (!showAll) {
+      let d = req.query.date;
+      if (req.query.today === "1" || req.query.today === "true") {
+        d = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Johannesburg" });
+      }
+      if (d && /^\d{4}-\d{2}-\d{2}$/.test(String(d))) {
+        const start = new Date(`${d}T00:00:00+02:00`);
+        const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+        dateFilter = { createdAt: { gte: start, lt: end } };
+      }
+    }
+    const whereBase = includePending ? {} : {
+      OR: [
+        { paymentMethod: { notIn: ["paygate", "payfast"] } },
+        { paymentStatus: "paid" },
+      ],
+    };
+    const where = (showAll || Object.keys(dateFilter).length === 0)
+      ? whereBase
+      : (Object.keys(whereBase).length ? { AND: [whereBase, dateFilter] } : dateFilter);
     const rows = await prisma.order.findMany({
-      where: includePending ? {} : {
-        OR: [
-          { paymentMethod: { notIn: ["paygate", "payfast"] } },
-          { paymentStatus: "paid" },
-        ],
-      },
+      where,
       orderBy: { createdAt: "desc" },
       include: orderIncludes,
     });
@@ -2654,10 +2673,17 @@ app.post(
       };
     }
 
+    // Daily order numbering: each day starts at 1 (CAT timezone).
+    const dayKey = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Johannesburg" });
+    const todayCount = await prisma.order.count({ where: { dayKey } });
+    const dailyNumber = todayCount + 1;
+
     const order = await prisma.$transaction(async (tx) => {
       const created = await tx.order.create({
         data: {
           customerId: customer.id,
+          dayKey,
+          dailyNumber,
           status: orderStatus,
           paymentMethod,
           paymentStatus: onlineFree ? "paid" : "pending",

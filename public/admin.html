@@ -438,7 +438,7 @@ function roleGating() {
 window.setOrderStatus = async (id, status) => {
   try {
     const updated = await api(`/api/orders/${id}`, { method: "PUT", body: JSON.stringify({ status }) });
-    toast(`#${updated.id} → ${STATUS_NAMES[updated.status]}`);
+    toast(`#${updated.dailyNumber || updated.id} → ${STATUS_NAMES[updated.status]}`);
     await loadOrders();
   } catch (e) { toast(e.message, true); }
 };
@@ -484,11 +484,16 @@ function orderActions(order) {
 async function loadOrders() {
   try {
     const includePending = state.me?.role === "admin" || state.me?.role === "orders";
-    const orders = await api(`/api/orders${includePending ? "?includePending=1" : ""}`);
+    const params = [];
+    if (includePending) params.push("includePending=1");
+    if (state.tab === "orderhistory") params.push("all=1");
+    else params.push("today=1");
+    const orders = await api(`/api/orders?${params.join("&")}`);
     state.orders = orders;
-    renderOrders();
+    if (state.tab === "orders") renderOrders();
+    else if (state.tab === "orderhistory") renderOrderHistory();
   } catch (e) {
-    if (state.tab === "orders") toast(e.message, true);
+    if (state.tab === "orders" || state.tab === "orderhistory") toast(e.message, true);
   }
 }
 
@@ -513,7 +518,7 @@ function renderOrders() {
     return `
     <div class="order-head">
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <span class="order-id">#${o.id}</span>
+        <span class="order-id">#${o.dailyNumber || o.id}</span>
         <span class="status-badge s-${o.status}">${STATUS_NAMES[o.status]}</span>
         <span class="order-time">${orderTime(o.createdAt)}</span>
         ${payChip}
@@ -1489,7 +1494,7 @@ function renderOrderHistory() {
     <div class="order-card">
       <div class="order-head">
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <span class="order-id">#${o.id}</span>
+          <span class="order-id">#${o.dailyNumber || o.id}</span>
           <span class="status-badge s-${o.status}">${STATUS_NAMES[o.status] || o.status}</span>
           <span class="order-time">${orderTime(o.createdAt)}</span>
           <span class="pay-chip">${payLabels[o.paymentMethod] || o.paymentMethod} · ${o.paymentStatus}</span>
