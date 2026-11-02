@@ -304,6 +304,7 @@
       <button data-tab="users">Users</button>
       <button data-tab="delivery">Shop</button>
       <button data-tab="printers">Printers</button>
+      <button data-tab="social" data-roles="admin">Social</button>
       <button data-tab="deliveries">Deliveries</button>
       <button data-tab="homepage">Homepage</button>
       <button data-tab="orderhistory">Order History</button>
@@ -324,6 +325,7 @@
   <section id="tab-loyalty" class="panel" hidden></section>
   <section id="tab-delivery" class="panel" hidden></section>
   <section id="tab-printers" class="panel" hidden></section>
+  <section id="tab-social" class="panel" hidden></section>
   <section id="tab-deliveries" class="panel" hidden></section>
   <section id="tab-homepage" class="panel" hidden></section>
   <section id="tab-orderhistory" class="panel" hidden></section>
@@ -808,6 +810,7 @@ $$("nav button[data-tab]").forEach((btn) =>
     if (state.tab === "loyalty") loadLoyalty();
     if (state.tab === "delivery") loadSettings();
     if (state.tab === "printers") loadPrinters();
+    if (state.tab === "social") loadSettings();
     if (state.tab === "deliveries") loadSettings();
     if (state.tab === "homepage") renderHomepage();
     if (state.tab === "orderhistory") { loadOrders().then(() => renderOrderHistory()); }
@@ -1023,7 +1026,7 @@ function render() {
   renderOrders();
   if (state.me?.role === "admin") renderUsers();
   if (state.me?.role === "admin") renderLoyalty();
-  if (state.me?.role === "admin") { renderDelivery(); renderDeliveries(); renderHomepage(); renderOrderHistory(); }
+  if (state.me?.role === "admin") { renderDelivery(); renderDeliveries(); renderHomepage(); renderOrderHistory(); renderSocial(); }
   $$("section[id^=tab-]").forEach((s) => (s.hidden = s.id !== `tab-${state.tab}`));
   // highlight the group title that owns the active tab
   $$(".nav-group").forEach((g) => {
@@ -2311,6 +2314,7 @@ async function loadSettings() {
     state.shopConfig = await api("/api/shop/config");
     renderDelivery();
     renderDeliveries();
+    renderSocial();
   } catch (e) { toast(e.message, true); }
 }
 
@@ -2365,8 +2369,19 @@ function renderDelivery() {
       <div class="hint" style="margin-bottom:10px">Placeholders: <code>{firstName}</code> and <code>{url}</code>. Sent by <code>npm run invites:send</code> — claimed customers are skipped automatically.</div>
       <button class="ghost" onclick="sendTestInvite()">Send the invite email to myself</button>
     </div>
-    <div class="card" style="padding:16px;flex:1;min-width:300px">
-      <h3 style="margin:0 0 8px;font-size:14px">Social / Facebook</h3>
+`;
+}
+
+function renderSocial() {
+  const el = $("#tab-social");
+  if (!el) return;
+  el.innerHTML = `
+    <div class="toolbar">
+      <h2>Social / Facebook</h2>
+      <button class="ghost" onclick="loadSettings()">Refresh</button>
+    </div>
+    <div class="card" style="padding:16px;max-width:640px">
+      <h3 style="margin:0 0 8px;font-size:14px">Facebook / Instagram</h3>
       <div class="field"><label>Facebook Page ID</label><input id="f-fb-page" type="text" value="${esc(state.shopConfig?.fbPageId || "")}" /></div>
       <div class="field"><label>Page Access Token</label><input id="f-fb-token" type="text" value="${esc(state.shopConfig?.fbToken || "")}" /></div>
       <div class="field"><label>Instagram User ID (optional)</label><input id="f-ig-user" type="text" value="${esc(state.shopConfig?.igUserId || "")}" /></div>
