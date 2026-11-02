@@ -97,6 +97,8 @@ Voer 'n kort beskrywing in wat onder die naam op die kaart wys (opsioneel).
 4. Slegs spesiale wat op die huidige dag aktief is, verskyn op die voorkant.
 
 ### 5.7 Afdeling 6 - Tuisblad & sosiaal
+Voorvereiste vir "Post to Facebook": gaan na **Shop -> Social**, voeg die Facebook Bladsy-ID en Bladsy-toegangstoken by (of gebruik **Connect with Facebook**), klik dan **Test connection** om te verifieer. Stoor die sosiale instellings.
+
 1. Kies **Vertoningstipe**: **Tile** (vierkantig, in die rooster) of **Banner** (volwydte ry bo die rooster).
 2. Merk **Show on home** om na die tuisblad te publiseer.
 3. Merk **Post to Facebook** om die spesiale na die gekoppelde Facebook-bladsy te publiseer by stoor.
@@ -132,6 +134,7 @@ Oortjie **Shop (Delivery)**:
 - **Afleweringskonfig** — aktiveer, winkel-ligging (lat/lng), gratis radius, fooi, maksimum radius, verder-fooi, minimum bestelling vir gratis aflewering.
 - **Sosiaal** — Facebook Bladsy-ID, Bladsy-toegangstoken, Instagram Gebruiker-ID, eienaar-waarskuwings-e-pos.
 - **Connect with Facebook** — open die FB-inteken-dialoog om 'n token te verkry (vereis dat die FB-app gekonfigureer is).
+- **Test connection** — verifieer die Bladsy-ID + token teen Facebook voordat jy op "Post to Facebook" staatmaak.
 
 ## 8. Gebruikers
 

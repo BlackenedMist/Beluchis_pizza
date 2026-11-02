@@ -2358,6 +2358,7 @@ function renderDelivery() {
       <div class="field"><label>Owner alert email</label><input id="f-owner-email" type="text" value="${esc(state.settings?.["shop.ownerEmail"] || "")}" placeholder="owner@example.com" /></div>
       <div class="hint" style="margin-bottom:10px">Used when "Post to Facebook on save" is ticked on a special. Stored in the database.</div>
       <button class="ghost" type="button" onclick="connectFacebook()" style="margin-right:8px">Connect with Facebook</button>
+      <button class="ghost" type="button" onclick="testFacebookConnection()" style="margin-right:8px">Test connection</button>
       <button class="primary" onclick="saveShopConfig()">Save social settings</button>
     </div>`;
 }
@@ -2554,6 +2555,17 @@ window.connectFacebook = async () => {
       toast("Connected to " + (page.name || page.id) + " — click Save social settings to store.");
     });
   }, { scope: "pages_show_list,pages_read_engagement,pages_manage_posts" });
+};
+
+window.testFacebookConnection = async () => {
+  const pageId = ($("#f-fb-page")?.value || "").trim();
+  const token = ($("#f-fb-token")?.value || "").trim();
+  try {
+    const res = await api("/api/shop/test-facebook", { method: "POST", body: JSON.stringify({ pageId, token }) });
+    toast("Facebook connected: " + (res.name || res.id || "OK"));
+  } catch (e) {
+    toast("Facebook test failed: " + e.message, true);
+  }
 };
 
 window.saveShopConfig = async () => {

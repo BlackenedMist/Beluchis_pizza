@@ -97,6 +97,8 @@ Enter a short description shown under the name on the card (optional).
 4. Only specials active on the current day appear on the storefront.
 
 ### 5.7 Section 6 - Home page & social
+Prerequisite for "Post to Facebook": go to **Shop -> Social**, add the Facebook Page ID and Page Access Token (or use **Connect with Facebook**), then click **Test connection** to verify. Save the social settings.
+
 1. Choose **Display type**: **Tile** (square, in the grid) or **Banner** (full-width row above the grid).
 2. Tick **Show on home** to publish to the home page.
 3. Tick **Post to Facebook** to publish the special to the connected Facebook page on save.
@@ -132,6 +134,7 @@ Tab **Shop (Delivery)**:
 - **Delivery config** — enable, shop location (lat/lng), free radius, fee, max radius, beyond fee, minimum order for free delivery.
 - **Social** — Facebook Page ID, Page Access Token, Instagram User ID, owner alert email.
 - **Connect with Facebook** — opens the FB login dialog to obtain a token (requires the FB app to be configured).
+- **Test connection** — verifies the Page ID + token against Facebook before you rely on "Post to Facebook".
 
 ## 8. Users
 

@@ -1534,6 +1534,25 @@ app.put(
   })
 );
 
+app.post(
+  "/api/shop/test-facebook",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    const cfg = await prisma.shopConfig.findUnique({ where: { id: 1 } });
+    const pageId = req.body?.pageId || cfg?.fbPageId;
+    const token = req.body?.token || cfg?.fbToken;
+    if (!pageId || !token) return res.status(400).json({ error: "Page ID and access token required" });
+    try {
+      const r = await fetch(`https://graph.facebook.com/v19.0/${encodeURIComponent(pageId)}?fields=name,id&access_token=${encodeURIComponent(token)}`);
+      const data = await r.json();
+      if (!r.ok || data.error) return res.status(400).json({ error: data?.error?.message || "Connection failed" });
+      res.json({ ok: true, name: data.name, id: data.id });
+    } catch (e) {
+      res.status(500).json({ error: e.message || "Connection failed" });
+    }
+  })
+);
+
 // -------------------------------------------------------------- Customers
 app.get(
   "/api/customers",
