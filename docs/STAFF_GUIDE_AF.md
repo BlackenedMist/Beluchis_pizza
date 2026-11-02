@@ -8,6 +8,8 @@ Maak `/admin` oop en teken in met jou admin-rekening (gebruikersnaam + PIN). Kas
 
 ## 2. Admin-portaal oorsig
 
+![Admin portaal](screenshots/admin.png)
+
 Die admin-portaal het 'n sybalk van oortjies. Die hoofstes:
 
 - **Orders** — lewendige bestellingry.
@@ -146,6 +148,8 @@ Spoor aflewerings, ken bestuurders toe, merk as afgelewer.
 
 ## 10. Kassierblad (`/cashier`)
 
+![Kassier](screenshots/cashier.png)
+
 - Lewendige bestellingry met dieselfde filters.
 - **Nuwe-bestelling-waarskuwing** — klank/kennisgewing wanneer 'n nuwe bestelling aankom.
 - **Drukker-vanlyn-baniere** — rooi waarskuwing as 'n drukker af is.
@@ -183,6 +187,22 @@ Kombuis- en StandAlone-strokies sluit in:
 - Kliënt, telefoon, afleweringsadres.
 - Subtotaal, afslag, **TOTAL AMOUNT**, en vir aanlyn-betaalde bestellings: "Paid online R…" + "No balance due".
 - BTW-opsplitsing: Total Excl VAT / VAT Incl. (15%).
+
+## 13b. Vinnige verwysing — URL's per rol
+
+| Rol / bladsy | URL | Notas |
+|---|---|---|
+| Tuisblad (publiek) | `/` | Landingsblad, spesiale, kontak |
+| Spyskaart / bestel | `/order` | Volle spyskaart, mandjie, afrekening |
+| Kliëntportaal | `/portal` | Inteken, bestellings, profiel, adresse |
+| Kliëntgids (druk) | `/guide` | Engels + Afrikaans, drukbaar |
+| Admin-inteken | `/login` | Gebruikersnaam + PIN (admin PIN van `ADMIN_PIN`) |
+| Admin-portaal | `/admin` | Bestellings, spyskaart, spesiale, drukkers, winkelinstellings |
+| Kassier | `/cashier` | Lewendige ry, herdruk, drukkerwaarskuwings |
+| Bestuurder | `/driver` | Afleweringopsporing |
+| Personeelgids (druk) | `/admin-guide` | Engels + Afrikaans, drukbaar |
+
+Rolle word bepaal deur die rekening/PIN by `/login`: admin PIN → `/admin`, kassierrekening → `/cashier`, bestuurderrekening → `/driver`.
 
 ## 14. Wenke
 

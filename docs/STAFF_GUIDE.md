@@ -8,6 +8,8 @@ Open `/admin` and sign in with your admin account (username + PIN). Cashiers use
 
 ## 2. Admin portal overview
 
+![Admin portal](screenshots/admin.png)
+
 The admin portal has a sidebar of tabs. The main ones:
 
 - **Orders** — live order queue.
@@ -146,6 +148,8 @@ Track deliveries, assign drivers, mark delivered.
 
 ## 10. Cashier page (`/cashier`)
 
+![Cashier](screenshots/cashier.png)
+
 - Live order queue with the same filters.
 - **New order alert** — sound/notification when a new order arrives.
 - **Printer offline banner** — red warning if a printer is down.
@@ -183,6 +187,22 @@ Kitchen and StandAlone receipts include:
 - Customer, phone, delivery address.
 - Subtotal, discount, **TOTAL AMOUNT**, and for paid-online orders: "Paid online R…" + "No balance due".
 - VAT breakdown: Total Excl VAT / VAT Incl. (15%).
+
+## 13b. Quick reference — URLs by role
+
+| Role / page | URL | Notes |
+|---|---|---|
+| Home (public) | `/` | Landing page, specials, contact |
+| Menu / order | `/order` | Full menu, cart, checkout |
+| Customer portal | `/portal` | Login, orders, profile, addresses |
+| Customer guide (print) | `/guide` | English + Afrikaans, printable |
+| Admin login | `/login` | Username + PIN (admin PIN from `ADMIN_PIN`) |
+| Admin portal | `/admin` | Orders, menu, specials, printers, shop settings |
+| Cashier | `/cashier` | Live queue, reprint, printer alerts |
+| Driver | `/driver` | Delivery tracking |
+| Staff guide (print) | `/admin-guide` | English + Afrikaans, printable |
+
+Roles are determined by the account/PIN used at `/login`: admin PIN → `/admin`, cashier account → `/cashier`, driver account → `/driver`.
 
 ## 14. Tips
 

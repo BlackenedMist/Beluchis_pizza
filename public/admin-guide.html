@@ -67,6 +67,7 @@
 <p>Open <code>/admin</code> and sign in with your admin account (username + PIN). Cashiers use <code>/cashier</code>. Drivers use <code>/driver</code>.</p>
 
 <h2 id="en-overview">2. Admin portal overview</h2>
+<img class="shot" src="/screenshots/admin.png" alt="Admin portal" style="width:100%;max-width:720px;border:1px solid var(--line);border-radius:10px;margin:10px 0;display:block;" />
 <p>Sidebar tabs: Orders, Users, Menu/Items, Specials, Printers, Shop (Delivery), Deliveries.</p>
 
 <h2 id="en-orders">3. Orders queue</h2>
@@ -198,6 +199,7 @@
 <p>Track deliveries, assign drivers, mark delivered.</p>
 
 <h2 id="en-cashier">10. Cashier page (/cashier)</h2>
+<img class="shot" src="/screenshots/cashier.png" alt="Cashier" style="width:100%;max-width:720px;border:1px solid var(--line);border-radius:10px;margin:10px 0;display:block;" />
 <ul>
 <li>Live order queue with the same filters.</li>
 <li>New order alert — sound/notification when a new order arrives.</li>
@@ -226,6 +228,20 @@
 <h2 id="en-standalone">12. StandAlone bridge (StandAlone/)</h2>
 <p>Local bridge (port 3102) used when the kitchen PC is the print source. Stores printers locally in <code>data/printers.json</code> and syncs with the server. Local edits push to the server; server config overwrites local on poll.</p>
 
+<h2 id="en-urls">12b. Quick reference — URLs by role</h2>
+<table>
+<tr><th>Role / page</th><th>URL</th></tr>
+<tr><td>Home (public)</td><td>/</td></tr>
+<tr><td>Menu / order</td><td>/order</td></tr>
+<tr><td>Customer portal</td><td>/portal</td></tr>
+<tr><td>Customer guide (print)</td><td>/guide</td></tr>
+<tr><td>Admin login</td><td>/login</td></tr>
+<tr><td>Admin portal</td><td>/admin</td></tr>
+<tr><td>Cashier</td><td>/cashier</td></tr>
+<tr><td>Driver</td><td>/driver</td></tr>
+<tr><td>Staff guide (print)</td><td>/admin-guide</td></tr>
+</table>
+<p>Roles are determined by the account/PIN used at <code>/login</code>.</p>
 <h2 id="en-receipts">13. Receipts</h2>
 <p>Kitchen and StandAlone receipts include:</p>
 <ul>
@@ -261,6 +277,7 @@
 <p>Maak <code>/admin</code> oop en teken in met jou admin-rekening (gebruikersnaam + PIN). Kassiere gebruik <code>/cashier</code>. Bestuurders gebruik <code>/driver</code>.</p>
 
 <h2 id="af-overview">2. Admin-portaal oorsig</h2>
+<img class="shot" src="/screenshots/admin.png" alt="Admin portaal" style="width:100%;max-width:720px;border:1px solid var(--line);border-radius:10px;margin:10px 0;display:block;" />
 <p>Sybalk-oortjies: Orders, Users, Menu/Items, Specials, Printers, Shop (Delivery), Deliveries.</p>
 
 <h2 id="af-orders">3. Bestellingry</h2>
@@ -392,6 +409,7 @@
 <p>Spoor aflewerings, ken bestuurders toe, merk as afgelewer.</p>
 
 <h2 id="af-cashier">10. Kassierblad (/cashier)</h2>
+<img class="shot" src="/screenshots/cashier.png" alt="Kassier" style="width:100%;max-width:720px;border:1px solid var(--line);border-radius:10px;margin:10px 0;display:block;" />
 <ul>
 <li>Lewendige bestellingry met dieselfde filters.</li>
 <li>Nuwe-bestelling-waarskuwing — klank/kennisgewing wanneer 'n nuwe bestelling aankom.</li>
@@ -420,6 +438,20 @@
 <h2 id="af-standalone">12. StandAlone-brug (StandAlone/)</h2>
 <p>Plaaslike brug (poort 3102) wat gebruik word wanneer die kombuis-PC die drukbron is. Stoor drukkers plaaslik in <code>data/printers.json</code> en sinkroniseer met die bediener. Plaaslike wysigings stoot na die bediener; bediener-konfig oorskryf plaaslik by peiling.</p>
 
+<h2 id="af-urls">12b. Vinnige verwysing — URL's per rol</h2>
+<table>
+<tr><th>Rol / bladsy</th><th>URL</th></tr>
+<tr><td>Tuisblad (publiek)</td><td>/</td></tr>
+<tr><td>Spyskaart / bestel</td><td>/order</td></tr>
+<tr><td>Kliëntportaal</td><td>/portal</td></tr>
+<tr><td>Kliëntgids (druk)</td><td>/guide</td></tr>
+<tr><td>Admin-inteken</td><td>/login</td></tr>
+<tr><td>Admin-portaal</td><td>/admin</td></tr>
+<tr><td>Kassier</td><td>/cashier</td></tr>
+<tr><td>Bestuurder</td><td>/driver</td></tr>
+<tr><td>Personeelgids (druk)</td><td>/admin-guide</td></tr>
+</table>
+<p>Rolle word bepaal deur die rekening/PIN by <code>/login</code>.</p>
 <h2 id="af-receipts">13. Strokies</h2>
 <p>Kombuis- en StandAlone-strokies sluit in:</p>
 <ul>
