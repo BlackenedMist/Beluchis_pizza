@@ -49,6 +49,36 @@ export async function send(printer, segments, text) {
   return sendTcp(printer, buffer);
 }
 
+export async function scanSubnet(port = 9100, timeoutMs = 600) {
+  const os = await import('node:os');
+  const nets = os.networkInterfaces();
+  const subnets = new Set();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      if (net.family === 'IPv4' && !net.internal) {
+        const parts = net.address.split('.');
+        subnets.add(parts.slice(0, 3).join('.'));
+      }
+    }
+  }
+  const results = [];
+  for (const sub of subnets) {
+    const probes = [];
+    for (let i = 1; i <= 254; i++) {
+      const host = `${sub}.${i}`;
+      probes.push(new Promise((resolve) => {
+        const socket = net.connect({ host, port });
+        const t = setTimeout(() => { socket.destroy(); resolve(null); }, timeoutMs);
+        socket.on('connect', () => { clearTimeout(t); socket.destroy(); resolve(host); });
+        socket.on('error', () => { clearTimeout(t); resolve(null); });
+      }));
+    }
+    const found = await Promise.all(probes);
+    for (const h of found) if (h) results.push(h);
+  }
+  return results;
+}
+
 export async function testPrinter(printer) {
   const text = ['.BELUCHIS KITCHEN.', 'Printer test OK', String(new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })), 'If you can read this line,', 'everything is working.'].join('\n');
   if (printer.type === 'file') {

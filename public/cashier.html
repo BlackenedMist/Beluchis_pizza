@@ -181,6 +181,8 @@ const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;"
 const state = {
   orders: [], me: null,
   filter: "",
+  dateFilter: "",
+  printers: [],
   known: new Set(),
   soundOn: true,
   showed: [],
@@ -256,7 +258,7 @@ function orderHead(o) {
         <span class="order-time">${orderTime(o.createdAt)}</span>
         ${payChip}
       </div>
-      <div class="order-total">${o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Paid online" : "R" + (o.discountAmount ? (o.grandTotal ?? o.total) : o.total)}</div>
+      <div class="order-total">${o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Total R" + (o.grandTotal ?? o.total) + " · Paid online R" + (o.grandTotal ?? o.total) : "R" + (o.discountAmount ? (o.grandTotal ?? o.total) : o.total)}</div>
     </div>`;
 }
 
@@ -296,9 +298,14 @@ function render() {
   tallyEl.innerHTML = `
     <button class="${state.filter === "" ? "active" : ""}" onclick="state.filter='';render()">All (${state.orders.length})</button>
     ${STATUSES.map((s) => `<button class="${state.filter === s ? "active" : ""}" onclick="state.filter='${s}';render()">
-      <span class="dot ${s}"></span>${STATUS_NAMES[s]} (${tally(s)})</button>`).join("")}`;
+      <span class="dot ${s}"></span>${STATUS_NAMES[s]} (${tally(s)})</button>`).join("")}
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+      <label class="muted" style="font-size:12px;">Date:</label>
+      <input type="date" value="${esc(state.dateFilter)}" onchange="state.dateFilter=this.value;render()" />
+      <button class="ghost" onclick="state.dateFilter='';render()">All days</button>
+    </div>`;
 
-  const filtered = state.filter ? state.orders.filter((o) => o.status === state.filter) : state.orders;
+  const filtered = (state.filter ? state.orders.filter((o) => o.status === state.filter) : state.orders).filter((o) => !state.dateFilter || String(o.createdAt || "").slice(0, 10) === state.dateFilter);
   listEl.innerHTML = filtered.length ? filtered.map((o) => `
     <div class="order-card ${!state.known.has(o.id) ? "is-new" : ""}">
       ${orderHead(o)}
@@ -334,6 +341,24 @@ function checkNewOrders(orders) {
 }
 
 window.dismissAlert = () => $("#alert").classList.remove("show");
+
+async function loadPrinterStatus() {
+  try {
+    const data = await api("/api/kitchen/printers");
+    state.printers = data.printers || [];
+    const offline = state.printers.some((p) => p.status && p.status.online === false);
+    let banner = document.getElementById("printer-banner");
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = "printer-banner";
+      banner.style.cssText = "background:#fdecea;border:1px solid #f5c6cb;color:#b3351f;padding:8px 12px;border-radius:8px;margin:8px 0;font-weight:600;font-size:13px;";
+      const main = document.querySelector("main") || document.body;
+      main.insertBefore(banner, main.firstChild);
+    }
+    if (offline) { banner.textContent = "⚠ A printer is offline or failed to print. Check admin Printers."; banner.hidden = false; }
+    else { banner.hidden = true; }
+  } catch { /* ignore */ }
+}
 
 async function loadOrders() {
   try {
@@ -400,7 +425,8 @@ async function boot() {
   $("#me-name").textContent = state.me.name;
   $("#me-role").textContent = state.me.role;
   await loadOrders();
-  setInterval(() => { if (!document.hidden) loadOrders(); }, 10000);
+  await loadPrinterStatus();
+  setInterval(() => { if (!document.hidden) { loadOrders(); loadPrinterStatus(); } }, 10000);
 }
 
 boot().catch((e) => toast("Failed to load: " + e.message, true));

@@ -613,7 +613,7 @@ function renderMenu() {
   if (SPECIALS.length) {
     parts.push('<h2 style="margin:0 0 10px;font-size:18px;">Deals</h2>');
     parts.push('<div class="deals-carousel"><div class="deals-track">' + SPECIALS.map((s) => {
-      const bogo = s.kind === "bogo";
+      const bogo = s.kind === "bogo" || s.kind === "pick";
       // Fixed-price deals are never added as a cart line - they price
       // themselves off the pizzas already in it, so the card only explains
       // them and points at the category.
@@ -633,7 +633,7 @@ function renderMenu() {
         ? '<div class="special-parts">' +
             (s.category ? '<span class="part">Pick any ' + esc(s.category.name) + "</span>" : "") +
             (s.sizeLabel ? '<span class="part">' + esc(s.sizeLabel) + " only</span>" : "") +
-            '<span class="part">Choose ' + s.count + " &middot; pay for " + s.count / 2 + "</span>" +
+            '<span class="part">Choose ' + (s.kind === "pick" ? (s.buyCount || s.count) : s.count) + " &middot; pay for " + (s.kind === "pick" ? (s.payCount || (s.buyCount || s.count) - 1) : s.count / 2) + "</span>" +
           "</div>"
         : deal
           ? '<div class="special-parts">' +
@@ -952,21 +952,32 @@ const bogoCategoryItems = (s) => {
 };
 
 function newBogoPick(s) {
-  const items = bogoCategoryItems(s);
+  const items = bogoItems(s);
   const item = items[0];
   const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && (!s.sizeLabel || x.sizeLabel === s.sizeLabel)) : [];
   return { itemId: item ? item.id : null, sizeLabel: sizes[0] ? sizes[0].sizeLabel : null, extras: [] };
 }
 
+function bogoPickCount(s) { return (s.kind === "pick") ? (s.buyCount || s.count || 3) : (s.count || 2); }
+function bogoPayCount(s) { return (s.kind === "pick") ? (s.payCount || bogoPickCount(s) - 1) : (bogoPickCount(s) / 2); }
 function bogoTotalText() {
-  const base = Shop.bogoBaseTotal(bogoModal.picks);
+  const s = bogoModal.special;
+  const base = Shop.bogoBaseTotal(bogoModal.picks, bogoPayCount(s));
   const ex = Shop.extrasTotal(bogoModal.picks);
   return money(base + ex) + (ex ? " (incl. " + money(ex) + " extras)" : "");
+}
+function bogoItems(s) {
+  if (s.kind === "pick" && s.selectionMode === "items") {
+    return (s.items || []).map((si) => Shop.data.byId.get(Number(si.itemId))).filter(Boolean);
+  }
+  return bogoCategoryItems(s);
 }
 
 function renderBogo() {
   const s = bogoModal.special;
-  const items = bogoCategoryItems(s);
+  const items = bogoItems(s);
+  const cnt = bogoPickCount(s);
+  const pay = bogoPayCount(s);
   if (!items.length) { toast("That deal has no available pizzas right now"); closeOverlay("#bogo-overlay"); return; }
   const rows = bogoModal.picks.map((p, i) => {
     const item = Shop.data.byId.get(Number(p.itemId));
@@ -989,7 +1000,7 @@ function renderBogo() {
 
   $("#bogo-modal").innerHTML =
     "<h3>" + esc(s.name) + "</h3>" +
-    '<p class="sub">Choose ' + s.count + " pizzas &middot; you pay for the " + s.count / 2 + " most expensive" + (s.sizeLabel ? " &middot; " + esc(s.sizeLabel) + " only" : "") + "</p>" +
+    '<p class="sub">Choose ' + cnt + " pizzas &middot; you pay for the " + pay + " most expensive" + (s.sizeLabel ? " &middot; " + esc(s.sizeLabel) + " only" : "") + "</p>" +
     rows +
     '<div class="modal-actions">' +
     '<span class="total" id="bogo-total">' + bogoTotalText() + "</span>" +
@@ -999,7 +1010,8 @@ function renderBogo() {
 }
 
 const openBogo = (s) => {
-  bogoModal = { special: s, picks: Array.from({ length: s.count }, () => newBogoPick(s)) };
+  const cnt = (s.kind === "pick") ? (s.buyCount || s.count || 3) : (s.count || 2);
+  bogoModal = { special: s, picks: Array.from({ length: cnt }, () => newBogoPick(s)) };
   $("#bogo-overlay").hidden = false;
   renderBogo();
 };
@@ -1037,8 +1049,9 @@ $("#bogo-modal").addEventListener("click", (e) => {
   const pizzas = bogoModal.picks
     .filter((p) => p.itemId && p.sizeLabel)
     .map((p) => ({ itemId: p.itemId, sizeLabel: p.sizeLabel, name: (Shop.data.byId.get(Number(p.itemId)) || {}).name, extras: (p.extras || []).map((x) => ({ name: x.name, price: x.price })) }));
-  if (pizzas.length !== s.count) { toast("Please choose " + s.count + " pizzas"); return; }
-  const unitPrice = Shop.bogoBaseTotal(pizzas) + Shop.extrasTotal(pizzas);
+  const cnt = (s.kind === "pick") ? (s.buyCount || s.count || 3) : (s.count || 2);
+  if (pizzas.length !== cnt) { toast("Please choose " + cnt + " pizzas"); return; }
+  const unitPrice = Shop.bogoBaseTotal(pizzas, (s.kind === "pick") ? (s.payCount || cnt - 1) : (cnt / 2)) + Shop.extrasTotal(pizzas);
   addLine({ kind: "special", specialId: s.id, name: s.name, unitPrice, pizzas, qty: 1 });
   closeOverlay("#bogo-overlay");
   toast("Added deal: " + s.name);
@@ -2145,7 +2158,7 @@ async function load() {
     const data = await Shop.load();
     CATS = data.cats;
     ITEMS = data.items;
-    SPECIALS = data.specials.filter((s) => s.isActive !== false);
+    SPECIALS = data.specials.filter((s) => (window.Shop && typeof Shop.specialCurrentlyActive === "function") ? Shop.specialCurrentlyActive(s) : s.isActive !== false);
     deliveryCfg = data.delivery;
     try {
       const sr = await fetch("/api/shop/config");

@@ -165,6 +165,10 @@
   .num {
     width: 56px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; background: #fff; color: var(--ink);
   }
+  details.acc { border:1px solid var(--line); border-radius:8px; margin:8px 0; padding:8px 12px; background:#fff; }
+  details.acc > summary { cursor:pointer; font-weight:700; font-size:13px; list-style:none; }
+  details.acc > summary::-webkit-details-marker { display:none; }
+  details.acc[open] > summary { margin-bottom:8px; border-bottom:1px solid var(--line); padding-bottom:6px; }
   .specials-grid {
     display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 12px; max-height: 260px; overflow: auto;
     border: 1px solid var(--line); border-radius: 8px; padding: 10px;
@@ -297,6 +301,7 @@
     <div class="nav-group-menu">
       <button data-tab="users">Users</button>
       <button data-tab="delivery">Shop</button>
+      <button data-tab="printers">Printers</button>
       <button data-tab="deliveries">Deliveries</button>
       <button data-tab="homepage">Homepage</button>
       <button data-tab="orderhistory">Order History</button>
@@ -316,6 +321,7 @@
   <section id="tab-users" class="panel" hidden></section>
   <section id="tab-loyalty" class="panel" hidden></section>
   <section id="tab-delivery" class="panel" hidden></section>
+  <section id="tab-printers" class="panel" hidden></section>
   <section id="tab-deliveries" class="panel" hidden></section>
   <section id="tab-homepage" class="panel" hidden></section>
   <section id="tab-orderhistory" class="panel" hidden></section>
@@ -337,7 +343,7 @@ const state = {
   orders: [], users: [], contact: [], me: null,
   tab: "orders", search: "",
   fItems: { category: "", type: "", active: "" },
-  fStatus: "", orderSearch: "",
+  fStatus: "", orderSearch: "", orderQueueDate: "", shopConfig: null,
   orderHistoryDate: "", orderHistorySearch: "",
   loyalty: null, coupons: [],
   fLoyalty: { q: "", tier: "", window: "365", minSpend: "", minOrders: "" },
@@ -479,10 +485,11 @@ function renderOrders() {
   const q = state.orderSearch.trim().toLowerCase();
   const filtered = state.orders.filter((o) => {
     const statusOk = !state.fStatus || o.status === state.fStatus;
+    const dayOk = !state.orderQueueDate || String(o.createdAt || "").slice(0, 10) === state.orderQueueDate;
     const name = `${o.customer?.firstName || ""} ${o.customer?.lastName || ""}`;
     const matchQ = !q || String(o.id).includes(q) || name.toLowerCase().includes(q) ||
       (o.customer?.cellphone || "").toLowerCase().includes(q) || (o.deliveryAddress || "").toLowerCase().includes(q);
-    return statusOk && matchQ;
+    return statusOk && dayOk && matchQ;
   });
   const tally = (s) => state.orders.filter((o) => o.status === s).length;
 
@@ -499,7 +506,7 @@ function renderOrders() {
         <span class="order-time">${orderTime(o.createdAt)}</span>
         ${payChip}
       </div>
-      <div class="order-total">${o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Paid online" : "R" + (o.discountAmount ? (o.grandTotal ?? o.total) : o.total)}</div>
+      <div class="order-total">${o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Total R" + (o.grandTotal ?? o.total) + " · Paid online R" + (o.grandTotal ?? o.total) : "R" + (o.discountAmount ? (o.grandTotal ?? o.total) : o.total)}</div>
     </div>`;
   };
 
@@ -538,6 +545,11 @@ function renderOrders() {
         <button class="${state.fStatus === "" ? "active" : ""}" onclick="state.fStatus='';renderOrders()">All (${state.orders.length})</button>
         ${STATUSES.map((s) => `<button class="${state.fStatus === s ? "active" : ""}" onclick="state.fStatus='${s}';renderOrders()">
           <span class="dot ${s}"></span>${STATUS_NAMES[s]} (${tally(s)})</button>`).join("")}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+        <label class="muted" style="font-size:12px;">Date:</label>
+        <input type="date" value="${esc(state.orderQueueDate)}" onchange="state.orderQueueDate=this.value;renderOrders()" />
+        <button class="ghost" onclick="state.orderQueueDate='';renderOrders()">All days</button>
       </div>
     </div>
     ${filtered.length ? `
@@ -778,6 +790,7 @@ $$("nav button[data-tab]").forEach((btn) =>
     if (state.tab === "contact") loadContact();
     if (state.tab === "loyalty") loadLoyalty();
     if (state.tab === "delivery") loadSettings();
+    if (state.tab === "printers") loadPrinters();
     if (state.tab === "deliveries") loadSettings();
     if (state.tab === "homepage") renderHomepage();
     if (state.tab === "orderhistory") { loadOrders().then(() => renderOrderHistory()); }
@@ -1459,7 +1472,7 @@ function renderOrderHistory() {
 
   const card = (o) => {
     const payLabels = { cod_cash: "Cash on delivery", cod_card: "Card on delivery", payfast: "Online (PayFast)", paygate: "Online (PayGate)" };
-    const total = o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Paid online" : "R" + (o.discountAmount ? (o.grandTotal ?? o.total) : o.total);
+    const total = o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Total R" + (o.grandTotal ?? o.total) + " · Paid online R" + (o.grandTotal ?? o.total) : "R" + (o.discountAmount ? (o.grandTotal ?? o.total) : o.total);
     return `
     <div class="order-card">
       <div class="order-head">
@@ -1666,48 +1679,107 @@ window.openSpecial = (id) => {
   const isBogo = s?.kind === "bogo";
   openModal(`
     <h3>${s ? "Edit" : "Add"} Special</h3>
-    <div class="row">
-      ${field("Name *", `<input id="sp-name" value="${esc(s?.name || "")}" />`)}
-      ${field("Kind", `<select id="sp-kind" onchange="renderSpecialKind()">
-        <option value="flat"${!isBogo ? " selected" : ""}>Fixed price bundle</option>
-        <option value="bogo"${isBogo ? " selected" : ""}>Buy a group, pay half (BOGO)</option>
-      </select>`)}
-    </div>
-    <div id="sp-flat"${isBogo ? " hidden" : ""}>
-      ${field("Price (R)", `<input id="sp-price" type="number" value="${s && !isBogo ? s.price : ""}" oninput="renderSpecialSum()" />`)}
-      ${field("Items", `<div id="sp-items" class="specials-grid"></div>`)}
-      <div id="sp-sum" class="muted" style="font-size:12.5px;margin-top:4px"></div>
-    </div>
-    <div id="sp-bogo"${isBogo ? "" : " hidden"}>
+    <details open class="acc"><summary>Name</summary>
       <div class="row">
-        ${field("Category *", `<select id="sp-cat" onchange="renderBogoSizes()">
-          <option value="">— pick a category —</option>
-          ${state.categories.map((c) => `<option value="${c.id}"${s?.categoryId===c.id?" selected":""}>${esc(c.name)}</option>`).join("")}
+        ${field("Name *", `<input id="sp-name" value="${esc(s?.name || "")}" />`)}
+        ${field("Kind", `<select id="sp-kind" onchange="renderSpecialKind()">
+          <option value="flat"${s?.kind === "flat" || !s ? " selected" : ""}>Fixed price bundle</option>
+          <option value="bogo"${s?.kind === "bogo" ? " selected" : ""}>Buy a group, pay half (BOGO)</option>
+          <option value="deal"${s?.kind === "deal" ? " selected" : ""}>Fixed-price deal (auto-applies)</option>
+          <option value="pick"${s?.kind === "pick" ? " selected" : ""}>Custom pick (buy N, pay M)</option>
         </select>`)}
-        ${field("Size (optional)", `<select id="sp-size">${sizeSelectHtml(s?.sizeLabel, s?.categoryId)}</select>`)}
       </div>
-      ${field("Pizzas the customer picks (even number)", `<input id="sp-count" type="number" min="2" step="2" value="${s?.count ?? 2}" />`)}
-      <p class="hint" style="margin:0 0 10px">The customer builds that many pizzas from the category (at the chosen size, if set) and pays for the higher half of the base prices &mdash; extras are always charged. Example: 2 pizzas &rarr; pay for 1; 4 pizzas &rarr; pay for 2.</p>
-    </div>
-    ${field("Description", `<textarea id="sp-desc" rows="2">${esc(s?.description || "")}</textarea>`)}
-    ${pictureField("sp-img", s?.imageUrl)}
-    <div class="row">
-      ${field("Sort order", `<input id="sp-sort" type="number" value="${s?.sortOrder ?? 0}" />`)}
-      ${field("Active", `<select id="sp-active">
-        <option value="true"${s?.isActive !== false ? " selected" : ""}>Active</option>
-        <option value="false"${s?.isActive === false ? " selected" : ""}>Inactive</option>
-      </select>`)}
-      ${field("Home page", `<label style="display:flex;align-items:center;gap:8px;font-weight:600;padding-top:6px"><input type="checkbox" id="sp-home" ${s?.showOnHome ? "checked" : ""} /> Show on home</label>`)}
-    </div>
+    </details>
+    <details class="acc"><summary>Category and size</summary>
+      <div id="sp-bogo"${isBogo ? "" : " hidden"}>
+        <div class="row">
+          ${field("Category *", `<select id="sp-cat" onchange="renderBogoSizes()">
+            <option value="">— pick a category —</option>
+            ${state.categories.map((c) => `<option value="${c.id}"${s?.categoryId===c.id?" selected":""}>${esc(c.name)}</option>`).join("")}
+          </select>`)}
+          ${field("Size (optional)", `<select id="sp-size">${sizeSelectHtml(s?.sizeLabel, s?.categoryId)}</select>`)}
+        </div>
+        ${field("Pizzas the customer picks (even number)", `<input id="sp-count" type="number" min="2" step="2" value="${s?.count ?? 2}" />`)}
+        <p class="hint" style="margin:0 0 10px">The customer builds that many pizzas from the category (at the chosen size, if set) and pays for the higher half of the base prices &mdash; extras are always charged. Example: 2 pizzas &rarr; pay for 1; 4 pizzas &rarr; pay for 2.</p>
+      </div>
+    </details>
+    <details class="acc"><summary>Item selection</summary>
+      <div id="sp-flat"${isBogo ? " hidden" : ""}>
+        ${field("Price (R)", `<input id="sp-price" type="number" value="${s && !isBogo ? s.price : ""}" oninput="renderSpecialSum()" />`)}
+        ${field("Items", `<div id="sp-items" class="specials-grid"></div>`)}
+        <div id="sp-sum" class="muted" style="font-size:12.5px;margin-top:4px"></div>
+      </div>
+      <div id="sp-pick" hidden>
+        <div class="row">
+          ${field("Selection mode", `<select id="sp-selmode" onchange="renderSpecialKind()">
+            <option value="items"${(s?.selectionMode || "items") === "items" ? " selected" : ""}>Curated items</option>
+            <option value="category"${s?.selectionMode === "category" ? " selected" : ""}>Category</option>
+          </select>`)}
+          ${field("Buy (pick) count", `<input id="sp-buy" type="number" min="2" value="${s?.buyCount || 3}" />`)}
+          ${field("Pay count", `<input id="sp-pay" type="number" min="1" value="${s?.payCount || 2}" />`)}
+          ${field("Pay mode", `<select id="sp-paymode">
+            <option value="expensive"${(s?.payMode || "expensive") === "expensive" ? " selected" : ""}>Pay for most expensive</option>
+            <option value="fixed"${s?.payMode === "fixed" ? " selected" : ""}>Pay for fixed selected items</option>
+          </select>`)}
+        </div>
+        <p class="hint" style="margin:0 0 10px">Customer picks "buy count" pizzas and pays for "pay count" of them. E.g. buy 3 pay 2 = buy 2 get 1 free. Pay mode "fixed" charges only items marked paid in the list.</p>
+      </div>
+    </details>
+    <details class="acc"><summary>Description</summary>
+      ${field("Description", `<textarea id="sp-desc" rows="2">${esc(s?.description || "")}</textarea>`)}
+      ${pictureField("sp-img", s?.imageUrl)}
+    </details>
+    <details class="acc"><summary>5. Schedule</summary>
+      <div class="row">
+        ${field("Weekdays (optional)", `<div style="display:flex;gap:6px;flex-wrap:wrap">${["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d) => `<label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" class="sp-wd" value="${d}" ${(s?.weekdays||"").split(",").includes(d)?"checked":""} /> ${d}</label>`).join("")}</div>`)}
+      </div>
+      <div class="row">
+        ${field("Start date (optional)", `<input id="sp-start" type="date" value="${s?.startDate ? String(s.startDate).slice(0,10) : ""}" />`)}
+        ${field("End date (optional)", `<input id="sp-end" type="date" value="${s?.endDate ? String(s.endDate).slice(0,10) : ""}" />`)}
+      </div>
+    </details>
+    <details class="acc"><summary>HomePage + Social</summary>
+      <div class="row">
+        ${field("Sort order", `<input id="sp-sort" type="number" value="${s?.sortOrder ?? 0}" />`)}
+        ${field("Active", `<select id="sp-active">
+          <option value="true"${s?.isActive !== false ? " selected" : ""}>Active</option>
+          <option value="false"${s?.isActive === false ? " selected" : ""}>Inactive</option>
+        </select>`)}
+      </div>
+      <div class="row">
+        ${field("Display type", `<select id="sp-display">
+          <option value="tile"${(s?.homeDisplay || "tile") === "tile" ? " selected" : ""}>Tile (square)</option>
+          <option value="banner"${s?.homeDisplay === "banner" ? " selected" : ""}>Banner (full row)</option>
+        </select>`)}
+        ${field("Home page", `<label style="display:flex;align-items:center;gap:8px;font-weight:600;padding-top:6px"><input type="checkbox" id="sp-home" ${s?.showOnHome ? "checked" : ""} onchange="if(this.checked){if(!confirm('Are you sure you want this on the home page?')) this.checked=false;}" /> Show on home</label>`)}
+      </div>
+      ${field("Facebook", `<label style="display:flex;align-items:center;gap:8px;font-weight:600;padding-top:6px"><input type="checkbox" id="sp-fb" /> Post to Facebook on save</label>`)}
+    </details>
     <div class="modal-actions">
       <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
       <button class="primary" onclick="saveSpecial(${id ?? ""})">Save</button>
     </div>`);
 
   window.renderSpecialKind = () => {
-    const bogo = $("#sp-kind").value === "bogo";
-    $("#sp-flat").hidden = bogo;
-    $("#sp-bogo").hidden = !bogo;
+    const kind = $("#sp-kind").value;
+    const isBogo = kind === "bogo";
+    const isDeal = kind === "deal";
+    const isPick = kind === "pick";
+    const selMode = $("#sp-selmode") ? $("#sp-selmode").value : "items";
+    $("#sp-flat").hidden = !(kind === "flat" || (isPick && selMode === "items"));
+    // Always show category/size for pick so they can be populated/edited.
+    $("#sp-bogo").hidden = !(isBogo || isDeal || isPick);
+    $("#sp-pick").hidden = !isPick;
+    if (!$("#sp-bogo").hidden) { try { renderBogoSizes(); } catch (e) {} }
+    try { renderSpecialPicks(); } catch (e) {}
+    const details = Array.from(document.querySelectorAll(".overlay details.acc"));
+    const openBy = (needle) => details.forEach((d) => {
+      const s = d.querySelector("summary");
+      if (s && s.textContent.toLowerCase().includes(needle)) d.open = true;
+    });
+    if (kind === "flat") openBy("item selection");
+    if (isBogo || isDeal) openBy("category and size");
+    if (isPick) { openBy("category and size"); openBy("item selection"); }
   };
 
   const sizesOf = (item) => ((item && item.sizes) || []).filter((z) => z.isActive !== false);
@@ -1715,7 +1787,7 @@ window.openSpecial = (id) => {
     ? s.items.map((x) => {
         let extras = [];
         try { extras = x.extras ? JSON.parse(x.extras) : []; } catch (e) { extras = []; }
-        return { itemId: x.itemId, quantity: x.quantity, sizeLabel: x.sizeLabel || null, extras };
+        return { itemId: x.itemId, quantity: x.quantity, sizeLabel: x.sizeLabel || null, extras, paid: x.paid !== false };
       })
     : [];
   window.renderSpecialPicks = () => {
@@ -1843,7 +1915,13 @@ window.saveSpecial = async (id) => {
     sortOrder: Number($("#sp-sort").value) || 0,
     isActive: $("#sp-active").value === "true",
     showOnHome: $("#sp-home").checked,
+    postToFacebook: $("#sp-fb") ? $("#sp-fb").checked : false,
+    homeDisplay: $("#sp-display") ? $("#sp-display").value : "tile",
+    payMode: $("#sp-paymode") ? $("#sp-paymode").value : "expensive",
     imageUrl: $("#sp-img").value.trim() || null,
+    weekdays: Array.from(document.querySelectorAll(".sp-wd:checked")).map((x) => x.value).join(",") || null,
+    startDate: $("#sp-start").value || null,
+    endDate: $("#sp-end").value || null,
   };
   let payload;
   if (kind === "bogo") {
@@ -1856,12 +1934,55 @@ window.saveSpecial = async (id) => {
     };
     if (!payload.categoryId) return toast("Pick a category for the BOGO special", true);
     if (payload.count < 2 || payload.count % 2 !== 0) return toast("Pizzas to pick must be an even number (2, 4, 6…)", true);
+  } else if (kind === "deal") {
+    payload = {
+      ...base,
+      kind: "deal",
+      categoryId: $("#sp-cat").value ? Number($("#sp-cat").value) : null,
+      sizeLabel: $("#sp-size").value || null,
+      count: Number($("#sp-count").value) || 0,
+      price: Number($("#sp-price").value) || 0,
+    };
+    if (!payload.categoryId) return toast("Pick a category for the deal", true);
+    if (payload.count < 2) return toast("Deal needs 2 or more", true);
+    if (!payload.price) return toast("Deal needs a price", true);
+  } else if (kind === "pick") {
+    const selMode = $("#sp-selmode").value;
+    const buyCount = Number($("#sp-buy").value) || 0;
+    const payCount = Number($("#sp-pay").value) || 0;
+    if (buyCount < 2) return toast("Buy count must be 2 or more", true);
+    if (payCount < 1 || payCount >= buyCount) return toast("Pay count must be between 1 and buy count-1", true);
+    if (selMode === "category") {
+      payload = {
+        ...base,
+        kind: "pick",
+        selectionMode: "category",
+        categoryId: $("#sp-cat").value ? Number($("#sp-cat").value) : null,
+        sizeLabel: $("#sp-size").value || null,
+        count: buyCount,
+        buyCount,
+        payCount,
+        price: 0,
+      };
+      if (!payload.categoryId) return toast("Pick a category", true);
+    } else {
+      payload = {
+        ...base,
+        kind: "pick",
+        selectionMode: "items",
+        buyCount,
+        payCount,
+        price: 0,
+        items: specialPicks.map((p) => ({ itemId: p.itemId, quantity: p.quantity, sizeLabel: p.sizeLabel || null, extras: p.extras || [], paid: p.paid !== false })),
+      };
+      if (!payload.items.length) return toast("Pick at least one item", true);
+    }
   } else {
     payload = {
       ...base,
       kind: "flat",
       price: Number($("#sp-price").value) || 0,
-      items: specialPicks.map((p) => ({ itemId: p.itemId, quantity: p.quantity, sizeLabel: p.sizeLabel || null, extras: p.extras || [] })),
+      items: specialPicks.map((p) => ({ itemId: p.itemId, quantity: p.quantity, sizeLabel: p.sizeLabel || null, extras: p.extras || [], paid: p.paid !== false })),
     };
     if (!payload.items.length) return toast("Pick at least one item", true);
   }
@@ -2170,7 +2291,7 @@ async function loadSettings() {
   try {
     state.settings = (await api("/api/settings")).settings;
     state.delivery = await api("/api/delivery/config");
-    state.shop = await api("/api/shop/config");
+    state.shopConfig = await api("/api/shop/config");
     renderDelivery();
     renderDeliveries();
   } catch (e) { toast(e.message, true); }
@@ -2226,6 +2347,16 @@ function renderDelivery() {
       <div class="field"><label>Body</label><textarea id="f-invite-body" rows="7" style="width:100%;resize:vertical">${esc(get("mail.inviteBody", "Hi {firstName},\n\nYour Beluchis account is ready. Set your password to start ordering:\n{url}\n\n— The Beluchis team"))}</textarea></div>
       <div class="hint" style="margin-bottom:10px">Placeholders: <code>{firstName}</code> and <code>{url}</code>. Sent by <code>npm run invites:send</code> — claimed customers are skipped automatically.</div>
       <button class="ghost" onclick="sendTestInvite()">Send the invite email to myself</button>
+    </div>
+    <div class="card" style="padding:16px;flex:1;min-width:300px">
+      <h3 style="margin:0 0 8px;font-size:14px">Social / Facebook</h3>
+      <div class="field"><label>Facebook Page ID</label><input id="f-fb-page" type="text" value="${esc(state.shopConfig?.fbPageId || "")}" /></div>
+      <div class="field"><label>Page Access Token</label><input id="f-fb-token" type="text" value="${esc(state.shopConfig?.fbToken || "")}" /></div>
+      <div class="field"><label>Instagram User ID (optional)</label><input id="f-ig-user" type="text" value="${esc(state.shopConfig?.igUserId || "")}" /></div>
+      <div class="field"><label>Owner alert email</label><input id="f-owner-email" type="text" value="${esc(state.settings?.["shop.ownerEmail"] || "")}" placeholder="owner@example.com" /></div>
+      <div class="hint" style="margin-bottom:10px">Used when "Post to Facebook on save" is ticked on a special. Stored in the database.</div>
+      <button class="ghost" type="button" onclick="connectFacebook()" style="margin-right:8px">Connect with Facebook</button>
+      <button class="primary" onclick="saveShopConfig()">Save social settings</button>
     </div>`;
 }
 
@@ -2375,6 +2506,7 @@ window.saveSettings = async () => {
   settings["delivery.minOrderAmount"] = $("#f-min-order").value.trim();
   settings["mail.inviteSubject"] = $("#f-invite-subject").value.trim();
   settings["mail.inviteBody"] = $("#f-invite-body").value;
+  settings["shop.ownerEmail"] = $("#f-owner-email").value.trim();
   const btn = event?.target;
   if (btn) { btn.disabled = true; btn.textContent = "Saving\u2026"; }
   try {
@@ -2391,6 +2523,176 @@ window.saveSettings = async () => {
   }
 };
 
+window.connectFacebook = async () => {
+  let appId = localStorage.getItem("fbAppId") || "";
+  appId = prompt("Facebook App ID (from developers.facebook.com):", appId);
+  if (!appId) return;
+  localStorage.setItem("fbAppId", appId);
+  if (!window.FB) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://connect.facebook.net/en_US/sdk.js";
+      s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+  window.fbAsyncInit = () => {
+    FB.init({ appId, cookie: true, xfbml: false, version: "v19.0" });
+  };
+  if (window.FB && FB.init) FB.init({ appId, cookie: true, xfbml: false, version: "v19.0" });
+  FB.login((loginRes) => {
+    if (!loginRes.authResponse) { toast("Facebook login cancelled", true); return; }
+    const userToken = loginRes.authResponse.accessToken;
+    FB.api("/me/accounts", { access_token: userToken }, (pagesRes) => {
+      const pages = pagesRes?.data || [];
+      if (!pages.length) { toast("No Facebook Pages found for this account", true); return; }
+      const page = pages[0];
+      $("#f-fb-page").value = page.id;
+      $("#f-fb-token").value = page.access_token;
+      toast("Connected to " + (page.name || page.id) + " — click Save social settings to store.");
+    });
+  }, { scope: "pages_show_list,pages_read_engagement,pages_manage_posts" });
+};
+
+window.saveShopConfig = async () => {
+  const btn = event?.target;
+  if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
+  try {
+    const res = await api("/api/shop/config", { method: "PUT", body: JSON.stringify({
+      fbPageId: $("#f-fb-page").value.trim() || null,
+      fbToken: $("#f-fb-token").value.trim() || null,
+      igUserId: $("#f-ig-user").value.trim() || null,
+    }) });
+    state.shopConfig = res;
+    toast("Social settings saved");
+    renderDelivery();
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Save social settings"; }
+  }
+};
+
+async function loadPrinters() {
+  try {
+    const data = await api("/api/kitchen/printers");
+    state.printers = data.printers || [];
+    renderPrinters();
+  } catch (e) { toast(e.message, true); }
+}
+
+function renderPrinters() {
+  const el = $("#tab-printers");
+  if (!el) return;
+  const rows = state.printers || [];
+  const anyOffline = rows.some((p) => p.status && p.status.online === false);
+  const alertHtml = anyOffline
+    ? '<div class="hint" style="background:#fdecea;border:1px solid #f5c6cb;color:#b3351f;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-weight:600;">&#9888; A printer is offline or failed to print. Check the list below.</div>'
+    : "";
+  el.innerHTML = `
+    <div class="toolbar">
+      <h2>Printers</h2>
+      <div style="display:flex;gap:8px">
+        <button class="ghost" onclick="loadPrinters()">Refresh</button>
+        <button class="ghost" onclick="scanPrinters()">Scan network</button>
+        <button class="primary" onclick="addPrinter()">+ Add printer</button>
+      </div>
+    </div>
+    ${alertHtml}
+    <div class="order-list">
+      ${rows.length ? rows.map((p) => `
+        <div class="order-card">
+          <div class="order-head">
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <span class="order-id">${esc(p.name)}</span>
+              <span class="status-badge ${p.status && p.status.online === false ? "s-cancelled" : "s-placed"}">${p.status && p.status.online === false ? "Offline" : "Online"}</span>
+              <span class="muted" style="font-size:12px">${esc(p.host)}:${p.port}</span>
+              ${p.status?.lastError ? '<span class="muted" style="font-size:12px;color:#b3351f">' + esc(p.status.lastError) + '</span>' : ""}
+            </div>
+            <div class="order-total">Copies: ${p.copies}</div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+            <button class="ghost" onclick="editPrinter(${p.id})">Edit</button>
+            <button class="ghost" onclick="testPrinter(${p.id})">Test</button>
+            <button class="danger" onclick="deletePrinter(${p.id})">Delete</button>
+          </div>
+        </div>`).join("") : '<div class="empty">No printers configured. Add one or scan the network.</div>'}
+    </div>`;
+}
+
+window.addPrinter = async () => {
+  const name = prompt("Printer name:", "Kitchen printer");
+  if (!name) return;
+  const host = prompt("Printer IP/host:", "");
+  if (!host) return;
+  const port = Number(prompt("Port:", "9100")) || 9100;
+  const copies = Number(prompt("Slips per order:", "1")) || 1;
+  const type = prompt("Type (network/file):", "network") || "network";
+  await savePrinters([...(state.printers || []), { name, type, host, port, copies, enabled: true, sortOrder: 0 }]);
+};
+
+window.editPrinter = async (id) => {
+  const p = (state.printers || []).find((x) => x.id === id);
+  if (!p) return;
+  const name = prompt("Printer name:", p.name);
+  if (name == null) return;
+  const host = prompt("Printer IP/host:", p.host);
+  if (host == null) return;
+  const port = Number(prompt("Port:", p.port)) || p.port;
+  const copies = Number(prompt("Slips per order:", p.copies)) || p.copies;
+  const enabled = confirm("Enabled? (OK = enabled)");
+  const updated = (state.printers || []).map((x) => x.id === id ? { ...x, name, host, port, copies, enabled } : x);
+  await savePrinters(updated);
+};
+
+window.deletePrinter = async (id) => {
+  if (!confirm("Delete this printer?")) return;
+  await savePrinters((state.printers || []).filter((x) => x.id !== id));
+};
+
+async function savePrinters(list) {
+  try {
+    const res = await api("/api/kitchen/printers", { method: "PUT", body: JSON.stringify({ printers: list }) });
+    state.printers = res.printers || [];
+    renderPrinters();
+    toast("Printers saved");
+  } catch (e) { toast(e.message, true); }
+}
+
+window.testPrinter = async (id) => {
+  try {
+    await api("/api/kitchen/test-printer", { method: "POST", body: JSON.stringify({ id }) });
+    toast("Test requested — printer will print a test slip shortly");
+  } catch (e) { toast(e.message, true); }
+};
+
+window.scanPrinters = async () => {
+  try {
+    const res = await fetch("http://localhost:3101/api/scan", { headers: { "x-print-key": (window.PRINT_KEY || "") } });
+    if (!res.ok) throw new Error("scan failed");
+    const data = await res.json();
+    toast("Scan found: " + (data.found || []).join(", ") || "no printers");
+  } catch (e) { toast("Scan unavailable (daemon not reachable): " + e.message, true); }
+};
+
+async function checkPrinterAlert() {
+  try {
+    const data = await api("/api/kitchen/printers");
+    const offline = (data.printers || []).some((p) => p.status && p.status.online === false);
+    let banner = document.getElementById("printer-alert-banner");
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = "printer-alert-banner";
+      banner.style.cssText = "background:#fdecea;border:1px solid #f5c6cb;color:#b3351f;padding:8px 12px;border-radius:8px;margin:8px 0;font-weight:600;font-size:13px;";
+      const header = document.querySelector("header");
+      if (header) header.insertAdjacentElement("afterend", banner);
+      else document.body.insertBefore(banner, document.body.firstChild);
+    }
+    if (offline) { banner.textContent = "⚠ A printer is offline or failed to print. Open Printers tab."; banner.hidden = false; }
+    else { banner.hidden = true; }
+  } catch { /* ignore */ }
+}
+
 // --------------------------------------------------------------------- Boot
 async function boot() {
   try {
@@ -2405,8 +2707,9 @@ async function boot() {
   roleGating();
   await loadAll();
   await loadOrders();
-  if (state.me.role === "admin") loadUsers();
+  if (state.me.role === "admin") { loadUsers(); loadPrinters(); checkPrinterAlert(); }
   setInterval(() => { if (!document.hidden) loadOrders(); }, 15000);
+  setInterval(() => { if (!document.hidden && state.me?.role === "admin") checkPrinterAlert(); }, 30000);
 }
 
 boot().catch((e) => toast("Failed to load: " + e.message, true));

@@ -79,7 +79,27 @@
   const availToppings = (item, size) => (item.toppings || []).filter((t) => t.topping.isActive !== false && topPriceOf(t, size) !== null);
   const hasCustom = (item) => Boolean((item.bases && item.bases.length) || (item.toppings && item.toppings.length));
   const categoryOf = (item) => DATA.catById.get(item.categoryId);
-  const activeSpecials = () => DATA.specials.filter((s) => s.isActive !== false);
+  const specialCurrentlyActive = (s) => {
+    if (!s || s.isActive === false) return false;
+    const now = new Date();
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const todayName = dayNames[now.getDay()];
+    if (s.weekdays) {
+      const allowed = String(s.weekdays).split(",").map((x) => x.trim()).filter(Boolean);
+      if (allowed.length && !allowed.includes(todayName)) return false;
+    }
+    if (s.startDate) {
+      const start = new Date(s.startDate);
+      if (now < start) return false;
+    }
+    if (s.endDate) {
+      const end = new Date(s.endDate);
+      end.setHours(23, 59, 59, 999);
+      if (now > end) return false;
+    }
+    return true;
+  };
+  const activeSpecials = () => DATA.specials.filter(specialCurrentlyActive);
 
   // Toppings that are currently out of season but otherwise offered on the item.
   const outOfSeasonToppings = (item, size) =>
@@ -95,14 +115,15 @@
     );
   };
 
-  // BOGO preview: pay for the higher half of the base prices (extras always paid).
-  function bogoBaseTotal(pizzas) {
+  // BOGO/pick preview: pay for the `payCount` most expensive base prices
+  // (extras always paid). payCount defaults to half when omitted.
+  function bogoBaseTotal(pizzas, payCount) {
     const base = (pizzas || []).map((p) => {
       const item = DATA.byId.get(Number(p.itemId));
       const sz = item && sizeRowOf(item, p.sizeLabel);
       return sz ? sz.price : 0;
     }).sort((a, b) => b - a);
-    const pay = Math.ceil(base.length / 2);
+    const pay = (payCount && payCount > 0) ? payCount : Math.ceil(base.length / 2);
     return base.slice(0, pay).reduce((s, v) => s + v, 0);
   }
   const extrasTotal = (pizzas) => (pizzas || []).reduce((s, p) => s + (p.extras || []).reduce((a, e) => a + e.price, 0), 0);
@@ -403,7 +424,7 @@
   window.Shop = {
     CART_KEY, $, $$, money, esc,
     lines, count, total, gross, deals, lineKey, addLine, changeQty, removeLine, setLines, clear, renderCart, syncUI,
-    sizeRowOf, basePriceOf, topPriceOf, availBases, availToppings, hasCustom, categoryOf, activeSpecials,
+    sizeRowOf, basePriceOf, topPriceOf, availBases, availToppings, hasCustom, categoryOf, activeSpecials, specialCurrentlyActive,
     outOfSeasonToppings, affordableSwaps, bogoBaseTotal, extrasTotal, applyDeals, refreshDeals,
     load, reconcile, toast, data: DATA, hooks,
     get onCheckout() { return hooks.onCheckout; },

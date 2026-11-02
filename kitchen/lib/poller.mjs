@@ -7,11 +7,13 @@ const State = seed('state', { seen: [], log: [], bootstrapped: false, lastPoll: 
 const MAX_KEEP = 200;
 
 export class Poller {
-  constructor({ printer = null, autoPrint = true, autoMarkPreparing = true, pollSeconds = 60 }) {
-    this.printer = printer;
+  constructor({ autoPrint = true, autoMarkPreparing = true, pollSeconds = 60, sourceBaseUrl = '', kitchenKey = '' }) {
+    this.printers = [];
     this.autoPrint = autoPrint;
     this.autoMarkPreparing = autoMarkPreparing;
     this.pollSeconds = Math.max(10, Number(pollSeconds) || 60);
+    this.sourceBaseUrl = sourceBaseUrl;
+    this.kitchenKey = kitchenKey;
     this.orders = [];
     this.inFlight = false;
     this.timer = null;
@@ -25,7 +27,7 @@ export class Poller {
       pollSeconds: this.pollSeconds,
       autoPrint: this.autoPrint,
       autoMarkPreparing: this.autoMarkPreparing,
-      printer: this.printer ? { name: this.printer.name, type: this.printer.type, host: this.printer.host, port: this.printer.port } : null,
+      printers: this.printers.map((p) => ({ id: p.id, name: p.name, type: p.type, host: p.host, port: p.port, copies: p.copies, enabled: p.enabled })),
       lastPoll: State.lastPoll,
       lastError: State.lastError,
       nextPollAt: this.lastPollAt + this.pollSeconds * 1000,
@@ -36,7 +38,34 @@ export class Poller {
     return new Set(State.seen);
   }
 
+  async fetchPrinters() {
+    if (!this.sourceBaseUrl) return;
+    try {
+      const headers = this.kitchenKey ? { 'x-print-key': this.kitchenKey } : {};
+      const res = await fetch(`${this.sourceBaseUrl.replace(/\/$/, '')}/api/kitchen/printers`, { headers });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.printers)) {
+        this.printers = data.printers.filter((p) => p.enabled !== false).map((p) => ({
+          id: p.id, name: p.name, type: p.type || 'network', host: p.host, port: p.port || 9100, copies: Math.max(1, Number(p.copies) || 1), enabled: p.enabled !== false,
+        }));
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  async sendHeartbeat() {
+    if (!this.sourceBaseUrl) return;
+    try {
+      const headers = { 'content-type': 'application/json' };
+      if (this.kitchenKey) headers['x-print-key'] = this.kitchenKey;
+      await fetch(`${this.sourceBaseUrl.replace(/\/$/, '')}/api/kitchen/heartbeat`, {
+        method: 'POST', headers, body: JSON.stringify({ printers: this.printers.map((p) => ({ id: p.id, online: true, lastPrintAt: new Date().toISOString() })), queue: { count: this.orders.length } }),
+      });
+    } catch { /* ignore */ }
+  }
+
   async poll() {
+    await this.fetchPrinters();
     if (this.inFlight) return { skipped: true };
     if (!process.env.SOURCE_BASE_URL) return { skipped: true, error: 'SOURCE_BASE_URL is not set' };
     this.inFlight = true;
@@ -91,13 +120,13 @@ export class Poller {
   }
 
   async printOrder(order, auto = false) {
-    const result = { orderId: String(order.id), auto, printer: null, ok: false, ms: 0, error: null, file: null };
+    const result = { orderId: String(order.id), auto, printers: [], ok: false, ms: 0, error: null, file: null };
     if (!this.autoPrint) {
       result.error = 'auto print disabled (AUTO_PRINT=false)';
       return result;
     }
-    if (!this.printer) {
-      result.error = 'no printer configured (set PRINTER_HOST)';
+    if (!this.printers.length) {
+      result.error = 'no printer configured (add printers in admin)';
       this.logPrint(result);
       console.error(`[kitchen] cannot print order #${order.id}: ${result.error}`);
       return result;
@@ -105,18 +134,51 @@ export class Poller {
 
     const segments = buildReceipt(order);
     const text = segsToText(segments);
-    result.printer = { id: this.printer.id, name: this.printer.name };
-    const sent = await send(this.printer, segments, text);
-    Object.assign(result, { ok: sent.ok, ms: sent.ms, error: sent.error || null, file: sent.file || null });
+    let anyOk = false;
+    for (const printer of this.printers) {
+      for (let c = 0; c < (printer.copies || 1); c++) {
+        let sent = await send(printer, segments, text);
+        if (!sent.ok) {
+          // Auto-resolve: scan the subnet for a printer on the same port.
+          try {
+            const { scanSubnet } = await import('./printer.mjs');
+            const found = await scanSubnet(printer.port || 9100, 400);
+            const alt = found.find((h) => h !== printer.host);
+            if (alt) {
+              console.log(`[kitchen] printer ${printer.name} offline at ${printer.host}; resolved to ${alt}`);
+              printer.host = alt;
+              // Persist to server.
+              try {
+                const headers = { 'content-type': 'application/json' };
+                if (this.kitchenKey) headers['x-print-key'] = this.kitchenKey;
+                const cfg = await fetch(`${this.sourceBaseUrl.replace(/\/$/, '')}/api/kitchen/printers`, { headers });
+                if (cfg.ok) {
+                  const data = await cfg.json();
+                  const updated = (data.printers || []).map((p) => (p.id === printer.id ? { ...p, host: alt } : p));
+                  await fetch(`${this.sourceBaseUrl.replace(/\/$/, '')}/api/kitchen/printers`, { method: 'PUT', headers, body: JSON.stringify({ printers: updated }) });
+                }
+              } catch { /* ignore */ }
+              sent = await send(printer, segments, text);
+            }
+          } catch { /* ignore */ }
+        }
+        const r = { id: printer.id, name: printer.name, ok: sent.ok, ms: sent.ms, error: sent.error || null, file: sent.file || null };
+        result.printers.push(r);
+        if (sent.ok) anyOk = true;
+        else console.error(`[kitchen] print failed for order #${order.id} on ${printer.name}: ${sent.error}`);
+      }
+    }
+    result.ok = anyOk;
     this.logPrint(result);
     if (result.ok) {
-      console.log(`[kitchen] printed order #${order.id} on ${this.printer.name} (${result.ms}ms)`);
+      console.log(`[kitchen] printed order #${order.id}`);
       if (this.autoMarkPreparing && order.status === 'placed') {
         await this.markPreparing(order.id);
       }
     } else {
-      console.error(`[kitchen] print failed for order #${order.id}: ${result.error} — order stays placed for the cashier`);
+      console.error(`[kitchen] all prints failed for order #${order.id} — order stays placed for the cashier`);
     }
+    await this.sendHeartbeat();
     return result;
   }
 

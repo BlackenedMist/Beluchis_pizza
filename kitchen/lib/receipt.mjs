@@ -62,7 +62,10 @@ function customerName(customer) {
 
 export function buildReceipt(order) {
   const segs = [];
-  segs.push({ text: padCentre('BELUCHIS'), align: 'center', bold: true });
+  segs.push({ text: padCentre("BELUCHI'S PIZZAS"), align: 'center', bold: true });
+  segs.push({ text: padCentre('Online order: www.beluchispizza.com'), align: 'center' });
+  segs.push({ text: padCentre('Phone: 023 347 5448'), align: 'center' });
+  segs.push({ text: padCentre('VAT #: 4550257150'), align: 'center' });
   segs.push({ text: padCentre('KITCHEN SLIP'), align: 'center' });
   segs.push(rule);
   segs.push({ text: `ORDER #${order.id}`, align: 'center', bold: true, size: 2 });
@@ -103,9 +106,23 @@ export function buildReceipt(order) {
     segs.push({ text: `Subtotal: ${money(order.total)}` });
     segs.push({ text: `Discount: -${money(order.discountAmount)}` });
   }
-  const payable = order.paymentStatus === 'paid' ? 0 : (order.grandTotal ?? order.total);
-  segs.push({ text: `TOTAL PAYABLE  ${money(payable)}`, align: 'center', bold: true, size: 2 });
-  if (order.paymentStatus === 'paid') segs.push({ text: 'Paid online - no balance due', align: 'center' });
+  const totalAmount = order.grandTotal ?? order.total;
+  const paidOnline = order.paymentStatus === 'paid' && (order.paymentMethod === 'paygate' || order.paymentMethod === 'payfast');
+  if (paidOnline) {
+    segs.push({ text: `TOTAL AMOUNT  ${money(totalAmount)}`, align: 'center', bold: true, size: 2 });
+    segs.push({ text: `Paid online  ${money(totalAmount)}`, align: 'center' });
+    segs.push({ text: 'No balance due', align: 'center' });
+  } else {
+    const payable = order.paymentStatus === 'paid' ? 0 : totalAmount;
+    segs.push({ text: `TOTAL PAYABLE  ${money(payable)}`, align: 'center', bold: true, size: 2 });
+    if (order.paymentStatus === 'paid') segs.push({ text: 'Paid online - no balance due', align: 'center' });
+  }
+  // VAT breakdown (prices are VAT-inclusive, 15% VAT)
+  const totalCents = Math.round(Number(totalAmount || 0) * 100);
+  const exclCents = Math.round(totalCents / 1.15);
+  const vatCents = totalCents - exclCents;
+  segs.push({ text: `Total Excl VAT  ${money(exclCents / 100)}` });
+  segs.push({ text: `VAT Incl.  ${money(vatCents / 100)}` });
   segs.push({ text: '', align: 'center' });
   segs.push({ text: 'Thank you for your order', align: 'center' });
   segs.push({ text: '', align: 'center' });

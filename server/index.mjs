@@ -220,6 +220,34 @@ const getShopStatus = async (now = new Date()) => {
   return { ...cfg, open };
 };
 
+// Shop open/close email alerter for the owner.
+let lastShopOpen = null;
+async function getOwnerEmail() {
+  try {
+    const rows = await prisma.setting.findMany({ where: { key: "shop.ownerEmail" } });
+    return rows[0]?.value?.trim() || null;
+  } catch { return null; }
+}
+async function checkShopStatusAndNotify() {
+  try {
+    const status = await getShopStatus();
+    const open = !!status.open;
+    if (lastShopOpen === null) { lastShopOpen = open; return; }
+    if (open === lastShopOpen) return;
+    lastShopOpen = open;
+    const ownerEmail = await getOwnerEmail();
+    if (!ownerEmail || !mailEnabled()) return;
+    const subject = open ? "Beluchis shop is now OPEN" : "Beluchis shop is now CLOSED";
+    const text = open
+      ? `The shop is now OPEN (hours ${status.openTime}–${status.closeTime}).`
+      : `The shop is now CLOSED (hours ${status.openTime}–${status.closeTime}).`;
+    sendMail({ to: ownerEmail, subject, text }).catch(() => {});
+  } catch (e) { console.warn("[shop-alert]", e.message); }
+}
+setInterval(checkShopStatusAndNotify, 60000);
+// Prime lastShopOpen without notifying.
+setTimeout(() => { getShopStatus().then((s) => { lastShopOpen = !!s.open; }).catch(() => {}); }, 5000);
+
 // Decide how a delivery request should be handled. Returns:
 //   { ok, status, distanceKm, fee, minOrderAmount, standardFee, reason }
 // <=freeRadiusKm            -> free *only* when the food subtotal meets
@@ -618,7 +646,7 @@ app.get(
 // the customer already has an open order so they can confirm they really want
 // a second one. Works for both logged-in customers (by session) and guests
 // (by cellphone).
-const ACTIVE_ORDER_STATUSES = ["placed", "preparing", "out_for_delivery"];
+const ACTIVE_ORDER_STATUSES = ["placed", "preparing", "ReadyToCollect", "out_for_delivery"];
 app.get(
   "/api/customer/active-orders",
   asyncHandler(async (req, res) => {
@@ -1078,9 +1106,10 @@ const validateSpecialItems = async (items) => {
 // "deal"  - the customer picks `count` items from a category at a flat deal
 //           price (e.g. any 2 Large Traditional pizzas for R200). Applied
 //           automatically in the cart, see POST /api/orders.
-const PICK_KINDS = new Set(["bogo", "deal"]);
+const PICK_KINDS = new Set(["bogo", "deal", "pick"]);
 const normalizeSpecialKind = (v) => {
   const k = String(v || "flat").toLowerCase();
+  if (k === "pick") return "pick";
   return PICK_KINDS.has(k) ? k : "flat";
 };
 
@@ -1115,6 +1144,23 @@ const validatePickKind = async (kind, categoryId, sizeLabel, count, price) => {
   return { categoryId: cat.id, sizeLabel: label, count: n };
 };
 
+const postSpecialToFacebook = async (special) => {
+  try {
+    const cfg = await prisma.shopConfig.findUnique({ where: { id: 1 } });
+    if (!cfg?.fbPageId || !cfg?.fbToken) return { ok: false, reason: "no credentials" };
+    const msg = `${special.name}${special.description ? " - " + special.description : ""}${special.price ? " - R" + special.price : ""}`;
+    const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(cfg.fbPageId)}/feed`;
+    const body = new URLSearchParams({ message: msg, access_token: cfg.fbToken });
+    if (special.imageUrl) body.set("link", special.imageUrl);
+    const r = await fetch(url, { method: "POST", body });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, reason: data?.error?.message || r.statusText };
+    return { ok: true, id: data?.id };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+};
+
 app.get(
   "/api/specials",
   asyncHandler(async (_req, res) => {
@@ -1143,17 +1189,41 @@ app.post(
       isActive = true,
       sortOrder = 0,
       items = [],
+      weekdays = null,
+      startDate = null,
+      endDate = null,
+      homeDisplay = "tile",
+      payMode = "expensive",
     } = req.body || {};
     if (!name?.trim()) return res.status(400).json({ error: "name is required" });
     const kindNorm = normalizeSpecialKind(kind);
 
     let pick = null;
-    if (PICK_KINDS.has(kindNorm)) {
+    let pickMeta = null; // { selectionMode, buyCount, payCount }
+    if (kindNorm === "bogo" || kindNorm === "deal") {
       try {
         pick = await validatePickKind(kindNorm, categoryId, sizeLabel, count, price);
       } catch (e) {
         return res.status(e.status || 400).json({ error: e.message });
       }
+    } else if (kindNorm === "pick") {
+      const sm = String(req.body.selectionMode || "items").toLowerCase();
+      const bc = Number(req.body.buyCount ?? count ?? 3);
+      const pc = Number(req.body.payCount ?? 2);
+      if (sm !== "items" && sm !== "category") return res.status(400).json({ error: "selectionMode must be items or category" });
+      if (!Number.isInteger(bc) || bc < 2) return res.status(400).json({ error: "buyCount must be 2 or more" });
+      if (!Number.isInteger(pc) || pc < 1 || pc >= bc) return res.status(400).json({ error: "payCount must be between 1 and buyCount-1" });
+      if (sm === "category") {
+        try {
+          pick = await validatePickKind("deal", categoryId, sizeLabel, bc, price);
+        } catch (e) {
+          return res.status(e.status || 400).json({ error: e.message });
+        }
+      } else {
+        if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "at least one item is required" });
+        try { await validateSpecialItems(items); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+      }
+      pickMeta = { selectionMode: sm, buyCount: bc, payCount: pc };
     } else {
       if (price == null || Number(price) < 0) return res.status(400).json({ error: "price is required" });
       if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "at least one item is required" });
@@ -1175,19 +1245,28 @@ app.post(
         kind: kindNorm,
         categoryId: pick ? pick.categoryId : null,
         sizeLabel: pick ? pick.sizeLabel : null,
-        count: pick ? pick.count : 2,
+        count: pick ? pick.count : (pickMeta ? pickMeta.buyCount : 2),
+        buyCount: pickMeta ? pickMeta.buyCount : 0,
+        payCount: pickMeta ? pickMeta.payCount : 0,
+        selectionMode: pickMeta ? pickMeta.selectionMode : "",
+        payMode: pickMeta ? payMode : (payMode || "expensive"),
+        homeDisplay: homeDisplay === "banner" ? "banner" : "tile",
         imageUrl: imageUrl?.trim() || null,
         showOnHome: Boolean(showOnHome),
         isActive,
         sortOrder: Number(sortOrder) || 0,
+        weekdays: weekdays ? String(weekdays).trim() || null : null,
+        startDate: startDate ? new Date(startDate) : null,
+        endDate: endDate ? new Date(endDate) : null,
         items:
-          kindNorm === "flat"
+          (kindNorm === "flat" || (kindNorm === "pick" && pickMeta?.selectionMode === "items"))
             ? {
                 create: items.map((i) => ({
                   itemId: Number(i.itemId),
                   sizeLabel: normalizeSpecialSize(i.sizeLabel),
                   quantity: Math.max(1, Number(i.quantity) || 1),
                   extras: i.extras ? JSON.stringify(i.extras) : null,
+                  paid: i.paid !== undefined ? Boolean(i.paid) : true,
                 })),
               }
             : undefined,
@@ -1195,7 +1274,9 @@ app.post(
     });
 
     const full = await prisma.special.findUnique({ where: { id: row.id }, include: specialIncludes });
-    res.status(201).json(full);
+    let fbResult = null;
+    if (req.body?.postToFacebook) fbResult = await postSpecialToFacebook(full);
+    res.status(201).json({ ...full, fbResult });
   })
 );
 
@@ -1204,14 +1285,15 @@ app.put(
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const { name, description, price, kind, categoryId, sizeLabel, count, imageUrl, showOnHome, isActive, sortOrder, items } = req.body || {};
+    const { name, description, price, kind, categoryId, sizeLabel, count, imageUrl, showOnHome, isActive, sortOrder, items, weekdays, startDate, endDate, homeDisplay, payMode } = req.body || {};
     const existing = await prisma.special.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ error: "special not found" });
 
     const kindNorm = kind !== undefined ? normalizeSpecialKind(kind) : existing.kind;
 
     let pick = null;
-    if (PICK_KINDS.has(kindNorm)) {
+    let pickMeta = null;
+    if (kindNorm === "bogo" || kindNorm === "deal") {
       try {
         pick = await validatePickKind(
           kindNorm,
@@ -1223,6 +1305,30 @@ app.put(
       } catch (e) {
         return res.status(e.status || 400).json({ error: e.message });
       }
+    } else if (kindNorm === "pick") {
+      const sm = selectionMode !== undefined ? String(selectionMode || "items").toLowerCase() : (existing.selectionMode || "items");
+      const bc = count !== undefined ? Number(count) : (existing.buyCount || 3);
+      const pc = (req.body.payCount !== undefined) ? Number(req.body.payCount) : (existing.payCount || 2);
+      if (sm !== "items" && sm !== "category") return res.status(400).json({ error: "selectionMode must be items or category" });
+      if (!Number.isInteger(bc) || bc < 2) return res.status(400).json({ error: "buyCount must be 2 or more" });
+      if (!Number.isInteger(pc) || pc < 1 || pc >= bc) return res.status(400).json({ error: "payCount must be between 1 and buyCount-1" });
+      if (sm === "category") {
+        try {
+          pick = await validatePickKind(
+            "deal",
+            categoryId !== undefined ? categoryId : existing.categoryId,
+            sizeLabel !== undefined ? sizeLabel : existing.sizeLabel,
+            bc,
+            price !== undefined ? price : existing.price
+          );
+        } catch (e) {
+          return res.status(e.status || 400).json({ error: e.message });
+        }
+      } else if (Array.isArray(items)) {
+        if (items.length === 0) return res.status(400).json({ error: "at least one item is required" });
+        try { await validateSpecialItems(items); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+      }
+      pickMeta = { selectionMode: sm, buyCount: bc, payCount: pc };
     } else if (Array.isArray(items)) {
       if (items.length === 0) return res.status(400).json({ error: "at least one item is required" });
       try {
@@ -1241,32 +1347,45 @@ app.put(
           ...(price !== undefined ? { price: kindNorm === "bogo" ? 0 : Number(price) } : {}),
           ...(kind !== undefined ? { kind: kindNorm } : {}),
           ...(pick ? { categoryId: pick.categoryId, sizeLabel: pick.sizeLabel, count: pick.count } : {}),
+          ...(pickMeta ? { count: pickMeta.buyCount, buyCount: pickMeta.buyCount, payCount: pickMeta.payCount, selectionMode: pickMeta.selectionMode } : {}),
           ...(imageUrl !== undefined ? { imageUrl: imageUrl?.trim() || null } : {}),
           ...(showOnHome !== undefined ? { showOnHome: Boolean(showOnHome) } : {}),
           ...(isActive !== undefined ? { isActive } : {}),
           ...(sortOrder !== undefined ? { sortOrder: Number(sortOrder) } : {}),
+          ...(weekdays !== undefined ? { weekdays: weekdays ? String(weekdays).trim() || null : null } : {}),
+          ...(startDate !== undefined ? { startDate: startDate ? new Date(startDate) : null } : {}),
+          ...(endDate !== undefined ? { endDate: endDate ? new Date(endDate) : null } : {}),
+          ...(homeDisplay !== undefined ? { homeDisplay: homeDisplay === "banner" ? "banner" : "tile" } : {}),
+          ...(payMode !== undefined ? { payMode: payMode === "fixed" ? "fixed" : "expensive" } : {}),
         },
       });
-      if (PICK_KINDS.has(kindNorm)) {
+      const isPickItems = kindNorm === "pick" && (pickMeta?.selectionMode === "items" || (pickMeta == null && existing.selectionMode === "items"));
+      if (PICK_KINDS.has(kindNorm) && !(kindNorm === "pick" && isPickItems)) {
         // Pick-your-own specials carry no fixed bundle rows.
         await tx.specialItem.deleteMany({ where: { specialId: id } });
-      } else if (Array.isArray(items)) {
+      } else if (Array.isArray(items) || (kindNorm === "pick" && isPickItems)) {
         await tx.specialItem.deleteMany({ where: { specialId: id } });
-        await tx.specialItem.createMany({
-          data: items.map((i) => ({
-            specialId: id,
-            itemId: Number(i.itemId),
-            sizeLabel: normalizeSpecialSize(i.sizeLabel),
-            quantity: Math.max(1, Number(i.quantity) || 1),
-            extras: i.extras ? JSON.stringify(i.extras) : null,
-          })),
-        });
+        const rowsToCreate = Array.isArray(items) ? items : existing.items?.map((i) => ({ itemId: i.itemId, quantity: i.quantity, sizeLabel: i.sizeLabel, extras: i.extras ? JSON.parse(i.extras) : null })) || [];
+        if (rowsToCreate.length) {
+          await tx.specialItem.createMany({
+            data: rowsToCreate.map((i) => ({
+              specialId: id,
+              itemId: Number(i.itemId),
+              sizeLabel: normalizeSpecialSize(i.sizeLabel),
+              quantity: Math.max(1, Number(i.quantity) || 1),
+              extras: i.extras ? JSON.stringify(i.extras) : null,
+              paid: i.paid !== undefined ? Boolean(i.paid) : true,
+            })),
+          });
+        }
       }
       return special;
     });
 
     const full = await prisma.special.findUnique({ where: { id: row.id }, include: specialIncludes });
-    res.json(full);
+    let fbResult = null;
+    if (req.body?.postToFacebook) fbResult = await postSpecialToFacebook(full);
+    res.json({ ...full, fbResult });
   })
 );
 
@@ -1276,6 +1395,115 @@ app.delete(
   asyncHandler(async (req, res) => {
     await prisma.special.delete({ where: { id: Number(req.params.id) } });
     res.json({ ok: true });
+  })
+);
+
+// Printer access: admin session OR a shared kitchen key (X-Print-Key header).
+function printerAccess(req) {
+  const key = req.headers["x-print-key"] || req.query?.key;
+  if (key && process.env.PRINT_KEY && key === process.env.PRINT_KEY) return true;
+  return !!getSession(req) && (req.session?.role === "admin");
+}
+
+// -------------------------------------------------------------- Shop config
+app.get(
+  "/api/shop/config",
+  requireAuth,
+  requireRole("admin"),
+  asyncHandler(async (_req, res) => {
+    const row = await prisma.shopConfig.findUnique({ where: { id: 1 } });
+    res.json(row || { id: 1, fbPageId: null, fbToken: null, igUserId: null });
+  })
+);
+
+app.put(
+  "/api/shop/config",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    const { fbPageId, fbToken, igUserId } = req.body || {};
+    const row = await prisma.shopConfig.upsert({
+      where: { id: 1 },
+      update: {
+        fbPageId: fbPageId ? String(fbPageId).trim() : null,
+        fbToken: fbToken ? String(fbToken).trim() : null,
+        igUserId: igUserId ? String(igUserId).trim() : null,
+      },
+      create: {
+        id: 1,
+        fbPageId: fbPageId ? String(fbPageId).trim() : null,
+        fbToken: fbToken ? String(fbToken).trim() : null,
+        igUserId: igUserId ? String(igUserId).trim() : null,
+      },
+    });
+    res.json(row);
+  })
+);
+
+// -------------------------------------------------------------- Printers
+const printerHeartbeat = { at: null, printers: [], queue: null };
+
+app.get(
+  "/api/kitchen/printers",
+  asyncHandler(async (req, res) => {
+    if (!printerAccess(req)) return res.status(401).json({ error: "unauthorized" });
+    const rows = await prisma.printer.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] });
+    const statusById = new Map((printerHeartbeat.printers || []).map((p) => [p.id, p]));
+    res.json({
+      printers: rows.map((r) => ({ ...r, status: statusById.get(r.id) || null })),
+      heartbeat: printerHeartbeat,
+    });
+  })
+);
+
+app.put(
+  "/api/kitchen/printers",
+  asyncHandler(async (req, res) => {
+    if (!printerAccess(req)) return res.status(401).json({ error: "unauthorized" });
+    const list = Array.isArray(req.body?.printers) ? req.body.printers : [];
+    // Replace-all strategy.
+    await prisma.printer.deleteMany({});
+    for (const p of list) {
+      await prisma.printer.create({
+        data: {
+          name: String(p.name || "Printer").trim(),
+          type: p.type === "file" ? "file" : "network",
+          host: String(p.host || "").trim(),
+          port: Number(p.port) || 9100,
+          copies: Math.max(1, Number(p.copies) || 1),
+          enabled: p.enabled !== false,
+          sortOrder: Number(p.sortOrder) || 0,
+        },
+      });
+    }
+    const rows = await prisma.printer.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] });
+    res.json({ printers: rows });
+  })
+);
+
+app.post(
+  "/api/kitchen/heartbeat",
+  asyncHandler(async (req, res) => {
+    if (!printerAccess(req)) return res.status(401).json({ error: "unauthorized" });
+    printerHeartbeat.at = new Date().toISOString();
+    printerHeartbeat.printers = Array.isArray(req.body?.printers) ? req.body.printers : printerHeartbeat.printers;
+    printerHeartbeat.queue = req.body?.queue || printerHeartbeat.queue;
+    res.json({ ok: true });
+  })
+);
+
+app.post(
+  "/api/kitchen/test-printer",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.body?.id);
+    // Signal via heartbeat echo is not enough; store a pending test flag in
+    // a setting so the daemon can pick it up on its next poll.
+    await prisma.setting.upsert({
+      where: { key: "kitchen.testPrinter" },
+      update: { value: String(id) },
+      create: { key: "kitchen.testPrinter", value: String(id) },
+    });
+    res.json({ ok: true, id });
   })
 );
 
@@ -1429,6 +1657,7 @@ app.put("/api/settings", requireRole("admin"), asyncHandler(async (req, res) => 
       prisma.setting.upsert({ where: { key }, update: { value }, create: { key, value } })
     )
   );
+  checkShopStatusAndNotify().catch(() => {});
   const cfg = await getDeliveryConfig();
   res.json({ ok: true, settings: Object.fromEntries(
     (await prisma.setting.findMany()).map((r) => [r.key, r.value])
@@ -1804,6 +2033,47 @@ const resolvePicks = async (special, picks) => {
   return resolved;
 };
 
+const resolvePickSpecial = async (special, picks) => {
+  const buyCount = special.buyCount || special.count || 3;
+  if (!Array.isArray(picks) || picks.length !== buyCount)
+    throw badRequest(`${special.name} needs exactly ${buyCount} items`);
+
+  const eligibleIds = special.selectionMode === "items" ? new Set((special.items || []).map((i) => i.itemId)) : null;
+  const resolved = [];
+  for (const pick of picks) {
+    if (pick.itemId == null) throw badRequest(`each ${special.name} item needs an itemId`);
+    const item = await prisma.item.findUnique({ where: { id: Number(pick.itemId) }, include: { sizes: true } });
+    if (!item) throw badRequest(`item ${pick.itemId} not found`);
+    if (!item.isActive) throw badRequest(`item ${item.id} is not active`);
+    if (eligibleIds) {
+      if (!eligibleIds.has(item.id)) throw badRequest(`${item.name} is not part of ${special.name}`);
+    } else if (special.categoryId != null && item.categoryId !== special.categoryId) {
+      throw badRequest(`${item.name} is not part of ${special.name}`);
+    }
+
+    let sizeLabel = pick.sizeLabel ?? null;
+    let base = 0;
+    if (item.sizes.length) {
+      if (!sizeLabel) {
+        if (item.sizes.length !== 1) throw badRequest(`sizeLabel is required for item ${item.id}`);
+        sizeLabel = item.sizes[0].sizeLabel;
+      }
+      const size = item.sizes.find((s) => s.sizeLabel === sizeLabel);
+      if (!size) throw badRequest(`size "${sizeLabel}" not found for item ${item.id}`);
+      sizeLabel = size.sizeLabel;
+      base = size.price;
+    }
+    if (special.sizeLabel && item.sizes.length && sizeLabel !== special.sizeLabel)
+      throw badRequest(`${special.name} is only available in ${special.sizeLabel}`);
+
+    const extras = Array.isArray(pick.extras)
+      ? pick.extras.map((x) => ({ name: String(x.name ?? ""), price: Number(x.price) || 0 }))
+      : [];
+    resolved.push({ item, sizeLabel, base, extras, extrasTotal: extras.reduce((sum, x) => sum + x.price, 0) });
+  }
+  return resolved;
+};
+
 app.post(
   "/api/orders",
   asyncHandler(async (req, res) => {
@@ -2018,6 +2288,52 @@ app.post(
             .slice(0, special.count / 2)
             .map((o) => o.i);
           const free = new Set(cheapest);
+          resolved.forEach((r, i) => {
+            const pricedBase = free.has(i) ? 0 : r.base;
+            rows.push({
+              itemId: r.item.id,
+              itemName: r.item.name,
+              sizeLabel: r.sizeLabel,
+              unitPrice: pricedBase,
+              quantity,
+              extras: r.extras.length ? JSON.stringify(r.extras) : null,
+              total: (pricedBase + r.extrasTotal) * quantity,
+            });
+          });
+          continue;
+        }
+
+        // Generic "pick N, pay M" special: customer chooses buyCount items
+        // and pays for payCount of them (the most expensive); the rest are free.
+        if (special.kind === "pick") {
+          const buyCount = special.buyCount || special.count || 3;
+          const payCount = special.payCount || Math.max(1, buyCount - 1);
+          const resolved = await resolvePickSpecial(special, line.pizzas);
+          const quantity = Math.max(1, Number(line.quantity) || 1);
+          const paidMap = new Map((special.items || []).map((si) => [si.itemId, si.paid !== false]));
+          const free = new Set();
+          if (special.payMode === "fixed" && paidMap.size) {
+            resolved.forEach((r, i) => {
+              if (paidMap.has(r.item.id) && paidMap.get(r.item.id) === false) free.add(i);
+            });
+            // If fixed mode didn't mark enough free, fall back to cheapest.
+            const need = buyCount - payCount;
+            if (free.size < need) {
+              resolved
+                .map((r, i) => ({ i, base: r.base }))
+                .filter((o) => !free.has(o.i))
+                .sort((a, b) => a.base - b.base)
+                .slice(0, need - free.size)
+                .forEach((o) => free.add(o.i));
+            }
+          } else {
+            const freeCount = buyCount - payCount;
+            resolved
+              .map((r, i) => ({ i, base: r.base }))
+              .sort((a, b) => a.base - b.base)
+              .slice(0, freeCount)
+              .forEach((o) => free.add(o.i));
+          }
           resolved.forEach((r, i) => {
             const pricedBase = free.has(i) ? 0 : r.base;
             rows.push({

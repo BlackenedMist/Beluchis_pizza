@@ -565,8 +565,28 @@ function renderTiles() {
   const tiles = [];
   const seen = new Set();
 
-  for (const s of Shop.data.specials.filter((x) => x.isActive !== false && x.showOnHome)) {
-    tiles.push({ special: s, img: s.imageUrl || null });
+  const banners = [];
+  for (const s of Shop.data.specials.filter((x) => (Shop.specialCurrentlyActive ? Shop.specialCurrentlyActive(x) : x.isActive !== false) && x.showOnHome)) {
+    if (s.homeDisplay === "banner") banners.push(s);
+    else tiles.push({ special: s, img: s.imageUrl || null });
+  }
+  // Render banners above the tile grid.
+  const bannerHtml = banners.map((s) => {
+    const priceTxt = s.kind === "bogo"
+      ? "Pick " + s.count + ", pay " + s.count / 2
+      : s.kind === "deal"
+        ? money(s.price) + " for " + s.count
+        : (s.kind === "pick" ? "Pick " + (s.buyCount || s.count) + ", pay " + (s.payCount || (s.buyCount || s.count) - 1) : money(s.price));
+    return '<div class="banner" style="grid-column:1/-1;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;gap:16px;align-items:center;margin-bottom:12px;">' +
+      (s.imageUrl ? '<img src="' + esc(s.imageUrl) + '" alt="" style="width:120px;height:80px;object-fit:cover;border-radius:8px;" />' : '') +
+      '<div style="flex:1"><div style="font-weight:700;font-size:18px">' + esc(s.name) + '</div>' +
+      (s.description ? '<div class="muted" style="font-size:13px;margin:4px 0">' + esc(s.description) + '</div>' : '') +
+      '<div style="font-weight:600;color:var(--accent);margin-top:4px">' + priceTxt + '</div></div>' +
+      '<a class="choose" href="/order" style="padding:8px 14px;background:var(--accent);color:#fff;border-radius:8px;text-decoration:none">Shop now</a></div>';
+  }).join("");
+  if (bannerHtml) {
+    const host = $("#home-tiles");
+    if (host) host.insertAdjacentHTML("beforebegin", bannerHtml);
   }
   for (const i of Shop.data.items.filter((x) => x.isActive !== false && x.showOnHome)) {
     if (seen.has(i.id)) continue;
