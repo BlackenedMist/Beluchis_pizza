@@ -225,8 +225,17 @@ export class Poller {
       const segments = buildReceipt(order);
       const text = segsToText(segments);
       result.printer = { id: printer.id, name: printer.name };
-      const sent = await send(printer, segments, text);
-      Object.assign(result, { ok: sent.ok, ms: sent.ms, error: sent.error || null, file: sent.file || null });
+      let anyOk = false;
+      let totalMs = 0;
+      let lastError = null;
+      let lastFile = null;
+      for (let c = 0; c < (printer.copies || 1); c++) {
+        const sent = await send(printer, segments, text);
+        totalMs += sent.ms || 0;
+        if (sent.ok) { anyOk = true; lastFile = sent.file || lastFile; }
+        else { lastError = sent.error || lastError; }
+      }
+      Object.assign(result, { ok: anyOk, ms: totalMs, error: anyOk ? null : lastError, file: lastFile });
       this.logPrint(result, createdAt);
       if (result.ok) {
         this.emit({ type: 'printed', orderId: String(order.id), printer: printer.name, auto });

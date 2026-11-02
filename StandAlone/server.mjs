@@ -163,7 +163,7 @@ function serveStatic(res, file, req) {
 }
 
 function printerView(p) {
-  return { ...p, target: !!p.target };
+  return { ...p, target: !!p.target, copies: Math.max(1, Number(p.copies) || 1) };
 }
 
 function findPrinter(id) {
@@ -300,9 +300,10 @@ async function handle(req, res) {
     const id = body.id || createHash('md5').update(`${Date.now()}${Math.random()}`).digest('hex').slice(0, 10);
     const existing = findPrinter(id);
     const kind = ['file', 'windows'].includes(body.type) ? body.type : 'network';
+    const copies = body.copies !== undefined ? Math.max(1, Number(body.copies) || 1) : (existing?.copies || 1);
     const printer = existing
-      ? { ...existing, name, host, port: Number(body.port) || 9100, type: kind }
-      : { id, name, host, port: Number(body.port) || 9100, type: kind, target: false, lastTest: null };
+      ? { ...existing, name, host, port: Number(body.port) || 9100, type: kind, copies }
+      : { id, name, host, port: Number(body.port) || 9100, type: kind, target: false, copies, lastTest: null };
     if (existing) {
       const idx = poller.printers.printers.indexOf(existing);
       poller.printers.printers[idx] = printer;
@@ -321,6 +322,7 @@ async function handle(req, res) {
     if (body.name !== undefined) printer.name = String(body.name).trim() || printer.name;
     if (body.host !== undefined) printer.host = String(body.host).trim() || printer.host;
     if (body.port !== undefined) printer.port = Number(body.port) || 9100;
+    if (body.copies !== undefined) printer.copies = Math.max(1, Number(body.copies) || 1);
     flush('printers');
     return json(res, 200, { printer: printerView(printer) });
   }
