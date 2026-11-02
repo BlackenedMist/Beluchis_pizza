@@ -1406,7 +1406,8 @@ app.delete(
 function printerAccess(req) {
   const key = req.headers["x-print-key"] || req.query?.key;
   if (key && process.env.PRINT_KEY && key === process.env.PRINT_KEY) return true;
-  return !!getSession(req) && (req.session?.role === "admin");
+  const s = getSession(req);
+  return !!s && s.role === "admin";
 }
 
 // -------------------------------------------------------------- Shop config
