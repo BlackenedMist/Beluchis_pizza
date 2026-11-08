@@ -417,7 +417,7 @@ async function loadAll() {
   state.items = items; state.toppings = toppings; state.bases = bases; state.categories = categories; state.specials = specials;
   $("#stats").textContent = `${stats.items} items · ${stats.specials} specials · ${stats.toppings} toppings · ${stats.bases} bases · ${stats.categories} categories · ${stats.orders} orders`;
   if (state.me?.role === "admin") {
-    try { state.settings = (await api("/api/settings")).settings; state.delivery = (await api("/api/delivery/config")); state.shop = await api("/api/shop/config"); }
+    try { state.settings = (await api("/api/settings")).settings; state.delivery = (await api("/api/delivery/config")); state.shop = await api("/api/shop/status"); }
     catch { state.settings = {}; state.delivery = null; state.shop = null; }
   }
   render();
@@ -2885,7 +2885,7 @@ async function loadSettings() {
   try {
     state.settings = (await api("/api/settings")).settings;
     state.delivery = await api("/api/delivery/config");
-    state.shop = await api("/api/shop/config");
+    state.shop = await api("/api/shop/status");
     state.shopConfig = await api("/api/shop/social");
     renderDelivery();
     renderDeliveries();
@@ -2932,8 +2932,19 @@ function renderDelivery() {
       <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:6px"><input type="checkbox" id="f-force-closed" ${shop.forceClosed ? "checked" : ""} onchange="if(this.checked)document.getElementById('f-force').checked=false" /> Force closed (stop taking orders even during hours)</label>
       <div class="hint" style="margin:8px 0 10px">Shop time is Central Africa Time (CAT). Customers can't check out while closed unless "force open" is ticked &mdash; staff orders are always allowed.</div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
-        <div style="font-weight:700;color:${shop.open ? "#2e7d32" : "#b3351f"}">Currently ${shop.open ? "OPEN" : "CLOSED"}</div>
-        <button class="ghost" type="button" onclick="toggleForceClosed()" style="padding:4px 10px;font-size:12px">${shop.forceClosed ? "Resume normal hours" : "Force close now"}</button>
+        <div style="font-weight:700;color:${shop.open ? "#2e7d32" : "#b3351f"};font-size:15px">Currently ${shop.open ? "OPEN" : "CLOSED"}</div>
+        <span class="muted" style="font-size:12px">${esc(openTime)} – ${esc(closeTime)} (CAT)</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <button class="primary" type="button" onclick="setShopOverride('open')" style="padding:6px 12px;font-size:12.5px">Open now</button>
+        <button class="danger" type="button" onclick="setShopOverride('closed')" style="padding:6px 12px;font-size:12.5px">Close now</button>
+        <button class="ghost" type="button" onclick="setShopOverride('schedule')" style="padding:6px 12px;font-size:12.5px">Use schedule</button>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:12px">Preview at:</label>
+        <input id="f-preview-time" type="time" value="" />
+        <button class="ghost" type="button" onclick="previewShopStatus()" style="padding:4px 10px;font-size:12px">Preview</button>
+        <span id="preview-result" class="muted" style="font-size:12px"></span>
       </div>
       <button class="primary" style="margin-top:12px" onclick="saveSettings()">Save settings</button>
     </div>
@@ -3095,6 +3106,30 @@ window.toggleForceClosed = async () => {
   const cbOpen = document.getElementById("f-force");
   if (cb && cb.checked && cbOpen) cbOpen.checked = false;
   await saveSettings();
+};
+
+window.setShopOverride = async (mode) => {
+  const cbOpen = document.getElementById("f-force");
+  const cbClosed = document.getElementById("f-force-closed");
+  if (!cbOpen || !cbClosed) return;
+  if (mode === "open") { cbOpen.checked = true; cbClosed.checked = false; }
+  else if (mode === "closed") { cbOpen.checked = false; cbClosed.checked = true; }
+  else { cbOpen.checked = false; cbClosed.checked = false; }
+  await saveSettings();
+};
+
+window.previewShopStatus = async () => {
+  const t = $("#f-preview-time").value.trim();
+  if (!t) { toast("Pick a time to preview", true); return; }
+  const now = new Date();
+  const [hh, mm] = t.split(":");
+  const preview = new Date(now);
+  preview.setHours(Number(hh), Number(mm), 0, 0);
+  try {
+    const res = await api(`/api/shop/status?at=${encodeURIComponent(preview.toISOString())}`);
+    $("#preview-result").textContent = res.open ? "OPEN" : "CLOSED";
+    $("#preview-result").style.color = res.open ? "#2e7d32" : "#b3351f";
+  } catch (e) { toast(e.message, true); }
 };
 
 window.saveSettings = async () => {
