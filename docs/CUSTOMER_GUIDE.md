@@ -58,6 +58,8 @@ Look for the **Deals** carousel at the top of the menu:
 - **Combo / fixed-price deals** — a set of items for one price. Tap **Add to Order**.
 - **Automatic deals** — apply themselves when you add the right items; just shop the category.
 - **Pick deals (Buy N get 1 free)** — pick any N pizzas from a category, pay for N−1.
+- **Build your bundle / Build your deal** — choose pizzas from picture tiles; toppings are optional per pizza. The price updates as you select.
+- **Range bundles** — pick from separate paid and free item groups (e.g. 3 large paid + 2 medium free).
 
 ### 2.5 Your cart
 - Tap the **Cart** button (top right) to open the cart drawer.
@@ -125,6 +127,7 @@ If you allow browser notifications, you'll get a pop-up when an order status cha
 
 ## 5. Tips
 
+- **Driver tip** — on delivery orders you can tip the driver (default 10%, or choose none / another % / custom amount) before placing the order.
 - **Closed?** You can still browse the menu and build your cart; checkout opens again at 10:00.
 - **Delivery fee** depends on distance from us and the order amount — drop a pin for an accurate fee.
 - **Reorder** is the quickest way to repeat a previous order.
