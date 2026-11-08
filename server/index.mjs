@@ -1082,6 +1082,16 @@ const normalizeSpecialSize = (value) => {
   return label || null;
 };
 
+const aggregateSpecialItems = (items) => {
+  const map = new Map();
+  for (const i of items || []) {
+    const key = String(i.itemId) + "|" + String(i.sizeLabel ?? "");
+    if (!map.has(key)) map.set(key, { ...i, quantity: 0 });
+    map.get(key).quantity += Math.max(1, Number(i.quantity) || 1);
+  }
+  return [...map.values()];
+};
+
 const validateSpecialItems = async (items) => {
   const rows = Array.isArray(items) ? items : [];
   const ids = [...new Set(rows.map((i) => Number(i.itemId)))];
@@ -1114,6 +1124,7 @@ const PICK_KINDS = new Set(["bogo", "deal", "pick"]);
 const normalizeSpecialKind = (v) => {
   const k = String(v || "flat").toLowerCase();
   if (k === "pick") return "pick";
+  if (k === "bundle") return "bundle";
   return PICK_KINDS.has(k) ? k : "flat";
 };
 
@@ -1124,7 +1135,9 @@ const validatePickKind = async (kind, categoryId, sizeLabel, count, price) => {
   const cat = await prisma.category.findUnique({ where: { id: Number(categoryId) } });
   if (!cat) throw badRequest("categoryId does not match a category");
   const n = Number(count);
-  if (!Number.isInteger(n) || n < 2) throw badRequest("count must be a whole number of 2 or more");
+  // Deals may target a single pizza (e.g. Super Sunday), so allow 1+ for deals.
+  const minCount = kind === "deal" ? 1 : 2;
+  if (!Number.isInteger(n) || n < minCount) throw badRequest(`count must be a whole number of ${minCount} or more`);
   if (kind === "bogo" && n % 2 !== 0) throw badRequest("count must be an even number of 2 or more");
 
   const label = sizeLabel?.trim() || null;
@@ -1198,18 +1211,38 @@ app.post(
       endDate = null,
       homeDisplay = "tile",
       payMode = "expensive",
+      bundleSpec = null,
+      exemptFromDeals = true,
     } = req.body || {};
     if (!name?.trim()) return res.status(400).json({ error: "name is required" });
     const kindNorm = normalizeSpecialKind(kind);
 
     let pick = null;
     let pickMeta = null; // { selectionMode, buyCount, payCount }
+    let bundleCount = 0;
     if (kindNorm === "bogo" || kindNorm === "deal") {
       try {
         pick = await validatePickKind(kindNorm, categoryId, sizeLabel, count, price);
       } catch (e) {
         return res.status(e.status || 400).json({ error: e.message });
       }
+    } else if (kindNorm === "bundle") {
+      // bundleSpec is a JSON string of groups. Validate shape only here;
+      // deeper (category existence) is checked lazily but we sanity-check now.
+      let spec = null;
+      try { spec = typeof bundleSpec === "string" ? JSON.parse(bundleSpec) : bundleSpec; } catch (e) { spec = null; }
+      if (!Array.isArray(spec) || !spec.length) return res.status(400).json({ error: "bundleSpec must be a non-empty array of groups" });
+      for (const g of spec) {
+        if (!g || !Array.isArray(g.categories) || !g.categories.length) return res.status(400).json({ error: "each bundle group needs at least one category" });
+        const cnt = Number(g.count);
+        if (!Number.isInteger(cnt) || cnt < 1) return res.status(400).json({ error: "each bundle group count must be 1 or more" });
+        if (!g.sizeLabel) return res.status(400).json({ error: "each bundle group needs a size" });
+      }
+      const hasPaid = Array.isArray(spec) && spec.some((g) => typeof g.paid === "boolean");
+      const p = Number(price);
+      if (!hasPaid && (!Number.isInteger(p) || p <= 0)) return res.status(400).json({ error: "a bundle needs a price above R0" });
+      bundleCount = spec.reduce((acc, g) => acc + Number(g.count || 0), 0);
+      if (bundleCount < 1) return res.status(400).json({ error: "bundle needs at least one item" });
     } else if (kindNorm === "pick") {
       const sm = String(req.body.selectionMode || "items").toLowerCase();
       const bc = Number(req.body.buyCount ?? count ?? 3);
@@ -1249,7 +1282,7 @@ app.post(
         kind: kindNorm,
         categoryId: pick ? pick.categoryId : null,
         sizeLabel: pick ? pick.sizeLabel : null,
-        count: pick ? pick.count : (pickMeta ? pickMeta.buyCount : 2),
+        count: kindNorm === "bundle" ? bundleCount : (pick ? pick.count : (pickMeta ? pickMeta.buyCount : 2)),
         buyCount: pickMeta ? pickMeta.buyCount : 0,
         payCount: pickMeta ? pickMeta.payCount : 0,
         selectionMode: pickMeta ? pickMeta.selectionMode : "",
@@ -1262,10 +1295,12 @@ app.post(
         weekdays: weekdays ? String(weekdays).trim() || null : null,
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
+        bundleSpec: kindNorm === "bundle" ? (typeof bundleSpec === "string" ? bundleSpec : JSON.stringify(bundleSpec)) : null,
+        exemptFromDeals: Boolean(exemptFromDeals),
         items:
           (kindNorm === "flat" || (kindNorm === "pick" && pickMeta?.selectionMode === "items"))
             ? {
-                create: items.map((i) => ({
+                create: aggregateSpecialItems(items).map((i) => ({
                   itemId: Number(i.itemId),
                   sizeLabel: normalizeSpecialSize(i.sizeLabel),
                   quantity: Math.max(1, Number(i.quantity) || 1),
@@ -1289,7 +1324,7 @@ app.put(
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const { name, description, price, kind, categoryId, sizeLabel, count, imageUrl, showOnHome, isActive, sortOrder, items, weekdays, startDate, endDate, homeDisplay, payMode } = req.body || {};
+    const { name, description, price, kind, categoryId, sizeLabel, count, imageUrl, showOnHome, isActive, sortOrder, items, weekdays, startDate, endDate, homeDisplay, payMode, bundleSpec, exemptFromDeals, selectionMode, buyCount, payCount } = req.body || {};
     const existing = await prisma.special.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ error: "special not found" });
 
@@ -1333,6 +1368,23 @@ app.put(
         try { await validateSpecialItems(items); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
       }
       pickMeta = { selectionMode: sm, buyCount: bc, payCount: pc };
+    } else if (kindNorm === "bundle") {
+      const bs = bundleSpec !== undefined ? bundleSpec : existing.bundleSpec;
+      let spec = null;
+      try { spec = typeof bs === "string" ? JSON.parse(bs) : bs; } catch (e) { spec = null; }
+      if (!Array.isArray(spec) || !spec.length) return res.status(400).json({ error: "bundleSpec must be a non-empty array of groups" });
+      for (const g of spec) {
+        if (!g || !Array.isArray(g.categories) || !g.categories.length) return res.status(400).json({ error: "each bundle group needs at least one category" });
+        const cnt = Number(g.count);
+        if (!Number.isInteger(cnt) || cnt < 1) return res.status(400).json({ error: "each bundle group count must be 1 or more" });
+        if (!g.sizeLabel) return res.status(400).json({ error: "each bundle group needs a size" });
+      }
+      const bs2 = bundleSpec !== undefined ? bundleSpec : existing.bundleSpec;
+      let spec2 = null;
+      try { spec2 = typeof bs2 === "string" ? JSON.parse(bs2) : bs2; } catch (e) { spec2 = null; }
+      const hasPaid2 = Array.isArray(spec2) && spec2.some((g) => typeof g.paid === "boolean");
+      const p = price !== undefined ? Number(price) : existing.price;
+      if (!hasPaid2 && (!Number.isInteger(p) || p <= 0)) return res.status(400).json({ error: "a bundle needs a price above R0" });
     } else if (Array.isArray(items)) {
       if (items.length === 0) return res.status(400).json({ error: "at least one item is required" });
       try {
@@ -1361,15 +1413,18 @@ app.put(
           ...(endDate !== undefined ? { endDate: endDate ? new Date(endDate) : null } : {}),
           ...(homeDisplay !== undefined ? { homeDisplay: homeDisplay === "banner" ? "banner" : "tile" } : {}),
           ...(payMode !== undefined ? { payMode: payMode === "fixed" ? "fixed" : "expensive" } : {}),
+          ...(bundleSpec !== undefined ? { bundleSpec: kindNorm === "bundle" ? (typeof bundleSpec === "string" ? bundleSpec : JSON.stringify(bundleSpec)) : null } : {}),
+          ...(exemptFromDeals !== undefined ? { exemptFromDeals: Boolean(exemptFromDeals) } : {}),
+          ...(kindNorm === "bundle" && bundleSpec !== undefined ? { count: (typeof bundleSpec === "string" ? JSON.parse(bundleSpec) : bundleSpec).reduce((a,g)=>a+Number(g.count||0),0) } : {}),
         },
       });
       const isPickItems = kindNorm === "pick" && (pickMeta?.selectionMode === "items" || (pickMeta == null && existing.selectionMode === "items"));
-      if (PICK_KINDS.has(kindNorm) && !(kindNorm === "pick" && isPickItems)) {
-        // Pick-your-own specials carry no fixed bundle rows.
+      if (kindNorm === "bundle" || (PICK_KINDS.has(kindNorm) && !(kindNorm === "pick" && isPickItems))) {
+        // Bundle and category BOGO/pick carry no fixed bundle rows.
         await tx.specialItem.deleteMany({ where: { specialId: id } });
       } else if (Array.isArray(items) || (kindNorm === "pick" && isPickItems)) {
         await tx.specialItem.deleteMany({ where: { specialId: id } });
-        const rowsToCreate = Array.isArray(items) ? items : existing.items?.map((i) => ({ itemId: i.itemId, quantity: i.quantity, sizeLabel: i.sizeLabel, extras: i.extras ? JSON.parse(i.extras) : null })) || [];
+        const rowsToCreate = Array.isArray(items) ? aggregateSpecialItems(items) : existing.items?.map((i) => ({ itemId: i.itemId, quantity: i.quantity, sizeLabel: i.sizeLabel, extras: i.extras ? JSON.parse(i.extras) : null })) || [];
         if (rowsToCreate.length) {
           await tx.specialItem.createMany({
             data: rowsToCreate.map((i) => ({
@@ -1684,7 +1739,7 @@ app.get(
 // Public shop-hours status for the storefront/home page. Callers can also pass
 // ?at=ISO to preview a given moment (used by the admin form).
 app.get(
-  "/api/shop/config",
+  "/api/shop/status",
   asyncHandler(async (req, res) => {
     const at = req.query?.at ? new Date(String(req.query.at)) : new Date();
     const now = Number.isNaN(at.getTime()) ? new Date() : at;
@@ -2140,6 +2195,78 @@ const resolvePickSpecial = async (special, picks) => {
   return resolved;
 };
 
+const resolveBundleSpecial = async (special, picks) => {
+  let groups = [];
+  try { groups = typeof special.bundleSpec === "string" ? JSON.parse(special.bundleSpec) : (special.bundleSpec || []); } catch (e) { groups = []; }
+  if (!Array.isArray(groups) || !groups.length) throw badRequest(`${special.name} has no bundle groups`);
+
+  const total = groups.reduce((acc, g) => acc + Number(g.count || 0), 0);
+  if (!Array.isArray(picks) || picks.length !== total)
+    throw badRequest(`${special.name} needs exactly ${total} items`);
+
+  // Resolve each pick.
+  const resolved = [];
+  for (const pick of picks) {
+    if (pick.itemId == null) throw badRequest(`each ${special.name} item needs an itemId`);
+    const item = await prisma.item.findUnique({ where: { id: Number(pick.itemId) }, include: { sizes: true } });
+    if (!item) throw badRequest(`item ${pick.itemId} not found`);
+    if (!item.isActive) throw badRequest(`item ${item.id} is not active`);
+
+    let sizeLabel = pick.sizeLabel ?? null;
+    let base = 0;
+    if (item.sizes.length) {
+      if (!sizeLabel) {
+        if (item.sizes.length !== 1) throw badRequest(`sizeLabel is required for item ${item.id}`);
+        sizeLabel = item.sizes[0].sizeLabel;
+      }
+      const size = item.sizes.find((s) => s.sizeLabel === sizeLabel);
+      if (!size) throw badRequest(`size "${sizeLabel}" not found for item ${item.id}`);
+      sizeLabel = size.sizeLabel;
+      base = size.price;
+    }
+
+    const extras = Array.isArray(pick.extras)
+      ? pick.extras.map((x) => ({ name: String(x.name ?? ""), price: Number(x.price) || 0 }))
+      : [];
+    resolved.push({ item, sizeLabel, base, extras, extrasTotal: extras.reduce((sum, x) => sum + x.price, 0) });
+  }
+
+  // Validate group counts.
+  for (const g of groups) {
+    const cats = new Set((g.categories || []).map(Number));
+    const itemIds = Array.isArray(g.itemIds) ? new Set(g.itemIds.map(Number)) : null;
+    const sizeLabel = g.sizeLabel;
+    const cnt = Number(g.count || 0);
+    const matching = resolved.filter((r) => (itemIds ? itemIds.has(r.item.id) : cats.has(r.item.categoryId)) && r.sizeLabel === sizeLabel);
+    if (matching.length !== cnt)
+      throw badRequest(`${special.name}: expected ${cnt} ${sizeLabel} pizza(s) from the selected categories, got ${matching.length}`);
+  }
+
+  // Ensure every pick is claimed by exactly one group (no overlaps/double counting).
+  const claimed = new Set();
+  for (const g of groups) {
+    const cats = new Set((g.categories || []).map(Number));
+    const itemIds = Array.isArray(g.itemIds) ? new Set(g.itemIds.map(Number)) : null;
+    const sizeLabel = g.sizeLabel;
+    const cnt = Number(g.count || 0);
+    let n = 0;
+    resolved.forEach((r, i) => {
+      if (claimed.has(i)) return;
+      const ok = itemIds ? itemIds.has(r.item.id) : cats.has(r.item.categoryId);
+      if (ok && r.sizeLabel === sizeLabel && n < cnt) {
+        claimed.add(i);
+        n++;
+      }
+    });
+  }
+  if (claimed.size !== resolved.length)
+    throw badRequest(`${special.name}: some selected pizzas do not match the bundle groups`);
+
+  const extrasTotal = resolved.reduce((sum, r) => sum + r.extrasTotal, 0);
+  const extrasJson = JSON.stringify(resolved.map((r) => ({ itemId: r.item.id, sizeLabel: r.sizeLabel, extras: r.extras })));
+  return { resolved, extrasTotal, extrasJson };
+};
+
 app.post(
   "/api/orders",
   asyncHandler(async (req, res) => {
@@ -2415,6 +2542,58 @@ app.post(
           continue;
         }
 
+        // Bundle special: customer chooses items per group.
+        if (special.kind === "bundle") {
+          const resolved = await resolveBundleSpecial(special, line.pizzas);
+          const quantity = Math.max(1, Number(line.quantity) || 1);
+          const extrasTotal = resolved.extrasTotal || 0;
+          // If any group declares a paid flag, charge only the paid picks;
+          // otherwise fall back to the flat special price.
+          let groups = [];
+          try { groups = typeof special.bundleSpec === "string" ? JSON.parse(special.bundleSpec) : (special.bundleSpec || []); } catch (e) { groups = []; }
+          const hasPaidFlag = groups.some((g) => typeof g.paid === "boolean");
+          let price = special.price || 0;
+          if (hasPaidFlag) {
+            price = 0;
+            // Map each resolved pick to its group by cumulative count.
+            let acc = 0;
+            const groupOf = resolved.resolved.map((_, idx) => {
+              let a = 0;
+              for (let gi = 0; gi < groups.length; gi++) {
+                a += Number(groups[gi].count || 0);
+                if (idx < a) return gi;
+              }
+              return groups.length - 1;
+            });
+            // group picks
+            const picksByGroup = groups.map(() => []);
+            resolved.resolved.forEach((r, idx) => {
+              const gi = groupOf[idx];
+              picksByGroup[gi].push(r);
+            });
+            groups.forEach((g, gi) => {
+              if (g.paid === false) return;
+              const mode = g.priceMode || "value";
+              const grpPicks = picksByGroup[gi] || [];
+              if (mode === "fixed") {
+                price += Number(g.price) || 0;
+              } else {
+                price += grpPicks.reduce((sum, r) => sum + r.base, 0);
+              }
+            });
+          }
+          rows.push({
+            itemId: null,
+            itemName: special.name,
+            sizeLabel: null,
+            unitPrice: price,
+            quantity,
+            extras: resolved.extrasJson || null,
+            total: (price + extrasTotal) * quantity,
+          });
+          continue;
+        }
+
         const quantity = Math.max(1, Number(line.quantity) || 1);
         rows.push({
           itemId: null,
@@ -2484,7 +2663,7 @@ app.post(
       const claimed = new Set();
 
       for (const s of dealSpecials) {
-        if (!(s.count >= 2) || !(s.price > 0)) continue;
+        if (!(s.count >= 1) || !(s.price > 0)) continue;
 
         const units = [];
         for (const r of itemRows) {
@@ -2601,6 +2780,7 @@ app.post(
           ...(couponDiscount > 0 ? [{ name: couponLabel || "Coupon", count: 1, price: 0, normal: couponDiscount, saving: couponDiscount }] : []),
         ],
         deliveryFee,
+        tipAmount,
         delivery: {
           status: delivery.status,
           distanceKm: delivery.distanceKm,
@@ -2700,6 +2880,7 @@ app.post(
           deliveryAddress: resolvedDeliveryAddress,
           deliveryDistance: delivery.distanceKm,
           deliveryFee,
+          tipAmount,
           deliveryStatus: delivery.status,
           notes,
           items: { create: rows },

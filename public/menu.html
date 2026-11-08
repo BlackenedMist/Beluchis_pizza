@@ -307,6 +307,7 @@
     </div>
   </div>
   <div style="display:flex;gap:10px;align-items:center;flex:none;">
+    <a href="/" style="color:#fff;text-decoration:none;font-size:13px;opacity:.85">Home</a>
     <a id="nav-account" href="/portal?next=/order" style="color:#fff;text-decoration:none;font-size:13px;opacity:.85">Sign in</a>
     <button class="cart-btn" data-action="open-cart">
       <span>&#128722;</span><span>Cart</span><span class="badge" id="cart-badge">0</span>
@@ -329,6 +330,9 @@
 
 <div class="overlay" id="bogo-overlay" hidden>
   <div class="modal" id="bogo-modal"></div>
+</div>
+<div class="overlay" id="bundle-overlay" hidden>
+  <div class="modal" id="bundle-modal"></div>
 </div>
 
 <div class="drawer" id="cart-drawer">
@@ -410,6 +414,23 @@
             <div class="hint" id="geo-status" hidden></div>
           </div>
           <div class="field"><label>Notes (optional)</label><textarea name="notes" rows="2" placeholder="e.g. call on arrival, extra napkins"></textarea></div>
+          <div class="field" id="tip-block" hidden>
+            <label>Tip the driver</label>
+            <div class="pay-options">
+              <label class="pay-opt"><input type="radio" name="tipOption" value="0" /><span>No tip</span></label>
+              <label class="pay-opt"><input type="radio" name="tipOption" value="10" checked /><span>10%</span></label>
+              <label class="pay-opt"><input type="radio" name="tipOption" value="15" /><span>15%</span></label>
+              <label class="pay-opt"><input type="radio" name="tipOption" value="20" /><span>20%</span></label>
+              <label class="pay-opt"><input type="radio" name="tipOption" value="custom" /><span>Custom</span></label>
+            </div>
+            <div id="tip-custom" hidden style="margin-top:8px">
+              <div class="row">
+                <div class="field"><label>Custom %</label><input id="tip-pct" type="number" min="0" value="0" /></div>
+                <div class="field"><label>Custom amount (R)</label><input id="tip-amt" type="number" min="0" value="0" /></div>
+              </div>
+            </div>
+            <div class="hint" id="tip-preview"></div>
+          </div>
           <div class="co-actions">
             <button type="button" class="ghost" data-action="cancel-checkout">Cancel</button>
             <button type="button" class="ghost" data-co-prev="2">Back</button>
@@ -614,13 +635,14 @@ function renderMenu() {
     parts.push('<h2 style="margin:0 0 10px;font-size:18px;">Deals</h2>');
     parts.push('<div class="deals-carousel"><div class="deals-track">' + SPECIALS.map((s) => {
       const bogo = s.kind === "bogo" || s.kind === "pick";
+      const bundle = s.kind === "bundle";
       // Fixed-price deals are never added as a cart line - they price
       // themselves off the pizzas already in it, so the card only explains
       // them and points at the category.
       const deal = s.kind === "deal";
       const dealCat = deal && s.category ? s.category.name : "";
-      const action = bogo
-        ? '<button class="add-special" data-bogo-id="' + s.id + '">Build your deal</button>'
+      const action = bogo || bundle
+        ? '<button class="add-special" data-bogo-id="' + s.id + '">' + (bundle ? "Build your bundle" : "Build your deal") + '</button>'
         : deal
           ? '<button class="add-special" data-goto-cat="' + (s.categoryId ?? "") + '">' +
             (dealCat ? "Shop " + esc(dealCat) : "Shop the menu") + "</button>"
@@ -629,7 +651,9 @@ function renderMenu() {
             '<span class="n" data-qty-special="' + s.id + '">' + (specQty.get(s.id) || 1) + "</span>" +
             '<button type="button" data-qinc-special="' + s.id + '" aria-label="Increase">+</button></span>' +
             '<button class="add-special" data-special-id="' + s.id + '">Add to Order</button>';
-      const detail = bogo
+      const detail = bundle
+        ? '<div class="special-parts">' + (JSON.parse(s.bundleSpec || "[]").map((g) => '<span class="part">' + esc(g.name) + ": " + g.count + " x " + esc(g.sizeLabel) + "</span>").join("")) + "</div>"
+        : bogo
         ? '<div class="special-parts">' +
             (s.category ? '<span class="part">Pick any ' + esc(s.category.name) + "</span>" : "") +
             (s.sizeLabel ? '<span class="part">' + esc(s.sizeLabel) + " only</span>" : "") +
@@ -983,13 +1007,18 @@ function renderBogo() {
     const item = Shop.data.byId.get(Number(p.itemId));
     const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && (!s.sizeLabel || x.sizeLabel === s.sizeLabel)) : [];
     const tops = item ? Shop.availToppings(item, p.sizeLabel) : [];
+    const tiles = items.map((it) => {
+      const img = it.imageUrl ? '<img src="' + esc(it.imageUrl) + '" alt="" style="width:100%;height:70px;object-fit:cover;border-radius:6px" />' : '<div style="width:100%;height:70px;background:#eee;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px">No image</div>';
+      const sel = it.id === Number(p.itemId) ? "outline:3px solid var(--accent);" : "";
+      const price = (it.sizes || []).find((x) => x.isActive !== false && (!s.sizeLabel || x.sizeLabel === s.sizeLabel));
+      return '<div data-bogo-tile="' + i + '" data-item-id="' + it.id + '" style="cursor:pointer;border:1px solid #ddd;border-radius:8px;padding:6px;text-align:center;' + sel + '">' + img + '<div style="font-size:11px;margin-top:4px">' + esc(it.name) + (price ? '<br/>' + money(price.price) : '') + '</div></div>';
+    }).join("");
     return (
-      '<div class="field"><label>Pizza ' + (i + 1) + "</label>" +
-      '<select data-bogo-item="' + i + '">' + items.map((it) =>
-        '<option value="' + it.id + '"' + (it.id === Number(p.itemId) ? " selected" : "") + ">" + esc(it.name) + "</option>").join("") + "</select>" +
-      '<select data-bogo-size="' + i + '" style="margin-top:6px">' + sizes.map((sz) =>
-        '<option value="' + esc(sz.sizeLabel) + '"' + (sz.sizeLabel === p.sizeLabel ? " selected" : "") + ">" + esc(sz.sizeLabel) + " &middot; " + money(sz.price) + "</option>").join("") + "</select>" +
-      (tops.length ? '<div class="opt-list">' + tops.map((t) => {
+      '<div class="field" style="margin-bottom:12px"><label>Pizza ' + (i + 1) + '</label>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-top:6px">' + tiles + '</div>' +
+      (sizes.length > 1 ? '<select data-bogo-size="' + i + '" style="margin-top:6px;width:100%">' + sizes.map((sz) =>
+        '<option value="' + esc(sz.sizeLabel) + '"' + (sz.sizeLabel === p.sizeLabel ? " selected" : "") + ">" + esc(sz.sizeLabel) + " &middot; " + money(sz.price) + "</option>").join("") + "</select>" : "") +
+      (tops.length ? '<div class="opt-list" style="margin-top:6px">' + tops.map((t) => {
         const price = topPriceOf(t, p.sizeLabel) || 0;
         const on = (p.extras || []).some((e) => e.name === t.topping.name);
         return '<label class="opt"><input type="checkbox" data-bogo-top="' + i + '" data-top-name="' + esc(t.topping.name) + '" data-top-price="' + price + '"' + (on ? " checked" : "") + " /><span>" + esc(t.topping.name) + '</span><span class="cost">+' + money(price) + "</span></label>";
@@ -1015,6 +1044,209 @@ const openBogo = (s) => {
   $("#bogo-overlay").hidden = false;
   renderBogo();
 };
+
+let bundleModal = { special: null, groups: [], picks: [] };
+
+function bundleGroups(s) {
+  try { return typeof s.bundleSpec === "string" ? JSON.parse(s.bundleSpec) : (s.bundleSpec || []); } catch (e) { return []; }
+}
+
+function bundlePickGroupIndex(picks, idx) {
+  // idx into picks; determine group by cumulative counts
+  let acc = 0;
+  for (let g = 0; g < bundleModal.groups.length; g++) {
+    acc += Number(bundleModal.groups[g].count || 0);
+    if (idx < acc) return g;
+  }
+  return bundleModal.groups.length - 1;
+}
+
+function bundleItemsForGroup(g) {
+  const cats = new Set((g.categories || []).map(Number));
+  const ids = Array.isArray(g.itemIds) ? g.itemIds.map(Number) : [];
+  const out = [];
+  const pool = ids.length
+    ? ids.map((id) => Shop.data.byId.get(id)).filter(Boolean)
+    : (Shop.data.items || []).filter((it) => !cats.size || cats.has(it.categoryId));
+  for (const it of pool) {
+    if ((it.sizes || []).some((x) => x.isActive !== false && x.sizeLabel === g.sizeLabel)) out.push(it);
+  }
+  return out;
+}
+
+function bundleTotalText() {
+  const s = bundleModal.special;
+  const groups = bundleGroups(s);
+  const picks = bundleModal.picks.filter((p) => p.itemId);
+  let unitPrice = 0;
+  const picksByGroup = groups.map(() => []);
+  bundleModal.picks.forEach((p, idx) => {
+    if (!p.itemId) return;
+    const gi = bundlePickGroupIndex(bundleModal.picks, idx);
+    picksByGroup[gi].push(p);
+  });
+  groups.forEach((g, gi) => {
+    if (g.paid === false) return;
+    const mode = g.priceMode || "value";
+    const grpPicks = picksByGroup[gi] || [];
+    const bases = grpPicks.map((p) => {
+      const it = Shop.data.byId.get(Number(p.itemId));
+      const sz = it && (it.sizes || []).find((x) => x.sizeLabel === p.sizeLabel);
+      return sz ? sz.price : 0;
+    });
+    if (mode === "fixed") unitPrice += Number(g.price) || 0;
+    else unitPrice += bases.reduce((sum, v) => sum + v, 0);
+  });
+  const ex = Shop.extrasTotal(picks);
+  return money(unitPrice + ex) + (ex ? " (incl. " + money(ex) + " extras)" : "");
+}
+
+function renderBundle() {
+  const s = bundleModal.special;
+  const groups = bundleModal.groups;
+  const rows = bundleModal.picks.map((p, i) => {
+    const g = groups[bundlePickGroupIndex(bundleModal.picks, i)];
+    const items = bundleItemsForGroup(g);
+    const item = Shop.data.byId.get(Number(p.itemId));
+    const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && x.sizeLabel === g.sizeLabel) : [];
+    const tops = item ? Shop.availToppings(item, g.sizeLabel) : [];
+    const tiles = items.map((it) => {
+      const img = it.imageUrl ? '<img src="' + esc(it.imageUrl) + '" alt="" style="width:100%;height:80px;object-fit:cover;border-radius:6px" />' : '<div style="width:100%;height:80px;background:#eee;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px">No image</div>';
+      const sel = it.id === Number(p.itemId) ? "outline:3px solid var(--accent);" : "";
+      return '<div data-bundle-tile="' + i + '" data-item-id="' + it.id + '" style="cursor:pointer;border:1px solid #ddd;border-radius:8px;padding:6px;text-align:center;' + sel + '">' + img + '<div style="font-size:11px;margin-top:4px">' + esc(it.name) + '</div></div>';
+    }).join("");
+    return (
+      '<div class="field" style="margin-bottom:12px"><label>' + esc(g.name) + ' ' + (i + 1) + '</label>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-top:6px">' + tiles + '</div>' +
+      (tops.length ? '<div class="opt-list" style="margin-top:6px">' + tops.map((t) => {
+        const price = Shop.topPriceOf ? Shop.topPriceOf(t, g.sizeLabel) : 0;
+        const on = (p.extras || []).some((e) => e.name === t.topping.name);
+        return '<label class="opt"><input type="checkbox" data-bundle-top="' + i + '" data-top-name="' + esc(t.topping.name) + '" data-top-price="' + price + '"' + (on ? " checked" : "") + " /><span>" + esc(t.topping.name) + '</span><span class="cost">+' + money(price) + "</span></label>";
+      }).join("") + "</div>" : "") +
+      "</div>"
+    );
+  }).join("");
+  $("#bundle-modal").innerHTML =
+    "<h3>" + esc(s.name) + "</h3>" +
+    '<p class="sub">Build your bundle &middot; Total: <span id="bundle-total-top">' + bundleTotalText() + '</span></p>' +
+    rows +
+    '<div class="modal-actions">' +
+    '<span class="total" id="bundle-total">' + bundleTotalText() + "</span>" +
+    '<button class="ghost" data-action="close-bundle">Cancel</button>' +
+    '<button class="primary" data-action="confirm-bundle">Add to Order</button>' +
+    "</div>";
+}
+
+const openBundle = (s) => {
+  const groups = bundleGroups(s);
+  const total = groups.reduce((acc, g) => acc + Number(g.count || 0), 0);
+  const picks = [];
+  groups.forEach((g) => {
+    for (let n = 0; n < Number(g.count || 0); n++) {
+      const items = bundleItemsForGroup(g);
+      const item = items[0];
+      picks.push({ itemId: item ? item.id : null, sizeLabel: g.sizeLabel, extras: [], group: g });
+    }
+  });
+  bundleModal = { special: s, groups, picks };
+  $("#bundle-overlay").hidden = false;
+  renderBundle();
+};
+
+$("#bundle-modal").addEventListener("click", (e) => {
+  const tile = e.target.closest("[data-bundle-tile]");
+  if (tile) {
+    const i = Number(tile.dataset.bundleTile);
+    const itemId = Number(tile.dataset.itemId);
+    const item = Shop.data.byId.get(itemId);
+    const s = bundleModal.special;
+    const groups = bundleGroups(s);
+    const g = groups[bundlePickGroupIndex(bundleModal.picks, i)];
+    const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && x.sizeLabel === g.sizeLabel) : [];
+    bundleModal.picks[i] = { itemId: item.id, sizeLabel: sizes[0] ? sizes[0].sizeLabel : g.sizeLabel, extras: [] };
+    renderBundle();
+    return;
+  }
+}, true);
+
+$("#bundle-modal").addEventListener("change", (e) => {
+  const it = e.target.closest("select[data-bundle-item]");
+  if (it) {
+    const i = Number(it.dataset.bundleItem);
+    const item = Shop.data.byId.get(Number(it.value));
+    bundleModal.picks[i].itemId = item ? item.id : null;
+    bundleModal.picks[i].sizeLabel = bundleModal.groups[bundlePickGroupIndex(bundleModal.picks, i)].sizeLabel;
+    bundleModal.picks[i].extras = [];
+    renderBundle();
+    return;
+  }
+  const tp = e.target.closest("input[data-bundle-top]");
+  if (tp) {
+    const i = Number(tp.dataset.bundleTop);
+    const p = bundleModal.picks[i];
+    const name = tp.dataset.topName, price = Number(tp.dataset.topPrice);
+    p.extras = (p.extras || []).filter((x) => x.name !== name);
+    if (tp.checked) p.extras.push({ name, price });
+    const t = $("#bundle-total");
+    if (t) t.textContent = bundleTotalText();
+    const tt = $("#bundle-total-top");
+    if (tt) tt.textContent = bundleTotalText();
+    return;
+  }
+});
+
+$("#bundle-modal").addEventListener("click", (e) => {
+  if (e.target.closest('[data-action="close-bundle"]')) { closeOverlay("#bundle-overlay"); return; }
+  if (!e.target.closest('[data-action="confirm-bundle"]')) return;
+  const s = bundleModal.special;
+  const groups = bundleModal.groups;
+  const total = groups.reduce((acc, g) => acc + Number(g.count || 0), 0);
+  const pizzas = bundleModal.picks
+    .filter((p) => p.itemId)
+    .map((p) => {
+      const g = groups[bundlePickGroupIndex(bundleModal.picks, bundleModal.picks.indexOf(p))];
+      return { itemId: p.itemId, sizeLabel: p.sizeLabel, name: (Shop.data.byId.get(Number(p.itemId)) || {}).name, extras: (p.extras || []).map((x) => ({ name: x.name, price: x.price })) };
+    });
+  if (pizzas.length !== total) { toast("Please choose all bundle pizzas"); return; }
+  // Client-side price preview from paid groups.
+  let unitPrice = 0;
+  const picksByGroup = groups.map(() => []);
+  bundleModal.picks.filter((p) => p.itemId).forEach((p, idx) => {
+    const gi = bundlePickGroupIndex(bundleModal.picks, bundleModal.picks.indexOf(p));
+    picksByGroup[gi].push(p);
+  });
+  groups.forEach((g, gi) => {
+    if (g.paid === false) return;
+    const mode = g.priceMode || "value";
+    const grpPicks = picksByGroup[gi] || [];
+    const bases = grpPicks.map((p) => {
+      const it = Shop.data.byId.get(Number(p.itemId));
+      const sz = it && (it.sizes || []).find((x) => x.sizeLabel === p.sizeLabel);
+      return sz ? sz.price : 0;
+    });
+    if (mode === "fixed") unitPrice += Number(g.price) || 0;
+    else if (mode === "highest") unitPrice += bases.reduce((m, v) => Math.max(m, v), 0);
+    else unitPrice += bases.reduce((sum, v) => sum + v, 0);
+  });
+  unitPrice += Shop.extrasTotal(pizzas);
+  addLine({ kind: "special", specialId: s.id, name: s.name, unitPrice, pizzas, qty: 1 });
+  closeOverlay("#bundle-overlay");
+  toast("Added bundle: " + s.name);
+});
+
+$("#bogo-modal").addEventListener("click", (e) => {
+  const tile = e.target.closest("[data-bogo-tile]");
+  if (tile) {
+    const i = Number(tile.dataset.bogoTile);
+    const itemId = Number(tile.dataset.itemId);
+    const item = Shop.data.byId.get(itemId);
+    const s = bogoModal.special;
+    const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && (!s.sizeLabel || x.sizeLabel === s.sizeLabel)) : [];
+    bogoModal.picks[i] = { itemId: item.id, sizeLabel: sizes[0] ? sizes[0].sizeLabel : (s.sizeLabel || null), extras: [] };
+    renderBogo();
+    return;
+  }
+}, true);
 
 $("#bogo-modal").addEventListener("change", (e) => {
   const s = bogoModal.special;
@@ -1119,7 +1351,7 @@ $("#app").addEventListener("click", (e) => {
   const bg = e.target.closest("button[data-bogo-id]");
   if (bg) {
     const s = SPECIALS.find((x) => x.id === Number(bg.dataset.bogoId));
-    if (s) openBogo(s);
+    if (s) { if (s.kind === "bundle") openBundle(s); else openBogo(s); }
     return;
   }
 });
@@ -1320,6 +1552,7 @@ async function openCheckout() {
   const form = $("#checkout-form");
   if (form) form.hidden = false;
   $("#checkout-overlay").hidden = false;
+  setTimeout(updateTipBlock, 0);
   await fillCheckoutAccount();
   const startStep = CUSTOMER ? 2 : 1;
   checkoutStep = startStep;
@@ -1375,6 +1608,45 @@ $("#checkout-overlay").addEventListener("change", (e) => {
   $("#pay-hint").textContent = hints[e.target.value] || "";
 });
 
+// Tip block: show only for delivery; update preview.
+function updateTipBlock() {
+  const method = document.querySelector('input[name="orderMethod"]:checked')?.value;
+  const block = $("#tip-block");
+  if (block) block.hidden = method !== "delivery";
+  const custom = $("#tip-custom");
+  const opt = document.querySelector('input[name="tipOption"]:checked')?.value;
+  if (custom) custom.hidden = opt !== "custom";
+  updateTipPreview();
+}
+function updateTipPreview() {
+  const preview = $("#tip-preview");
+  if (!preview) return;
+  const amt = getTipAmount();
+  preview.textContent = amt > 0 ? "Tip: R" + money(amt) : "No tip";
+}
+function getTipAmount() {
+  const method = document.querySelector('input[name="orderMethod"]:checked')?.value;
+  if (method !== "delivery") return 0;
+  const opt = document.querySelector('input[name="tipOption"]:checked')?.value || "10";
+  const food = CART.reduce((s, l) => s + (l.unitPrice + (l.extras || []).reduce((a, e) => a + e.price, 0)) * l.qty, 0);
+  if (opt === "0") return 0;
+  if (opt === "custom") {
+    const amt = Number($("#tip-amt")?.value);
+    const pct = Number($("#tip-pct")?.value);
+    if (amt > 0) return Math.round(amt);
+    if (pct > 0) return Math.round(food * pct / 100);
+    return 0;
+  }
+  const pct = Number(opt);
+  return pct > 0 ? Math.round(food * pct / 100) : 0;
+}
+
+document.addEventListener("change", (e) => {
+  if (e.target.name === "orderMethod" || e.target.name === "tipOption" || e.target.id === "tip-pct" || e.target.id === "tip-amt") {
+    updateTipBlock();
+  }
+});
+
 // Add-location flow inside checkout (one map, only when adding).
 function initAddMap() {
   const el = $("#delivery-map");
@@ -1425,7 +1697,7 @@ document.addEventListener("click", (e) => {
 });
 
 // Backdrop click to close overlays.
-["#customize-overlay", "#bogo-overlay", "#checkout-overlay"].forEach((sel) => {
+["#customize-overlay", "#bogo-overlay", "#bundle-overlay", "#checkout-overlay"].forEach((sel) => {
   const el = $(sel);
   if (!el) return;
   el.addEventListener("click", (e) => {
@@ -1608,6 +1880,7 @@ function showCheckoutReview(quote, payload, activeOrders) {
     '<div style="display:flex;justify-content:space-between;"><span>Subtotal</span><span>' + money(quote.foodSubtotal) + '</span></div>' +
     (quote.discountAmount > 0 ? '<div style="display:flex;justify-content:space-between;"><span>Discount' + (quote.discountLabel ? ' \u2014 ' + esc(quote.discountLabel) : '') + '</span><span>- ' + money(quote.discountAmount) + '</span></div>' : '') +
     (isDelivery ? '<div style="display:flex;justify-content:space-between;"><span>Delivery fee</span><span>' + money(quote.deliveryFee) + '</span></div>' : '') +
+    (isDelivery && getTipAmount() > 0 ? '<div style="display:flex;justify-content:space-between;"><span>Tip</span><span>' + money(getTipAmount()) + '</span></div>' : '') +
     '<div style="display:flex;justify-content:space-between;font-weight:700;margin-top:4px;"><span>Total</span><span>' + money(quote.grandTotal) + '</span></div>' +
     '</div>' +
     '<div class="muted" style="font-size:12px;margin-top:6px;">Paying by: ' + esc(({ cod_cash: "Cash on delivery", cod_card: "Card on delivery", paygate: "Paid online", pay_at_counter: "Pay at counter" }[payload.paymentMethod] || payload.paymentMethod)) + '</div>' +
@@ -1833,6 +2106,7 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
     notes: String(f.get("notes") || "").trim() || null,
     couponCode: String(f.get("couponCode") || "").trim() || null,
     paymentMethod: String(f.get("paymentMethod") || "cod_cash").trim(),
+    tip: getTipAmount(),
     items: CART.map((l) =>
       l.kind === "special"
         ? {
@@ -2161,7 +2435,7 @@ async function load() {
     SPECIALS = data.specials.filter((s) => (window.Shop && typeof Shop.specialCurrentlyActive === "function") ? Shop.specialCurrentlyActive(s) : s.isActive !== false);
     deliveryCfg = data.delivery;
     try {
-      const sr = await fetch("/api/shop/config");
+      const sr = await fetch("/api/shop/status");
       if (sr.ok) {
         shopCfg = await sr.json();
         applyPaymentOptions();

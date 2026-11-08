@@ -649,9 +649,11 @@ function renderShopStatus(cfg) {
     : "We are closed right now \u2014 open daily " + cfg.openTime + " to " + cfg.closeTime + ".";
   const note = $("#hero-note");
   if (note) {
-    note.hidden = cfg.open;
-    note.textContent = "We\u2019re closed right now \u2014 online checkout opens " + cfg.openTime +
-      " to " + cfg.closeTime + ". Browse and build your order in the meantime.";
+    note.hidden = false;
+    note.textContent = cfg.open
+      ? "We\u2019re open now \u2014 online checkout open until " + cfg.closeTime + "."
+      : "We\u2019re closed right now \u2014 online checkout opens " + cfg.openTime +
+        " to " + cfg.closeTime + ". Browse and build your order in the meantime.";
   }
 }
 
@@ -670,7 +672,7 @@ async function loadAccount() {
 (async () => {
   loadAccount();
   try {
-    const res = await fetch("/api/shop/config");
+    const res = await fetch("/api/shop/status");
     if (res.ok) renderShopStatus(await res.json());
   } catch {}
   try {

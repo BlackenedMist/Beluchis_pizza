@@ -30,12 +30,22 @@ function wrap(text, width = WIDTH, indent = '') {
   const out = [];
   let cur = '';
   for (const word of words) {
-    const next = cur ? `${cur} ${word}` : word;
-    if (next.length > width) {
-      if (cur) out.push(indent + cur);
-      cur = word.length > width ? word.slice(0, width) : word;
-    } else {
-      cur = next;
+    // Break very long tokens (e.g. long item names) into chunks so nothing is lost.
+    const chunks = [];
+    let w = word;
+    while (w.length > width) {
+      chunks.push(w.slice(0, width));
+      w = w.slice(width);
+    }
+    if (w) chunks.push(w);
+    for (const chunk of chunks) {
+      const next = cur ? `${cur} ${chunk}` : chunk;
+      if (next.length > width) {
+        if (cur) out.push(indent + cur);
+        cur = chunk;
+      } else {
+        cur = next;
+      }
     }
   }
   if (cur) out.push(indent + cur);

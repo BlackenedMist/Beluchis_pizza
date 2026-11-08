@@ -1,0 +1,1 @@
+ALTER TABLE "Special" ADD COLUMN "exemptFromDeals" BOOLEAN NOT NULL DEFAULT 0;

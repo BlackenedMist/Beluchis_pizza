@@ -1377,8 +1377,9 @@ function renderSpecials() {
     const parts = s.items.map((x) => x.item.name).join(" ");
     return s.name.toLowerCase().includes(q) || (s.description || "").toLowerCase().includes(q) || parts.toLowerCase().includes(q) || (s.category?.name || "").toLowerCase().includes(q);
   });
-  const partsSum = (s) =>
+  const partsSum = (s, paidOnly = false) =>
     s.items.reduce((sum, x) => {
+      if (paidOnly && x.paid === false) return sum;
       const sizes = x.item.sizes || [];
       if (!sizes.length) return sum;
       const chosen = x.sizeLabel ? sizes.find((sz) => sz.sizeLabel === x.sizeLabel) : null;
@@ -1389,9 +1390,13 @@ function renderSpecials() {
   el.innerHTML = `
     <div class="toolbar">
       <h2>Specials</h2>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
         <input class="search" placeholder="Search specials…" value="${esc(state.search)}" oninput="state.search=this.value;$('#global-search').value=this.value;render()" />
         <button class="primary" onclick="openSpecial()">+ Add special</button>
+        <button class="ghost" onclick="quickPizzaOfMonth()">Pizza of the Month</button>
+        <button class="ghost" onclick="quickBundle()">Fixed Bundle</button>
+        <button class="ghost" onclick="quickSelectionBundle()">Selection Bundle</button>
+        <button class="ghost" onclick="quickRangeBundle()">Range Bundle</button>
       </div>
     </div>
     ${list.length ? `
@@ -1399,17 +1404,24 @@ function renderSpecials() {
       <thead><tr><th>Name</th><th>Price</th><th>Parts</th><th>Home</th><th>Active</th><th></th></tr></thead>
       <tbody>
         ${list.map((s) => {
-          const sum = partsSum(s);
+          const sum = partsSum(s, s.kind === "pick");
           const deal = sum > 0 && s.price < sum ? Math.round((1 - s.price / sum) * 100) : null;
           return `
           <tr>
-            <td><b>${esc(s.name)}</b>${s.kind === "bogo" ? ' <span class="tag">bogo</span>' : ""}${s.imageUrl ? `<br><img src="${esc(s.imageUrl)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:7px;border:1px solid #e8e0d5;margin-top:4px" />` : ""}${s.description ? `<br><span class="muted">${esc(s.description)}</span>` : ""}</td>
-            <td>${s.kind === "bogo" ? `Pick ${s.count}, pay ${s.count / 2}${s.sizeLabel ? ` · ${esc(s.sizeLabel)}` : ""}` : `R${s.price}${sum > 0 ? `<br><span class="muted">parts R${sum}</span>` : ""}${deal ? `<br><span class="parts-tag" style="background:#e8f5e9;color:#2e7d32">${deal}% off</span>` : ""}`}</td>
+            <td><b>${esc(s.name)}</b>${s.kind === "bogo" ? ' <span class="tag">bogo</span>' : ""}${s.kind === "bundle" ? ' <span class="tag">bundle</span>' : ""}${s.kind === "pick" ? ' <span class="tag">pick</span>' : ""}${s.imageUrl ? `<br><img src="${esc(s.imageUrl)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:7px;border:1px solid #e8e0d5;margin-top:4px" />` : ""}${s.description ? `<br><span class="muted">${esc(s.description)}</span>` : ""}</td>
+            <td>${s.kind === "bogo" ? `Pick ${s.count}, pay ${s.count / 2}${s.sizeLabel ? ` · ${esc(s.sizeLabel)}` : ""}` : s.kind === "pick" ? `Pick ${s.buyCount || s.count}, pay ${s.payCount || ((s.buyCount || s.count) - 1)}${s.sizeLabel ? ` · ${esc(s.sizeLabel)}` : ""}` : `R${s.price}${sum > 0 ? `<br><span class="muted">parts R${sum}</span>` : ""}${deal ? `<br><span class="parts-tag" style="background:#e8f5e9;color:#2e7d32">${deal}% off</span>` : ""}`}</td>
             <td>${s.kind === "bogo" ? `<span class="parts-tag">${esc(s.category?.name || "—")}</span>` : s.items.map((x) => `<span class="parts-tag">${esc(x.item.name)}${x.sizeLabel ? ` (${esc(x.sizeLabel)})` : ""}${x.quantity > 1 ? ` ×${x.quantity}` : ""}</span>`).join("")}</td>
             <td>${s.showOnHome ? "Yes" : '<span class="muted">—</span>'}</td>
-            <td>${s.isActive ? "Active" : '<span class="muted">Inactive</span>'}</td>
+            <td>${(() => {
+              if (s.isActive === false) return '<span class="muted">Inactive</span>';
+              const now = new Date();
+              if (s.startDate && new Date(s.startDate) > now) return '<span style="color:#b26a00">Scheduled</span>';
+              if (s.endDate && new Date(s.endDate) < now) return '<span class="muted">Expired</span>';
+              return "Active";
+            })()}</td>
             <td class="row-actions">
               <button onclick="openSpecial(${s.id})">Edit</button>
+              <button onclick="scheduleSpecial(${s.id})">Schedule</button>
               <button class="danger" onclick="delSpecial(${s.id})">Delete</button>
             </td>
           </tr>`;
@@ -1583,8 +1595,12 @@ function renderDeals() {
   el.innerHTML = `
     <div class="toolbar">
       <h2>Deals</h2>
-      <div class="muted" style="max-width:580px;font-size:13px">Automatic multi-buy offers. The customer just adds the pizzas &mdash; the saving lands in the cart, and any coupon stacks on top at checkout.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="ghost" onclick="quickSuperSunday()">Super Sunday Special</button>
+        <button class="ghost" onclick="quickWeekdaySpecial()">Weekday Special</button>
+      </div>
     </div>
+    <div class="muted" style="max-width:580px;font-size:13px;margin-bottom:10px">Automatic multi-buy offers. The customer just adds the pizzas &mdash; the saving lands in the cart, and any coupon stacks on top at checkout.</div>
     ${cats.length ? cats.map((c) => {
       const rows = (byCat.get(c.id) || []).slice().sort((a, b) => String(a.sizeLabel).localeCompare(String(b.sizeLabel)));
       const sold = catSizeList(c.id);
@@ -1602,7 +1618,7 @@ function renderDeals() {
           <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
             <div class="field" style="margin:0">
               <label>Buy this many</label>
-              <input class="num" type="number" min="2" step="1" value="${count}" data-deal-count="${c.id}" style="width:76px" />
+              <input class="num" type="number" min="1" step="1" value="${count}" data-deal-count="${c.id}" style="width:76px" />
             </div>
             <div class="field" style="margin:0">
               <label>Status</label>
@@ -1619,6 +1635,11 @@ function renderDeals() {
           <input type="hidden" id="deal-img-${c.id}" value="${esc(rows[0]?.imageUrl || "")}" />
           <input type="file" accept="image/*" onchange="uploadPicture(this,'deal-img-${c.id}')" />
           <button type="button" class="ghost" onclick="$('#deal-img-${c.id}').value=''">Clear</button>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
+          <span class="muted" style="font-size:12px">Days:</span>
+          ${["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d) => `<label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" class="deal-wd-${c.id}" value="${d}" ${(rows[0]?.weekdays||"").split(",").includes(d)?"checked":""} /> ${d}</label>`).join("")}
+          <span class="muted" style="font-size:11px">(empty = every day)</span>
         </div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px">
           ${sizes.map((z) => {
@@ -1642,7 +1663,7 @@ window.saveDeals = async (catId) => {
   const cat = state.categories.find((c) => c.id === catId);
   if (!cat) return;
   const countEl = $(`[data-deal-count="${catId}"]`);
-  const count = Math.max(2, Math.round(Number(countEl?.value) || 2));
+  const count = Math.max(1, Math.round(Number(countEl?.value) || 1));
   const activeEl = $(`[data-deal-active="${catId}"]`);
   const isActive = activeEl ? activeEl.value === "true" : true;
 
@@ -1666,6 +1687,7 @@ window.saveDeals = async (catId) => {
     const price = Math.round(Number(raw));
     if (!(price > 0)) return toast(`The ${size} deal price must be more than R0`, true);
 
+    const wd = Array.from(document.querySelectorAll(".deal-wd-" + catId + ":checked")).map((x) => x.value).join(",") || null;
     const body = {
       kind: "deal",
       categoryId: catId,
@@ -1675,6 +1697,7 @@ window.saveDeals = async (catId) => {
       name: `${count} ${size} ${cat.name}`,
       description: `Any ${count} ${size} ${cat.name} for R${price} — applied automatically in your cart.`,
       isActive,
+      weekdays: wd,
       showOnHome: false,
       sortOrder: cur?.sortOrder ?? 0,
       imageUrl: (document.getElementById("deal-img-" + catId)?.value || "").trim() || null,
@@ -1707,6 +1730,7 @@ window.openSpecial = (id) => {
           <option value="bogo"${s?.kind === "bogo" ? " selected" : ""}>Buy a group, pay half (BOGO)</option>
           <option value="deal"${s?.kind === "deal" ? " selected" : ""}>Fixed-price deal (auto-applies)</option>
           <option value="pick"${s?.kind === "pick" ? " selected" : ""}>Custom pick (buy N, pay M)</option>
+          <option value="bundle"${s?.kind === "bundle" ? " selected" : ""}>Bundle (customer chooses per group)</option>
         </select>`)}
       </div>
     </details>
@@ -1728,6 +1752,11 @@ window.openSpecial = (id) => {
         ${field("Price (R)", `<input id="sp-price" type="number" value="${s && !isBogo ? s.price : ""}" oninput="renderSpecialSum()" />`)}
         ${field("Items", `<div id="sp-items" class="specials-grid"></div>`)}
         <div id="sp-sum" class="muted" style="font-size:12.5px;margin-top:4px"></div>
+      </div>
+      <div id="sp-bundle" hidden>
+        ${field("Price (R)", `<input id="sp-bundle-price" type="number" value="${s && s.kind === "bundle" ? s.price : ""}" />`)}
+        ${field("Bundle spec (JSON)", `<textarea id="sp-bundlespec" rows="6" style="font-family:monospace;font-size:12px">${esc(s?.bundleSpec || "")}</textarea>`)}
+        <p class="hint" style="margin:0 0 10px">JSON array of groups: [{"name":"Large","categories":[2,3],"sizeLabel":"L","count":1},{"name":"Medium","categories":[1],"sizeLabel":"M","count":2}]. Category ids from /api/categories.</p>
       </div>
       <div id="sp-pick" hidden>
         <div class="row">
@@ -1785,11 +1814,13 @@ window.openSpecial = (id) => {
     const isBogo = kind === "bogo";
     const isDeal = kind === "deal";
     const isPick = kind === "pick";
+    const isBundle = kind === "bundle";
     const selMode = $("#sp-selmode") ? $("#sp-selmode").value : "items";
     $("#sp-flat").hidden = !(kind === "flat" || (isPick && selMode === "items"));
     // Always show category/size for pick so they can be populated/edited.
     $("#sp-bogo").hidden = !(isBogo || isDeal || isPick);
     $("#sp-pick").hidden = !isPick;
+    const spBundle = $("#sp-bundle"); if (spBundle) spBundle.hidden = !isBundle;
     if (!$("#sp-bogo").hidden) { try { renderBogoSizes(); } catch (e) {} }
     try { renderSpecialPicks(); } catch (e) {}
     const details = Array.from(document.querySelectorAll(".overlay details.acc"));
@@ -1997,6 +2028,17 @@ window.saveSpecial = async (id) => {
       };
       if (!payload.items.length) return toast("Pick at least one item", true);
     }
+  } else if (kind === "bundle") {
+    let spec = null;
+    try { spec = JSON.parse($("#sp-bundlespec").value.trim()); } catch (e) { return toast("Bundle spec must be valid JSON", true); }
+    if (!Array.isArray(spec) || !spec.length) return toast("Bundle spec must be a non-empty array", true);
+    payload = {
+      ...base,
+      kind: "bundle",
+      price: Number($("#sp-bundle-price").value) || 0,
+      bundleSpec: spec,
+    };
+    if (!payload.price) return toast("Bundle needs a price", true);
   } else {
     payload = {
       ...base,
@@ -2012,6 +2054,538 @@ window.saveSpecial = async (id) => {
     else await api("/api/specials", { method: "POST", body: JSON.stringify(payload) });
     toast("Special saved"); $(".overlay")?.remove(); await loadAll();
   } catch (e) { toast(e.message, true); }
+};
+
+window.quickPizzaOfMonth = () => {
+  const itemOpts = state.items.filter((i) => i.isActive !== false).map((i) => `<option value="${i.id}">${esc(i.name)}</option>`).join("");
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+  openModal(`
+    <h3>Pizza of the Month</h3>
+    ${field("Pizza", `<select id="qpm-item" onchange="qpmSizes()">${itemOpts}</select>`)}
+    ${field("Size", `<select id="qpm-size"></select>`)}
+    ${field("Reduced price (R)", `<input id="qpm-price" type="number" min="1" />`)}
+    ${field("Start date", `<input id="qpm-start" type="date" value="${first}" />`)}
+    ${field("End date", `<input id="qpm-end" type="date" value="${last}" />`)}
+    ${field("Image", `<input type="hidden" id="qpm-img" value="" /><input type="file" accept="image/*" onchange="uploadPicture(this,'qpm-img')" />`)}
+    ${field("Show on home", `<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="qpm-home" checked /> Show on home</label>`)}
+    <div class="modal-actions">
+      <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+      <button class="primary" onclick="saveQuickPizzaOfMonth()">Save</button>
+    </div>`);
+  window.qpmSizes = () => {
+    const item = state.items.find((i) => i.id === Number($("#qpm-item").value));
+    const sizes = (item?.sizes || []).filter((z) => z.isActive !== false);
+    $("#qpm-size").innerHTML = sizes.map((z) => `<option value="${esc(z.sizeLabel)}">${esc(z.sizeLabel)} (R${z.price})</option>`).join("") || `<option value="">no sizes</option>`;
+  };
+  qpmSizes();
+  window.saveQuickPizzaOfMonth = async () => {
+    const item = state.items.find((i) => i.id === Number($("#qpm-item").value));
+    if (!item) return toast("Pick a pizza", true);
+    const size = $("#qpm-size").value;
+    const price = Number($("#qpm-price").value);
+    if (!(price > 0)) return toast("Enter a reduced price", true);
+    const payload = {
+      name: `Pizza of the Month - ${item.name}`,
+      kind: "flat",
+      price,
+      items: [{ itemId: item.id, quantity: 1, sizeLabel: size || null, extras: [] }],
+      startDate: $("#qpm-start").value || null,
+      endDate: $("#qpm-end").value || null,
+      imageUrl: ($("#qpm-img").value || "").trim() || null,
+      showOnHome: $("#qpm-home").checked,
+      isActive: true,
+      homeDisplay: "tile",
+    };
+    try {
+      await api("/api/specials", { method: "POST", body: JSON.stringify(payload) });
+      toast("Pizza of the Month saved");
+      $(".overlay")?.remove();
+      await loadAll();
+    } catch (e) { toast(e.message, true); }
+  };
+};
+
+window.qbSelectedItems = [];
+window.quickBundle = () => {
+  window.qbSelectedItems = [];
+  const now = new Date();
+  openModal(`
+    <h3>Bundle Special</h3>
+    ${field("Name", `<input id="qb-name" value="Bundle Special" />`)}
+    ${field("Price (R)", `<input id="qb-price" type="number" min="1" />`)}
+    ${field("Items", `<div id="qb-items" style="min-height:40px;border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px"></div><button class="ghost" type="button" onclick="qbAddItem()">+ Add item</button>`)}
+    ${field("Start date (optional)", `<input id="qb-start" type="date" />`)}
+    ${field("End date (optional)", `<input id="qb-end" type="date" />`)}
+    ${field("Image", `<input type="hidden" id="qb-img" value="" /><input type="file" accept="image/*" onchange="uploadPicture(this,'qb-img')" />`)}
+    ${field("Show on home", `<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="qb-home" /> Show on home</label>`)}
+    <div class="modal-actions">
+      <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+      <button class="primary" onclick="saveQuickBundle()">Save</button>
+    </div>`);
+  window.renderQbItems = () => {
+    const el = $("#qb-items");
+    if (!el) return;
+    if (!window.qbSelectedItems.length) { el.innerHTML = '<span class="muted" style="font-size:12px">No items yet. Click "+ Add item".</span>'; return; }
+    el.innerHTML = window.qbSelectedItems.map((it, idx) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--line)"><span>${esc(it.name)} <span class="muted">(${esc(it.sizeLabel)})</span></span><button class="danger" type="button" style="padding:2px 6px;font-size:11px" onclick="qbRemoveItem(${idx})">Remove</button></div>`).join("");
+  };
+  window.qbRemoveItem = (idx) => { window.qbSelectedItems.splice(idx, 1); window.renderQbItems(); };
+  window.qbAddItem = () => {
+    const opts = [];
+    for (const it of state.items.filter((i) => i.isActive !== false)) {
+      for (const sz of (it.sizes || []).filter((z) => z.isActive !== false)) {
+        opts.push({ itemId: it.id, name: it.name, sizeLabel: sz.sizeLabel, label: `${it.name} — ${sz.sizeLabel} (R${sz.price})` });
+      }
+    }
+    openModal(`
+      <h3>Add item to bundle</h3>
+      <input class="search" id="qb-search" placeholder="Search items…" oninput="qbFilterItems()" style="width:100%;margin-bottom:8px" />
+      <div id="qb-picker" style="max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:8px"></div>
+      <div class="modal-actions">
+        <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+      </div>`);
+    window._qbOpts = opts;
+    window.qbFilterItems = () => {
+      const q = ($("#qb-search").value || "").trim().toLowerCase();
+      const list = window._qbOpts.filter((o) => !q || o.label.toLowerCase().includes(q));
+      $("#qb-picker").innerHTML = list.slice(0, 200).map((o) => `<div style="padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--line)" onclick="qbPickItem(${o.itemId},'${String(o.sizeLabel).replace(/'/g,"\\'")}','${String(o.name).replace(/'/g,"\\'")}')">${esc(o.label)}</div>`).join("") || '<div class="muted" style="padding:8px">No items</div>';
+    };
+    window.qbPickItem = (itemId, sizeLabel, name) => {
+      window.qbSelectedItems.push({ itemId, sizeLabel, name });
+      // close picker (topmost overlay)
+      const overlays = document.querySelectorAll(".overlay");
+      if (overlays.length) overlays[overlays.length-1].remove();
+      window.renderQbItems();
+    };
+    window.qbFilterItems();
+  };
+  window.renderQbItems();
+  window.saveQuickBundle = async () => {
+    const price = Number($("#qb-price").value);
+    if (!(price > 0)) return toast("Enter a price", true);
+    if (!window.qbSelectedItems.length) return toast("Add at least one item", true);
+    const payload = {
+      name: $("#qb-name").value.trim() || "Bundle Special",
+      kind: "flat",
+      price,
+      items: (() => {
+        const map = new Map();
+        for (const it of window.qbSelectedItems) {
+          const key = it.itemId + "|" + (it.sizeLabel || "");
+          if (!map.has(key)) map.set(key, { itemId: it.itemId, quantity: 0, sizeLabel: it.sizeLabel, extras: [] });
+          map.get(key).quantity += 1;
+        }
+        return [...map.values()];
+      })(),
+      startDate: $("#qb-start").value || null,
+      endDate: $("#qb-end").value || null,
+      imageUrl: ($("#qb-img").value || "").trim() || null,
+      showOnHome: $("#qb-home").checked,
+      isActive: true,
+      homeDisplay: "tile",
+    };
+    try {
+      await api("/api/specials", { method: "POST", body: JSON.stringify(payload) });
+      toast("Bundle saved");
+      $(".overlay")?.remove();
+      await loadAll();
+    } catch (e) { toast(e.message, true); }
+  };
+};
+
+window.qsSelectedItems = [];
+window.quickSelectionBundle = () => {
+  window.qsSelectedItems = [];
+  openModal(`
+    <h3>Selection Bundle</h3>
+    <p class="hint">Add items. Tick "Paid" for items the customer pays for; unticked items are free.</p>
+    ${field("Name", `<input id="qs-name" value="Selection Bundle" />`)}
+    ${field("Items", `<div id="qs-items" style="min-height:40px;border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px"></div><button class="ghost" type="button" onclick="qsAddItem()">+ Add item</button>`)}
+    <div id="qs-price" class="muted" style="font-size:12.5px;margin:4px 0 8px"></div>
+    ${field("Start date (optional)", `<input id="qs-start" type="date" />`)}
+    ${field("End date (optional)", `<input id="qs-end" type="date" />`)}
+    ${field("Image", `<input type="hidden" id="qs-img" value="" /><input type="file" accept="image/*" onchange="uploadPicture(this,'qs-img')" />`)}
+    ${field("Show on home", `<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="qs-home" /> Show on home</label>`)}
+    <div class="modal-actions">
+      <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+      <button class="primary" onclick="saveQuickSelectionBundle()">Save</button>
+    </div>`);
+  window.renderQsItems = () => {
+    const el = $("#qs-items");
+    if (!el) return;
+    if (!window.qsSelectedItems.length) { el.innerHTML = '<span class="muted" style="font-size:12px">No items yet. Click "+ Add item".</span>'; if ($("#qs-price")) $("#qs-price").textContent = ""; return; }
+    el.innerHTML = window.qsSelectedItems.map((it, idx) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--line)">
+      <span>${esc(it.name)} <span class="muted">(${esc(it.sizeLabel)})</span></span>
+      <span style="display:flex;align-items:center;gap:8px">
+        <label style="font-size:12px"><input type="checkbox" ${it.paid ? "checked" : ""} onchange="qsTogglePaid(${idx}, this.checked)" /> Paid</label>
+        <button class="danger" type="button" style="padding:2px 6px;font-size:11px" onclick="qsRemoveItem(${idx})">Remove</button>
+      </span>
+    </div>`).join("");
+    const itemById = new Map(state.items.map((i) => [i.id, i]));
+    let paidSum = 0, freeSum = 0;
+    for (const it of window.qsSelectedItems) {
+      const item = itemById.get(it.itemId);
+      const sz = item?.sizes?.find((z) => z.sizeLabel === it.sizeLabel);
+      const price = sz ? sz.price : 0;
+      if (it.paid) paidSum += price; else freeSum += price;
+    }
+    if ($("#qs-price")) $("#qs-price").textContent = `Customer pays R${paidSum} (free items worth R${freeSum})`;
+  };
+  window.qsTogglePaid = (idx, on) => { window.qsSelectedItems[idx].paid = on; window.renderQsItems(); };
+  window.qsRemoveItem = (idx) => { window.qsSelectedItems.splice(idx, 1); window.renderQsItems(); };
+  window.qsAddItem = () => {
+    const opts = [];
+    for (const it of state.items.filter((i) => i.isActive !== false)) {
+      for (const sz of (it.sizes || []).filter((z) => z.isActive !== false)) {
+        opts.push({ itemId: it.id, name: it.name, sizeLabel: sz.sizeLabel, label: `${it.name} — ${sz.sizeLabel}` });
+      }
+    }
+    openModal(`
+      <h3>Add item to selection bundle</h3>
+      <input class="search" id="qs-search" placeholder="Search items…" oninput="qsFilterItems()" style="width:100%;margin-bottom:8px" />
+      <div id="qs-picker" style="max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:8px"></div>
+      <div class="modal-actions">
+        <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+      </div>`);
+    window._qsOpts = opts;
+    window.qsFilterItems = () => {
+      const q = ($("#qs-search").value || "").trim().toLowerCase();
+      const list = window._qsOpts.filter((o) => !q || o.label.toLowerCase().includes(q));
+      $("#qs-picker").innerHTML = list.slice(0, 200).map((o) => `<div style="padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--line)" onclick="qsPickItem(${o.itemId},'${String(o.sizeLabel).replace(/'/g,"\\'")}','${String(o.name).replace(/'/g,"\\'")}')">${esc(o.label)}</div>`).join("") || '<div class="muted" style="padding:8px">No items</div>';
+    };
+    window.qsPickItem = (itemId, sizeLabel, name) => {
+      window.qsSelectedItems.push({ itemId, sizeLabel, name, paid: true });
+      const overlays = document.querySelectorAll(".overlay");
+      if (overlays.length) overlays[overlays.length-1].remove();
+      window.renderQsItems();
+    };
+    window.qsFilterItems();
+  };
+  window.renderQsItems();
+  window.saveQuickSelectionBundle = async () => {
+    const paidCount = window.qsSelectedItems.filter((it) => it.paid).length;
+    const totalCount = window.qsSelectedItems.length;
+    if (!totalCount) return toast("Add at least one item", true);
+    if (paidCount < 1 || paidCount >= totalCount) return toast("Mark at least one item paid and at least one free", true);
+    const payload = {
+      name: $("#qs-name").value.trim() || "Selection Bundle",
+      kind: "pick",
+      selectionMode: "items",
+      buyCount: totalCount,
+      payCount: paidCount,
+      payMode: "fixed",
+      items: window.qsSelectedItems.map((it) => ({ itemId: it.itemId, quantity: 1, sizeLabel: it.sizeLabel, extras: [], paid: it.paid })),
+      startDate: $("#qs-start").value || null,
+      endDate: $("#qs-end").value || null,
+      imageUrl: ($("#qs-img").value || "").trim() || null,
+      showOnHome: $("#qs-home").checked,
+      isActive: true,
+      homeDisplay: "tile",
+    };
+    try {
+      await api("/api/specials", { method: "POST", body: JSON.stringify(payload) });
+      toast("Selection bundle saved");
+      $(".overlay")?.remove();
+      await loadAll();
+    } catch (e) { toast(e.message, true); }
+  };
+};
+
+window.quickSuperSunday = () => {
+  const catOpts = state.categories.filter((c) => c.isActive !== false).map((c) => `<label style="display:block;font-size:13px"><input type="checkbox" class="qss-cat" value="${c.id}" checked /> ${esc(c.name)}</label>`).join("");
+  openModal(`
+    <h3>Super Sunday Special</h3>
+    <p class="hint">Creates a single-pizza discount deal (count = 1) for Sunday for each selected category and size.</p>
+    ${field("Categories", `<div style="max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px">${catOpts}</div>`)}
+    ${field("Discounted price - Small (R)", `<input id="qss-s" type="number" min="1" />`)}
+    ${field("Discounted price - Medium (R)", `<input id="qss-m" type="number" min="1" />`)}
+    ${field("Discounted price - Large (R)", `<input id="qss-l" type="number" min="1" />`)}
+    ${field("Discounted price - XL (R)", `<input id="qss-xl" type="number" min="1" />`)}
+    ${field("Start date (optional)", `<input id="qss-start" type="date" />`)}
+    ${field("End date (optional)", `<input id="qss-end" type="date" />`)}
+    <div class="modal-actions">
+      <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+      <button class="primary" onclick="saveQuickSuperSunday()">Save</button>
+    </div>`);
+  window.saveQuickSuperSunday = async () => {
+    const cats = Array.from(document.querySelectorAll(".qss-cat:checked")).map((x) => Number(x.value));
+    if (!cats.length) return toast("Select at least one category", true);
+    const prices = { S: Number($("#qss-s").value), M: Number($("#qss-m").value), L: Number($("#qss-l").value), XL: Number($("#qss-xl").value) };
+    const jobs = [];
+    for (const cid of cats) {
+      const cat = state.categories.find((c) => c.id === cid);
+      if (!cat) continue;
+      const sizes = catSizeList(cid);
+      for (const z of sizes) {
+        const p = prices[z];
+        if (!(p > 0)) continue;
+        const body = {
+          kind: "deal",
+          name: `Sunday ${z} ${cat.name}`,
+          categoryId: cid,
+          sizeLabel: z,
+          count: 1,
+          price: p,
+          weekdays: "Sun",
+          startDate: $("#qss-start").value || null,
+          endDate: $("#qss-end").value || null,
+          isActive: true,
+          showOnHome: false,
+          homeDisplay: "tile",
+        };
+        const cur = state.specials.find((s) => s.kind === "deal" && s.categoryId === cid && s.sizeLabel === z && (s.weekdays || "") === "Sun");
+        jobs.push(cur ? api(`/api/specials/${cur.id}`, { method: "PUT", body: JSON.stringify(body) }) : api("/api/specials", { method: "POST", body: JSON.stringify(body) }));
+      }
+    }
+    if (!jobs.length) return toast("Enter at least one discounted price", true);
+    try {
+      await Promise.all(jobs);
+      toast("Super Sunday saved");
+      $(".overlay")?.remove();
+      await loadAll();
+    } catch (e) { toast(e.message, true); }
+  };
+};
+
+window.quickWeekdaySpecial = () => {
+  const catOpts = state.categories.filter((c) => c.isActive !== false).map((c) => `<label style="display:block;font-size:13px"><input type="checkbox" class="qwd-cat" value="${c.id}" checked /> ${esc(c.name)}</label>`).join("");
+  openModal(`
+    <h3>Weekday Special</h3>
+    <p class="hint">Creates a single-pizza discount deal (count = 1) for the selected days, categories and sizes.</p>
+    ${field("Days", `<div style="display:flex;gap:6px;flex-wrap:wrap">${["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d) => `<label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" class="qwd-day" value="${d}" /> ${d}</label>`).join("")}</div>`)}
+    ${field("Categories", `<div style="max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px">${catOpts}</div>`)}
+    ${field("Discounted price - Small (R)", `<input id="qwd-s" type="number" min="1" />`)}
+    ${field("Discounted price - Medium (R)", `<input id="qwd-m" type="number" min="1" />`)}
+    ${field("Discounted price - Large (R)", `<input id="qwd-l" type="number" min="1" />`)}
+    ${field("Discounted price - XL (R)", `<input id="qwd-xl" type="number" min="1" />`)}
+    ${field("Start date (optional)", `<input id="qwd-start" type="date" />`)}
+    ${field("End date (optional)", `<input id="qwd-end" type="date" />`)}
+    ${field("Image", `<input type="hidden" id="qwd-img" value="" /><input type="file" accept="image/*" onchange="uploadPicture(this,'qwd-img')" />`)}
+    <div class="modal-actions">
+      <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+      <button class="primary" onclick="saveQuickWeekdaySpecial()">Save</button>
+    </div>`);
+  window.saveQuickWeekdaySpecial = async () => {
+    const days = Array.from(document.querySelectorAll(".qwd-day:checked")).map((x) => x.value).join(",");
+    if (!days) return toast("Select at least one day", true);
+    const cats = Array.from(document.querySelectorAll(".qwd-cat:checked")).map((x) => Number(x.value));
+    if (!cats.length) return toast("Select at least one category", true);
+    const prices = { S: Number($("#qwd-s").value), M: Number($("#qwd-m").value), L: Number($("#qwd-l").value), XL: Number($("#qwd-xl").value) };
+    const img = ($("#qwd-img").value || "").trim() || null;
+    const jobs = [];
+    for (const cid of cats) {
+      const cat = state.categories.find((c) => c.id === cid);
+      if (!cat) continue;
+      const sizes = catSizeList(cid);
+      for (const z of sizes) {
+        const p = prices[z];
+        if (!(p > 0)) continue;
+        const body = {
+          kind: "deal",
+          name: `${days} ${z} ${cat.name}`,
+          categoryId: cid,
+          sizeLabel: z,
+          count: 1,
+          price: p,
+          weekdays: days,
+          startDate: $("#qwd-start").value || null,
+          endDate: $("#qwd-end").value || null,
+          isActive: true,
+          showOnHome: false,
+          homeDisplay: "tile",
+          imageUrl: img,
+        };
+        const cur = state.specials.find((s) => s.kind === "deal" && s.categoryId === cid && s.sizeLabel === z && (s.weekdays || "") === days);
+        jobs.push(cur ? api(`/api/specials/${cur.id}`, { method: "PUT", body: JSON.stringify(body) }) : api("/api/specials", { method: "POST", body: JSON.stringify(body) }));
+      }
+    }
+    if (!jobs.length) return toast("Enter at least one discounted price", true);
+    try {
+      await Promise.all(jobs);
+      toast("Weekday special saved");
+      $(".overlay")?.remove();
+      await loadAll();
+    } catch (e) { toast(e.message, true); }
+  };
+};
+
+window.qrbGroups = [];
+window.qrbGroups = [];
+window.quickRangeBundle = () => {
+  window.qrbGroups = [];
+  openModal(`
+    <h3>Range Bundle</h3>
+    ${field("Name", `<input id="qrb-name" value="Range Bundle" />`)}
+    <div style="display:flex;gap:8px;margin:8px 0">
+      <button class="ghost" type="button" onclick="qrbAddCategory(true)">+ Add paid category</button>
+      <button class="ghost" type="button" onclick="qrbAddCategory(false)">+ Add free category</button>
+    </div>
+    <div id="qrb-groups"></div>
+    ${field("Image", `<input type="hidden" id="qrb-img" value="" /><input type="file" accept="image/*" onchange="uploadPicture(this,'qrb-img')" />`)}
+    ${field("Start date (optional)", `<input id="qrb-start" type="date" />`)}
+    ${field("End date (optional)", `<input id="qrb-end" type="date" />`)}
+    ${field("Exempt from deals", `<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="qrb-exempt" /> Exempt from automatic deals</label>`)}
+    ${field("Show on home", `<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="qrb-home" /> Show on home</label>`)}
+    <div class="modal-actions">
+      <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+      <button class="primary" onclick="saveQuickRangeBundle()">Save</button>
+    </div>`);
+  window.renderQrbGroups = () => {
+    const el = $("#qrb-groups");
+    if (!el) return;
+    el.innerHTML = window.qrbGroups.map((g, gi) => {
+      const cat = state.categories.find((c) => c.id === g.catId);
+      const itemLabels = (g.itemIds || []).map((id) => {
+        const it = state.items.find((x) => x.id === id);
+        return it ? `${esc(it.name)} (${esc(g.sizeLabel)})` : id;
+      }).join(", ");
+      const border = g.paid ? "#2e7d32" : "#e65100";
+      const label = g.paid ? "Paid item selection" : "Free item selection";
+      const priceTxt = g.paid ? (g.priceMode === "fixed" ? `Fixed R${g.price}` : g.priceMode === "highest" ? "Pay highest" : "Pay item value") : "Free";
+      return `<div style="border:2px solid ${border};border-radius:8px;padding:10px;margin-bottom:10px;background:${g.paid ? "#e8f5e9" : "#fff3e0"}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <b style="font-size:13px;color:${border}">${label}${cat ? " — " + esc(cat.name) : ""}</b>
+          <button class="danger" type="button" style="padding:2px 6px;font-size:11px" onclick="qrbRemoveGroup(${gi})">Remove</button>
+        </div>
+        <div style="font-size:12px;margin-bottom:4px;color:${border}">Size: ${esc(g.sizeLabel)} · Count: ${g.count} · ${g.paid ? priceTxt : "Free"}</div>
+        <div style="font-size:12px;margin-bottom:4px">Items: ${itemLabels || "All items in category"}</div>
+        <div style="display:flex;gap:6px">
+          <button class="ghost" type="button" style="padding:2px 6px;font-size:11px" onclick="qrbEditGroup(${gi})">Edit</button>
+        </div>
+      </div>`;
+    }).join("");
+  };
+  window.qrbRemoveGroup = (gi) => { window.qrbGroups.splice(gi, 1); window.renderQrbGroups(); };
+  window.qrbAddCategory = (paid) => {
+    // popup to select category + items
+    const catOpts = state.categories.filter((c) => c.isActive !== false).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+    openModal(`
+      <h3>${paid ? "Paid" : "Free"} item selection</h3>
+      ${field("Category", `<select id="qrb-pop-cat" onchange="qrbPopLoadItems()">${catOpts}</select>`)}
+      <div id="qrb-pop-size-wrap"></div>
+      <div id="qrb-pop-items" style="max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px;margin:8px 0"></div>
+      ${field("Count", `<input id="qrb-pop-count" type="number" min="1" value="1" />`)}
+      ${paid ? field("Pricing", `<select id="qrb-pop-pricemode" onchange="qrbPopTogglePrice()">
+        <option value="value">Pay for item value</option>
+        <option value="fixed">Fixed price</option>
+      </select>`) : `<div class="muted" style="font-size:12px;margin:6px 0">Free selection — no price charged.</div>`}
+      ${paid ? `<div id="qrb-pop-price-wrap" hidden>${field("Fixed price (R)", `<input id="qrb-pop-price" type="number" min="1" />`)}</div>` : ""}
+      <div class="modal-actions">
+        <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+        <button class="primary" onclick="qrbPopSave(${paid})">Add</button>
+      </div>`);
+    window.qrbPopLoadItems = () => {
+      const catId = Number($("#qrb-pop-cat").value);
+      const cat = state.categories.find((c) => c.id === catId);
+      const items = (cat?._items) || state.items.filter((i) => i.categoryId === catId && i.isActive !== false);
+      const sizes = [...new Set(items.flatMap((it) => (it.sizes||[]).filter((z)=>z.isActive!==false).map((z)=>z.sizeLabel)))];
+      const sizeHtml = sizes.length ? `<label style="font-size:12px">Size</label><select id="qrb-pop-size" style="width:100%">${sizes.map((z) => `<option value="${z}">${z}</option>`).join("")}</select>` : "";
+      $("#qrb-pop-size-wrap").innerHTML = sizeHtml;
+      $("#qrb-pop-items").innerHTML = items.map((it) => {
+        const has = (it.sizes||[]).some((z) => z.isActive!==false && (!sizes.length || sizes.includes(z.sizeLabel)));
+        if (!has) return "";
+        return `<label style="display:block;font-size:12px;padding:2px 0"><input type="checkbox" class="qrb-pop-item" value="${it.id}" /> ${esc(it.name)}</label>`;
+      }).join("") || '<span class="muted" style="font-size:12px">No items</span>';
+    };
+    window.qrbPopTogglePrice = () => {
+      const v = $("#qrb-pop-pricemode").value;
+      $("#qrb-pop-price-wrap").hidden = v !== "fixed";
+    };
+    window.qrbPopSave = (paid) => {
+      const catId = Number($("#qrb-pop-cat").value);
+      const sizeLabel = $("#qrb-pop-size") ? $("#qrb-pop-size").value : null;
+      const itemIds = Array.from(document.querySelectorAll(".qrb-pop-item:checked")).map((x) => Number(x.value));
+      const count = Number($("#qrb-pop-count").value) || 1;
+      const priceMode = paid ? ($("#qrb-pop-pricemode") ? $("#qrb-pop-pricemode").value : "value") : "free";
+      const price = priceMode === "fixed" ? (Number($("#qrb-pop-price").value) || 0) : 0;
+      const cat = state.categories.find((c) => c.id === catId);
+      window.qrbGroups.push({
+        name: cat ? cat.name : "Group",
+        categories: [catId],
+        sizeLabel,
+        count,
+        paid,
+        priceMode,
+        price,
+        ...(itemIds.length ? { itemIds } : {}),
+      });
+      const overlays = document.querySelectorAll(".overlay");
+      if (overlays.length) overlays[overlays.length-1].remove();
+      window.renderQrbGroups();
+    };
+    window.qrbPopLoadItems();
+  };
+  window.qrbEditGroup = (gi) => {
+    // simple edit via re-opening popup not implemented; allow remove+readd
+    toast("Remove and re-add to edit", true);
+  };
+  window.renderQrbGroups();
+  window.saveQuickRangeBundle = async () => {
+    const name = $("#qrb-name").value.trim() || "Range Bundle";
+    if (!window.qrbGroups.length) return toast("Add at least one category", true);
+    const spec = window.qrbGroups.map((g) => ({
+      name: g.name,
+      categories: g.categories,
+      sizeLabel: g.sizeLabel,
+      count: Math.max(1, Number(g.count) || 1),
+      paid: g.paid,
+      ...(g.itemIds && g.itemIds.length ? { itemIds: g.itemIds } : {}),
+    }));
+    const payload = {
+      name,
+      kind: "bundle",
+      price: 0,
+      bundleSpec: spec,
+      startDate: $("#qrb-start").value || null,
+      endDate: $("#qrb-end").value || null,
+      exemptFromDeals: $("#qrb-exempt").checked,
+      showOnHome: $("#qrb-home").checked,
+      isActive: true,
+      homeDisplay: "tile",
+      imageUrl: ($("#qrb-img").value || "").trim() || null,
+    };
+    try {
+      await api("/api/specials", { method: "POST", body: JSON.stringify(payload) });
+      toast("Range bundle saved");
+      $(".overlay")?.remove();
+      await loadAll();
+    } catch (e) { toast(e.message, true); }
+  };
+};
+
+window.scheduleSpecial = (id) => {
+  const s = state.specials.find((x) => x.id === id);
+  if (!s) return;
+  openModal(`
+    <h3>Schedule: ${esc(s.name)}</h3>
+    <div class="row">
+      ${field("Weekdays (optional)", `<div style="display:flex;gap:6px;flex-wrap:wrap">${["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d) => `<label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" class="sched-wd" value="${d}" ${(s.weekdays||"").split(",").includes(d)?"checked":""} /> ${d}</label>`).join("")}</div>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;margin-top:6px"><input type="checkbox" onchange="document.querySelectorAll('.sched-wd').forEach((x) => x.checked = this.checked)" /> Every day</label>`)}
+    </div>
+    <div class="row">
+      ${field("Start date (optional)", `<input id="sched-start" type="date" value="${s.startDate ? String(s.startDate).slice(0,10) : ""}" />`)}
+      ${field("End date (optional)", `<input id="sched-end" type="date" value="${s.endDate ? String(s.endDate).slice(0,10) : ""}" />`)}
+    </div>
+    <p class="hint">Leave all empty for an always-on special.</p>
+    <div class="modal-actions">
+      <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+      <button class="primary" onclick="saveScheduleSpecial(${id})">Save</button>
+    </div>`);
+  window.saveScheduleSpecial = async (id) => {
+    const weekdays = Array.from(document.querySelectorAll(".sched-wd:checked")).map((x) => x.value).join(",") || null;
+    const payload = {
+      weekdays,
+      startDate: $("#sched-start").value || null,
+      endDate: $("#sched-end").value || null,
+    };
+    try {
+      await api(`/api/specials/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+      toast("Schedule saved");
+      $(".overlay")?.remove();
+      await loadAll();
+    } catch (e) { toast(e.message, true); }
+  };
 };
 
 window.delSpecial = async (id) => {

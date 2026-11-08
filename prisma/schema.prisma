@@ -68,6 +68,8 @@ model Special {
   payCount      Int           @default(0)
   selectionMode String        @default("") // "" | "items" | "category"
   payMode       String        @default("expensive") // "expensive" | "fixed"
+  bundleSpec    String?       // JSON array of groups for kind="bundle": [{name, categories:[id], sizeLabel, count}]
+  exemptFromDeals Boolean @default(true) // specials are exempt from automatic deals by default
   homeDisplay   String        @default("tile") // "tile" | "banner"
   weekdays      String?       // comma list e.g. "Wed" or "Mon,Wed,Fri"
   startDate     DateTime?
@@ -107,7 +109,7 @@ model SpecialItem {
   extras    String?
   paid      Boolean @default(true)
 
-  @@unique([specialId, itemId])
+  @@unique([specialId, itemId, sizeLabel])
 }
 
 model ShopConfig {
@@ -189,6 +191,7 @@ model Order {
   deliveryAddress String?
   deliveryDistance Float?
   deliveryFee      Int          @default(0)
+  tipAmount        Int          @default(0)
   deliveryStatus   String?
   notes           String?
   createdAt       DateTime     @default(now())
