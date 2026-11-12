@@ -35,7 +35,9 @@ The server prints its URLs on boot:
 ### Logging in
 
 - **Admin**: leave username blank **or** type `admin`, and enter the PIN from
-  `.env` (`ADMIN_PIN`, default `1234`). This is the env-PIN login.
+  `.env` (`ADMIN_PIN`). Local development defaults to `1234`; production has no
+  default and returns `503` for the env-PIN login until `ADMIN_PIN` is set. This
+  is the env-PIN login.
 - **Live Code Engine preview**: the deployed preview uses a generated
   `ADMIN_PIN`, **not** the `1234` default. The current pin lives on the deploy
   machine at `/mnt/hybrid-apps/configs/ibm/preview-pin.txt` (mode 600) — read
@@ -76,7 +78,7 @@ npm run seed         # load the demo catalog (idempotent)
 |--------------|---------|------------------------------------------------|
 | `DATABASE_URL` | `file:../dev.db` | SQLite database file (relative to `prisma/`) |
 | `PORT`       | `3100`  | HTTP listen port                               |
-| `ADMIN_PIN`  | `1234`  | Env-PIN for the built-in admin login           |
+| `ADMIN_PIN`  | `1234` (dev only) | Env-PIN for the built-in admin login. Production must set it; no default |
 | `PAYGATE_ID` | _(empty)_ | PayGate PayWeb3 ID (online payments) |
 | `PAYGATE_KEY` | _(empty)_ | PayGate encryption key (used verbatim, never base64-decoded) |
 | `PAYGATE_ENDPOINT` | `https://secure.paygate.co.za` | PayGate PayWeb3 endpoint |
@@ -137,13 +139,13 @@ npm run seed         # load the demo catalog (idempotent)
 | Path | What |
 |------|------|
 | `public/home.html` | Marketing homepage. Served at `/`. Hero + a shoppable dish wall (owner-picked `showOnHome` items/specials, falling back to signature-dish photos; simple dishes get a one-tap **Add**, others deep-link into `/order`), the live shop status (open/closed + hours), an auth-aware header (**SIGN IN** or **MY ORDERS**), and a shared mini-cart bar (`View full menu` / `Go to checkout`). Contact form posts to `POST /api/contact`. No external credit text. |
-| `public/menu.html` | Customer storefront — menu by category, specials, pizza customization (bases/toppings by size), quantity steppers on items/specials/in the customize dialog, ♥ favourite toggles on every dish and special, a weekly **BOGO** builder, a **seasonal swap** prompt when a dish has an out-of-season topping (e.g. avocado), a closed-shop banner + checkout guard, cart (reconciled against the live menu on load so stale item/special ids are pruned), checkout & place order (optional coupon-code field + payment method: cash or card on delivery, or online PayGate when enabled; PayGate orders auto-redirect to the secure portal). Signed-in customers get their name/phone/email pre-filled and locked (edit them in the portal). Delivery uses only saved delivery locations (up to 3, uniquely named, each with a map pin); customers can add a new location at checkout, which is saved and used for that order. Checkout shows a review & confirm step with a two-pin map (shop + delivery) and the total including the delivery fee before the order is queued or paid. Served at `/order`. Uses the shared `public/shop.js` cart. Supports deep links: `?item=<slug>` (flashes the item + opens its customize dialog) and `?cat=<slug>` (scrolls to the category). After an order it stores `beluchis-recent-order` in localStorage and links to `/portal`. |
+| `public/menu.html` | Customer storefront — menu by category, specials, pizza customization (bases/toppings by size), quantity steppers on items/specials/in the customize dialog, ♥ favourite toggles on every dish and special, a weekly **BOGO** builder, a **seasonal swap** prompt when a dish has an out-of-season topping (e.g. avocado), a closed-shop banner + checkout guard, cart (reconciled against the live menu on load so stale item/special ids are pruned), checkout & place order (optional coupon-code field + payment method: cash or card on delivery, or online PayGate when enabled; PayGate orders auto-redirect to the secure portal). A sticky row of category chips jumps to Deals / Pizzas / Pastas / Desserts / … and tracks the section in view. Signed-in customers get their name/phone/email pre-filled and locked (edit them in the portal). Delivery uses only saved delivery locations (up to 3, uniquely named, each with a map pin); customers can add a new location at checkout, which is saved and used for that order. Checkout shows a review & confirm step with a two-pin map (shop + delivery) and the total including the delivery fee before the order is queued or paid. Served at `/order`. Uses the shared `public/shop.js` cart. Supports deep links: `?item=<slug>` (flashes the item + opens its customize dialog) and `?cat=<slug>` (scrolls to the category). After an order it stores `beluchis-recent-order` in localStorage and links to `/portal`. |
 | `public/customer.html` | Customer portal — logged-out login / "First time? Set your password" forms; logged-in dashboard with a **Favourites** panel (picture, price-from, Order/View + Remove) and order history (expandable rows showing items + a full status timeline from `OrderStatusEvent`s) where every past order has a one-tap **Reorder** button that rebuilds the cart at today's prices, plus "Offers for you" coupon cards (Copy code) and a **My details** editor (name, cellphone, email, delivery address + captured location) used to pre-fill checkout. Served at `/portal`, authed by the `beluchis_customer` cookie. |
 | `public/shop.js` | Shared storefront module (`window.Shop`) — the single cart implementation used by the homepage and the menu page: cart persistence (`localStorage["beluchis-cart-v1"]`), pricing helpers (base/topping by size), seasonal + BOGO helpers, drawer rendering, `load()`/`reconcile()`, and the `onCheckout` / `onCartChange` hooks. See **Storefront cart (`public/shop.js`)** below. |
 | `public/preview-mobile.html` | Storefront documentation page served at `/preview/mobile` — a live same-origin iframe of `/order` inside a device frame (small phone / standard phone / tablet / desktop selector). Geolocation is blocked in iframes, so the delivery hint runs in address-only mode. |
 | `public/preview-portal.html` | Customer-portal documentation page served at `/preview/portal` — a live iframe of `/portal` with a device selector and an automatic sign-in as the seeded demo customer Zanele (when nobody is logged in), so it opens showing real order history + an offer. |
 | `public/login.html` | Staff login (username + PIN). Served at `/login`. Redirects by role: `cashier → /cashier`, everyone else → `/admin`. |
-| `public/admin.html` | Admin console. Served at `/admin`. Tabs: **Orders** (live board), **Inbox** (contact form messages, admin/orders), **Items** (picture upload + "Show on home"), **Specials** (flat/combo or weekly **BOGO**), **Toppings** (incl. **In season**), **Bases**, **Categories**, **Users**, **Loyalty** (admin-only), and **Delivery → Shop** (trading hours, online-ordering toggle, force-open override + live OPEN/CLOSED badge). Staff Users role dropdown includes **Cashier**. |
+| `public/admin.html` | Admin console. Served at `/admin`. Tabs: **Orders** (live board), **Inbox** (contact form messages, admin/orders), **Items** (picture upload + "Show on home"), **Specials** (flat/combo or weekly **BOGO**), **Toppings** (incl. **In season**), **Bases**, **Pasta Types** (per-size charges + assign to all pastas), **Categories**, **Users**, **Loyalty** (admin-only), and **Delivery → Shop** (trading hours, online-ordering toggle, force-open override + live OPEN/CLOSED badge). Staff Users role dropdown includes **Cashier**. |
 | `public/cashier.html` | Cashier portal. Served at `/cashier`. Polls `GET /api/orders` every 10 s; flashes new `placed` orders (orange ring + banner + beep after a page click), shows the live board with payment/delivery chips, and offers a **Mark out for delivery** button on `placed`/`preparing` orders. Catches what the kitchen daemon prints: new order → slip auto-prints + order becomes `preparing` here. |
 | `public/theme.css` | Shared design tokens (colors, type, spacing). |
 | `server/index.mjs` | Express app — static files, REST API, auth/RBAC, session handling, brute-force throttling. |
@@ -151,6 +153,7 @@ npm run seed         # load the demo catalog (idempotent)
 | `prisma/seed.ts` | Idempotent demo catalog (items, categories, toppings, bases, specials, customers/orders, 2 specials). |
 | `scripts/extract-catalog.mjs` | Re-imports a menu catalog from `catalog/*.json` (extracted from the WordPress backup). |
 | `scripts/storefront-smoke.mjs` | Headless-Chrome (CDP) smoke test over the storefront + portal — menu, BOGO, seasonal swap, closed-shop guard, homepage tiles/shared cart, favourites and reorder. Run `node scripts/storefront-smoke.mjs` against a running dev server. |
+| `scripts/normalize-customer-phones.mjs` | Dry-run by default; `--apply` normalises legacy formatted `Customer.cellphone` values to `+27…` and reports duplicates. |
 | `kitchen/` | Headless LAN-side printer daemon (moved from the standalone "Beluchis Kitchen Bridge"). Polls the site, auto-prints new `placed` orders to a network thermal printer, then marks them `preparing`. Excluded from the Docker image. See `kitchen/README.md`. |
 | `start.sh` / `stop.sh` | Start (detached, writes `.beluchis.pid`, health-checks `/api/stats`) and stop. |
 
@@ -192,7 +195,7 @@ or mark delivered, and the kitchen daemon (`kitchen/`) holds just the
 - Redemption is validated **server-side** (never client-trusted): active, not
   expired, under usage limit, subtotal ≥ min spend, and — if customer-linked —
   only usable by that logged-in customer. Discount: percent → `round(subtotal×v/100)`;
-  rand → `min(v, subtotal)`; `grandTotal = subtotal − discount`.
+  rand → `min(v, subtotal)`; `grandTotal = subtotal − discount + tip`.
 
 Delivery pricing (Shop tab):
 
@@ -236,10 +239,11 @@ in the same basket on `/order`:
 - `window.Shop` exposes `$`, `$$`, `money`, `esc`, `lines()`, `count()`, `total()`,
   `addLine()`, `changeQty()`, `removeLine()`, `setLines()`, `clear()`, `renderCart()`,
   `syncUI()`, `load()`, `reconcile()`, `toast()`, pricing helpers
-  (`sizeRowOf`, `basePriceOf`, `topPriceOf`, `availBases`, `availToppings`,
-  `hasCustom`), promo helpers (`activeSpecials`, `outOfSeasonToppings`,
-  `affordableSwaps`, `bogoBaseTotal`, `extrasTotal`), the loaded catalog
-  (`Shop.data`), and the getters `Shop.cart` / hooks `onCheckout` / `onCartChange`.
+  (`sizeRowOf`, `basePriceOf`, `topPriceOf`, `pastaPriceOf`, `availBases`,
+  `availToppings`, `availPastaTypes`, `hasCustom`), promo helpers
+  (`activeSpecials`, `outOfSeasonToppings`, `affordableSwaps`, `bogoBaseTotal`,
+  `extrasTotal`), the loaded catalog (`Shop.data`), and the getters `Shop.cart` /
+  hooks `onCheckout` / `onCartChange`.
 - The cart lives in `localStorage["beluchis-cart-v1"]`; `Shop.load()` fetches the
   catalog and `Shop.reconcile()` prunes stale/removed items and specials.
 - `emit()` order is `saveCart() → renderCart() → syncUI() → onCartChange`.
@@ -254,7 +258,7 @@ in the same basket on `/order`:
 
 - Admin **Delivery → Shop** sets `shop.openTime`, `shop.closeTime`,
   `shop.onlineEnabled` and `shop.forceOpen` (one daily window, SAST = UTC+2).
-- `GET /api/shop/config` returns the resolved `open` state; the storefront shows a
+- `GET /api/shop/status` returns the resolved `open` state; the storefront shows a
   closed banner/status pill and blocks checkout with a toast.
 - `POST /api/orders` is the real gate: outside hours or with online ordering off it
   answers **403** `{ code: "shop_closed" }` for guests. Staff sessions bypass it
@@ -269,13 +273,44 @@ in the same basket on `/order`:
   price for that size** ("Swap for Chilli (free)"), plus "Remove <topping>". A
   chosen swap is recorded on the line as `Swap: <name>`.
 
-### BOGO weekly deal
+### Pasta types
 
-- Items tab → Specials: `kind = "bogo"` takes a category, an optional size and an
-  even `count ≥ 2`; `price` is ignored and the deal is priced **per order**.
-- The customer builds `count` pizzas from the special's category; the server sorts
-  base prices descending and charges only the higher half, keeping extras payable.
-  One `OrderItem` is written per pizza and the saving lands in `discountAmount`.
+- Pasta types (Spaghetti, Penne, Linguine, …) work like pizza bases: Admin →
+  **Menu → Pasta Types** creates a type, sets an optional extra charge per size,
+  and can tick **Assign to every item in the Pastas category** to link it in one go.
+  Individual items can be adjusted in the item editor's **Pasta types** grid.
+- Pasta items that have at least one type open the customize dialog and show a
+  **Pasta type** picker. The chosen type's per-size price is added to the line and
+  stored as a `Pasta: <name>` extra on the order, so tickets, receipts and reorders
+  keep the choice.
+- The server re-prices the type from `PastaTypePrice` and rejects types that are
+  inactive, not linked to the item, or not sold in the chosen size.
+
+### Specials
+
+- Items tab → Specials → **+ Add special** uses plain-language offer presets:
+  **Buy X, get Y free** (category or curated items), **Any N for a set price**
+  (automatic deal), **Combo at a set price**, **One item at a reduced price**, and
+  **Build-your-own bundle**. Internally these map to `kind = "pick" | "deal" |
+  "flat" | "bundle"`; a legacy `bogo` row is edited as buy-X-get-Y and saved as
+  `pick`.
+- **Buy X, get Y free** stores `buyCount = X+Y` and `payCount = X`, so "buy 3,
+  get 1 free" is `buyCount 4 / payCount 3`. The server charges the most expensive
+  `payCount` bases and frees the cheapest `Y`; extras stay payable. One
+  `OrderItem` is written per pizza and the saving lands in `discountAmount`.
+- **Collection only** (`collectionOnly`) keeps an offer off delivery orders.
+  It still advertises on the home/order pages with a badge, but delivery
+  customers cannot add it and automatic collection-only deals are skipped on
+  delivery. A delivery order that still contains one returns
+  `400 special_collection_only` from `POST /api/orders` (quotes included).
+- **Home page copy** is generated in plain English (`Buy 3, get 1 free`, `Any 2
+  Large Traditional Pizzas for R200`) and can be overridden per special with
+  `homeHeadline`, `homeSubtext`, `homeBadge` and `homePriceText`. The admin form
+  shows a live tile + banner preview.
+- `homeDisplay` picks a **tile** or full-width **banner**; `showOnHome` publishes it.
+- If a special has no uploaded `imageUrl`, its tile/banner cross-fades through
+  the pictures of the dishes inside the offer (curated items, then the category
+  when it is a category offer).
 
 ### Favourites & repeat orders
 
@@ -294,6 +329,8 @@ in the same basket on `/order`:
   get one-tap add, customizable ones deep-link to `/order?item=<slug>`.
 - Admin Items can upload a picture: `POST /api/upload` accepts a base64 data URL
   and stores it under `public/uploads/` (served at `/uploads/*`).
+- Specials without their own picture reuse the item photos inside the offer as an
+  auto-advancing slideshow (3-second cross-fade).
 
 ## API overview
 
@@ -305,13 +342,13 @@ Auth:
 
 Menu & admin:
 
-- `GET /api/stats` — counts for items, toppings, bases, categories, links, customers, orders, orderItems, specials, contact, coupons, orderStatusEvents.
+- `GET /api/stats` — counts for items, toppings, bases, pastaTypes, categories, links, customers, orders, orderItems, specials, contact, coupons, orderStatusEvents.
 - `POST /api/contact` — public; contact form from the homepage (`{ name, message, email?, cellphone? }`).
 - `GET /api/contact` (admin/orders), `PUT /api/contact/:id` (`{ isRead }`, admin/orders), `DELETE /api/contact/:id` (admin).
-- `GET/POST/api/items|specials|toppings|bases|categories` and `PUT/DELETE /api/.../:id` (admin-only mutations).
-- `GET /api/customers` (admin), `GET /api/links` (public), `GET /api/orders` (logged-in orders/kitchen/cashier/admin).
+- `GET/POST/api/items|specials|toppings|bases|pasta-types|categories` and `PUT/DELETE /api/.../:id` (admin-only mutations).
+- `GET /api/customers` (admin), `GET /api/orders` (logged-in orders/kitchen/cashier/admin). `GET /api/links` appears in older notes but is not registered — the storefront reads mappings via `GET /api/items`.
 - `GET /api/delivery/config` — public; the delivery policy the storefront uses for hints.
-- `GET /api/shop/config` — public; trading hours + resolved open/closed state (`?at=ISO` previews a timestamp).
+- `GET /api/shop/status` — public; trading hours + resolved open/closed state (`?at=ISO` previews a timestamp).
 - `PUT /api/settings` (admin) — also validates/returns the `shop.*` hours policy; `GET /api/settings` reads it back.
 - `POST /api/upload` (admin) — base64 data URL → `{ ok, url }` stored under `public/uploads/`.
 - `GET /api/settings` (admin) and `PUT /api/settings` (admin) — read/upsert the `Setting` table (delivery radius policy); `PUT` validates ranges and returns both settings and the resolved delivery config.
@@ -323,8 +360,9 @@ Menu & admin:
 
 Customer portal (authed by `beluchis_customer` cookie):
 
-- `POST /api/customer/auth/set-password` — claim a guest account by cellphone (+ optional first name) and set a password; auto-login. Rejects if the account is already claimed.
-- `POST /api/customer/auth/login` / `logout` / `GET me` — cellphone + password (rejects unclaimed accounts), brute-force throttled per IP.
+- `POST /api/customer/auth/set-password` — claim a guest account by cellphone + the account's first name (required) and set a password; auto-login. Rejects if the account is already claimed.
+- `POST /api/customer/auth/reset-password` — reset a claimed account with cellphone + first name (both verified), auto-login.
+- `POST /api/customer/auth/login` / `logout` / `GET /api/customer/auth/me` — cellphone + password (rejects unclaimed accounts), brute-force throttled per IP.
 - `PUT /api/customer/profile` — update the logged-in customer's name, cellphone, email, delivery address and saved GPS coordinates. Cellphone stays required because it is the portal login. Returns the updated profile.
 - `GET /api/customer/orders` and `GET /api/customer/orders/:id` — the customer's own orders (with items + status `events`); foreign ids return 404.
 - `GET /api/customer/offers` — active, unexpired, unused coupons issued to the customer.

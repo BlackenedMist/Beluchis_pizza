@@ -70,6 +70,8 @@ Body:
   "items": [
     { "itemId": 151, "sizeLabel": "L", "quantity": 1,
       "extras": [{ "name": "Extra cheese", "price": 15 }] },   // menu line
+    { "itemId": 419, "sizeLabel": "M", "quantity": 1,           // pasta line
+      "pastaTypeId": 2 },                                       // + that type's M/L price
     { "specialId": 3, "quantity": 1 },                          // flat/combo special line
     { "specialId": 9,                                           // BOGO line
       "pizzas": [
@@ -92,11 +94,13 @@ Body:
 - `paygate` flow: the server calls PayGate `/payweb3/initiate.trans`, creates the order as `status: "awaiting_payment"` / `paymentStatus: "pending"`, then the response includes `redirect: { url, provider: "paygate", fields }` for the browser to auto-submit to `/payweb3/process.trans`. The order is hidden from the staff queue and its "order received" email is held until PayGate confirms payment. A fully-discounted order skips the gateway and is recorded as paid. `payfast` is no longer offered or accepted at checkout; its callback routes remain only for historical orders.
 - **BOGO lines** (`special.kind === "bogo"`): send exactly one entry per pizza under `pizzas`, and the array length must equal the special's `count`. Every `itemId` must belong to the special's `categoryId` (and match `sizeLabel` when the special pins one). The server sorts base prices descending, charges only the higher half, and keeps extras payable. It writes one `OrderItem` per pizza and records the saving on `Order.discountAmount`. Invalid picks → `400`.
 - **Automatic fixed-price deals** (`special.kind === "deal"`, e.g. *any 2 Large Traditional pizzas for R200*): these have **no line of their own** — the customer just adds the pizzas and the server prices them. Send the qualifying pizzas as ordinary `itemId` lines and never send the deal's `specialId`; doing so returns `400` (`… is an automatic deal - send its pizzas as normal item lines`).
+- **Collection-only specials** (`special.collectionOnly === true`): a cart line or automatic deal marked collection-only cannot be redeemed on a delivery order. `POST /api/orders` (including `quote: true`) returns `400 { "code": "special_collection_only", "specials": ["Name", …] }`. Automatic `deal` rows flagged collection-only are skipped entirely on delivery orders.
+- **Pasta types** (`line.pastaTypeId`): the item must be linked to that type, the type must be active, and it must have a price row for the line's `sizeLabel`. The server re-prices it from `PastaTypePrice` (never the client) and records it on the `OrderItem` as a `{ "name": "Pasta: Penne", "price": 5 }` extra so receipts/tickets show the choice. Unknown/unsold types return `400`.
 
   The server groups the ordered units by size, takes `floor(n / count)` groups cheapest-first, and charges `count ×` the deal's flat `price` per group. A group only earns the discount when it actually beats the normal base total, so two R90 Margheritas stay at R180 rather than being pushed **up** to R200. Extras never qualify and stay payable — the discount is computed on base price only, so the saving is clamped at 0 and can never make an order cost more. Overlapping deals can't discount the same pizza twice.
 
-  The units keep their normal base price on their `OrderItem`s; the saving is folded into `Order.discountAmount` alongside any coupon, and named in `Order.discountLabel` (`"2 L Traditional Pizzas"`, or `"<deal> + <coupon>"` when both apply). `Order.total` stays the gross charged price, so `total - discountAmount = grandTotal` holds on every surface — receipt, cashier board, portal and confirmation email need no changes.
-- Response `201`: the full order (`OrderItem`s, `customer`, `deliveryDistance`, `deliveryFee`, `deliveryStatus`, `total`, `discount*`, `grandTotal`), plus `redirect` for `paygate` orders that need payment.
+  The units keep their normal base price on their `OrderItem`s; the saving is folded into `Order.discountAmount` alongside any coupon, and named in `Order.discountLabel` (`"2 L Traditional Pizzas"`, or `"<deal> + <coupon>"` when both apply). `Order.total` stays the gross charged price (food + delivery), so `total - discountAmount + tipAmount = grandTotal` holds on every surface — receipt, cashier board, portal and confirmation email need no changes. Tips are delivery-only.
+- Response `201`: the full order (`OrderItem`s, `customer`, `deliveryDistance`, `deliveryFee`, `deliveryStatus`, `total`, `discount*`, `grandTotal`), plus `redirect` for `paygate` orders that need payment. For guest checkouts the `customer` object is omitted so a matched account's profile is never echoed back.
 
 ### Contact
 `POST /api/contact` — submit the homepage contact form.
@@ -111,7 +115,7 @@ Body: `{ name, message, email?, cellphone? }` (name + message required; email **
 ```
 
 ### Shop status
-`GET /api/shop/config` — trading hours + whether online ordering is accepted. The
+`GET /api/shop/status` — trading hours + whether online ordering is accepted. The
 storefront and homepage poll this on load.
 ```json
 { "openTime": "10:00", "closeTime": "21:00", "onlineEnabled": true,
@@ -130,7 +134,8 @@ storefront and homepage poll this on load.
 | `POST /api/auth/login` | public | `{ username?, pin }` — blank/`admin` username → env `ADMIN_PIN`. Sets `beluchis_admin` |
 | `POST /api/auth/logout` | staff | Clears the staff session/cookie |
 | `GET /api/auth/me` | staff | `{ principal, role, name }` |
-| `POST /api/customer/auth/set-password` | public | Claim a guest account: `{ cellphone, password, firstName? }`. Password ≥ 4 chars; 404 if no order exists for that number; 400 if already claimed. Auto-login |
+| `POST /api/customer/auth/set-password` | public | Claim a guest account: `{ cellphone, firstName, password }`. First name must match the account; password ≥ 4 chars; 404 if no order exists for that number; 400 if already claimed. Auto-login |
+| `POST /api/customer/auth/reset-password` | public | Reset a claimed account: `{ cellphone, firstName, password }`. Both must match the account. Auto-login |
 | `POST /api/customer/auth/login` | public | `{ cellphone, password }` — sets `beluchis_customer`. Rejects unclaimed accounts |
 | `POST /api/customer/auth/logout` | customer | Clears customer session |
 | `GET /api/customer/auth/me` | customer | Current customer profile (password hash never serialized) |
@@ -190,10 +195,11 @@ Menu CRUD (`admin`). Writes are server-validated; `name` required; `400` on inva
 | Endpoint | Purpose |
 |----------|---------|
 | `POST /api/categories` / `PUT /api/categories/:id` / `DELETE /api/categories/:id` | Category CRUD |
-| `POST /api/items` / `PUT /api/items/:id` / `DELETE /api/items/:id` | Items (sizes, `toppingIds`, `baseIds` swapped atomically on PUT). PUT accepts partial bodies, so `{ "showOnHome": true }` flags a tile without re-sending the item |
+| `POST /api/items` / `PUT /api/items/:id` / `DELETE /api/items/:id` | Items (sizes, `toppingIds`, `baseIds`, `pastaTypeIds` swapped atomically on PUT). PUT accepts partial bodies, so `{ "showOnHome": true }` flags a tile without re-sending the item |
 | `POST /api/toppings` / `PUT /api/toppings/:id` / `DELETE /api/toppings/:id` | Toppings + per-size prices; `isInSeason` (`bool`, default `true`) drives the storefront seasonal-swap rule |
 | `POST /api/bases` / `PUT /api/bases/:id` / `DELETE /api/bases/:id` | Bases + per-size prices |
-| `POST /api/specials` / `PUT /api/specials/:id` / `DELETE /api/specials/:id` | Specials. `kind: "flat"` (default) uses `price` + `items: [{ itemId, quantity, sizeLabel? }]` (a bundle pizza's `sizeLabel` must be a size that item sells); `kind: "bogo"` uses `categoryId`, `sizeLabel?` and an even `count ≥ 2`; `kind: "deal"` uses `categoryId`, `sizeLabel` and `count ≥ 2` plus a flat `price`. Both `bogo` and `deal` are priced per-order (see `POST /api/orders`) and `sizeLabel` must be a size the category actually sells |
+| `GET /api/pasta-types` (`public`) / `POST` / `PUT /api/pasta-types/:id` / `DELETE /api/pasta-types/:id` | Pasta types + per-size prices, modelled on Bases. Mutations accept `prices: [{ sizeLabel, price }]` and `applyToPastas` (links the type to every item in the `pastas` category). GET returns `_count.items` |
+| `POST /api/specials` / `PUT /api/specials/:id` / `DELETE /api/specials/:id` | Specials. `kind: "flat"` (default) uses `price` + `items: [{ itemId, quantity, sizeLabel? }]` (a bundle pizza's `sizeLabel` must be a size that item sells); `kind: "bogo"` uses `categoryId`, `sizeLabel?` and an even `count ≥ 2`; `kind: "pick"` uses `selectionMode` (`"category"` or `"items"`), `buyCount`, `payCount`, and either `categoryId`/`sizeLabel` or `items` (the customer pays for `payCount`, cheapest are free); `kind: "deal"` uses `categoryId`, `sizeLabel` and `count ≥ 1` plus a flat `price`; `kind: "bundle"` uses `bundleSpec`. All kinds accept `collectionOnly` (default `false`), and the owner-authored home copy `homeHeadline`, `homeSubtext`, `homeBadge`, `homePriceText` (empty clears to auto-generated wording). Both `bogo`/`pick` and `deal` are priced per-order (see `POST /api/orders`) and `sizeLabel` must be a size the category actually sells |
 | `POST /api/upload` | Upload an image. Body `{ dataUrl, filename? }` where `dataUrl` is a base64 `data:image/(png\|jpeg\|jpg\|gif\|webp);base64,…` (≤ 6 MB). Writes to `public/uploads/` → `{ "ok": true, "url": "/uploads/<name>" }` |
 
 Customers (`admin`):
@@ -237,7 +243,7 @@ Delivery settings (`admin`):
 
 Settings keys: `shop.lat`, `shop.lng`, `delivery.freeRadiusKm`, `delivery.maxRadiusKm`, `delivery.feeAmount`, `delivery.beyondFeeAmount`, `delivery.minOrderAmount`, `delivery.enabled` (`true|false`), `shop.openTime` (`HH:MM`), `shop.closeTime` (`HH:MM`), `shop.onlineEnabled` (`true|false`), `shop.forceOpen` (`true|false`). Constraints: lat ∈ [-90,90], lng ∈ [-180,180], radii > 0, maxRadius ≥ freeRadius, fees ≥ 0, free-delivery threshold ≥ 0, times a valid 24-hour `HH:MM`. `maxRadiusKm` is the boundary between the standard and "beyond" fee, not a hard cutoff. `minOrderAmount` is the free-delivery food threshold, not a minimum-order block.
 
-`PUT /api/settings` also returns the resolved `shop` block from `GET /api/shop/config` so the admin UI can re-render the open/closed badge after a save.
+`PUT /api/settings` also returns the resolved `shop` block from `GET /api/shop/status` so the admin UI can re-render the open/closed badge after a save.
 
 ---
 

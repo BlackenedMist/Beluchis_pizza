@@ -15,6 +15,10 @@
   // Automatic fixed-price deals currently claimed by the cart, recomputed by
   // refreshDeals() on every mutation (see applyDeals).
   let DEALS = { saving: 0, rows: [] };
+  // How the customer intends to receive the order. The order page sets this so
+  // collection-only specials stop discounting the cart as soon as Delivery is
+  // chosen. "any" (home page, before a method is picked) shows everything.
+  let FULFILMENT = "any";
   const DATA = { cats: [], items: [], specials: [], toppings: [], byId: new Map(), catById: new Map(), dupeNames: new Set(), delivery: null };
 
   function loadCart() {
@@ -27,7 +31,9 @@
 
   const lineKey = (l) =>
     l.kind === "special"
-      ? "s" + l.specialId + (l.pizzas ? "|" + l.pizzas.map((p) => p.itemId).join(".") : "")
+      ? "s" + l.specialId + "|" + (l.pizzas || []).map((p) =>
+          [p.itemId, p.sizeLabel || "", (p.extras || []).map((e) => e.name + ":" + e.price).join(",")].join("~")
+        ).join(".") + "|" + (l.payCount || "")
       : "i" + l.itemId + "|" + l.sizeLabel + "|" + (l.extras || []).map((e) => e.name + ":" + e.price).join(",");
 
   const lines = () => CART;
@@ -77,7 +83,11 @@
   const topPriceOf = (t, size) => (t.topping.prices.find((p) => p.sizeLabel === size) || {}).price ?? null;
   const availBases = (item, size) => (item.bases || []).filter((b) => basePriceOf(b, size) !== null);
   const availToppings = (item, size) => (item.toppings || []).filter((t) => t.topping.isActive !== false && topPriceOf(t, size) !== null);
-  const hasCustom = (item) => Boolean((item.bases && item.bases.length) || (item.toppings && item.toppings.length));
+  const pastaPriceOf = (link, size) => ((link && link.pastaType && link.pastaType.prices) || []).find((p) => p.sizeLabel === size)?.price ?? null;
+  const availPastaTypes = (item, size) => (item.pastaTypes || [])
+    .filter((pt) => pt.pastaType && pt.pastaType.isActive !== false && pastaPriceOf(pt, size) !== null)
+    .sort((a, b) => (a.pastaType.sortOrder || 0) - (b.pastaType.sortOrder || 0) || a.pastaType.name.localeCompare(b.pastaType.name));
+  const hasCustom = (item) => Boolean((item.bases && item.bases.length) || (item.toppings && item.toppings.length) || (item.pastaTypes && item.pastaTypes.length));
   const categoryOf = (item) => DATA.catById.get(item.categoryId);
   const specialCurrentlyActive = (s) => {
     if (!s || s.isActive === false) return false;
@@ -139,7 +149,7 @@
   function applyDeals(cart) {
     const src = cart || CART;
     const out = { saving: 0, rows: [] };
-    const deals = activeSpecials().filter((s) => s.kind === "deal" && s.categoryId != null && s.count >= 2 && s.price > 0);
+    const deals = activeSpecials().filter((s) => s.kind === "deal" && s.categoryId != null && s.count >= 1 && s.price > 0 && !(FULFILMENT === "delivery" && s.collectionOnly));
     if (!deals.length || !src.length) return out;
 
     // A unit is one individual pizza, so a qty-3 line contributes three.
@@ -215,16 +225,25 @@
 
   function refreshDeals() { DEALS = applyDeals(CART); return DEALS; }
 
+  // Called by the order page when the customer switches Delivery/Collection.
+  // Recomputes automatic deals so a collection-only deal never shows as a
+  // saving on a delivery order.
+  function setFulfilment(mode) {
+    FULFILMENT = mode === "delivery" ? "delivery" : mode === "collection" ? "collection" : "any";
+    refreshDeals();
+    renderCart();
+    syncUI();
+  }
+
   /* --------------------------------------------------------------- catalog */
   async function load() {
-    const [catsRes, itemsRes, specialsRes, toppingsRes] = await Promise.all([
-      fetch("/api/categories"), fetch("/api/items"), fetch("/api/specials"), fetch("/api/toppings"),
+    const [catsRes, itemsRes, specialsRes] = await Promise.all([
+      fetch("/api/categories"), fetch("/api/items"), fetch("/api/specials"),
     ]);
-    if (!catsRes.ok || !itemsRes.ok || !specialsRes.ok || !toppingsRes.ok) throw new Error("Failed to load menu (API error)");
+    if (!catsRes.ok || !itemsRes.ok || !specialsRes.ok) throw new Error("Failed to load menu (API error)");
     const cats = await catsRes.json();
     const items = await itemsRes.json();
     DATA.specials = await specialsRes.json();
-    DATA.toppings = await toppingsRes.json();
 
     try {
       const cfgRes = await fetch("/api/delivery/config");
@@ -269,6 +288,7 @@
         // A fixed-price deal never sits in the cart as a line - it applies
         // itself, so drop any stale copy an older cart may still hold.
         if (!sp || sp.kind === "deal") { dropped.push(l.name || "special"); continue; }
+        l.collectionOnly = Boolean(sp.collectionOnly);
         keep.push(l);
         continue;
       }
@@ -285,6 +305,18 @@
           }
           l.sizeLabel = sl;
           l.unitPrice = sz.price;
+        }
+        // Keep a pasta-type choice honest across menu edits/deletions and price
+        // changes; if the type is gone, charge nothing for it and drop the row.
+        if (l.pastaTypeId != null) {
+          const link = (item.pastaTypes || []).find((pt) => pt.pastaType && pt.pastaType.id === Number(l.pastaTypeId));
+          const price = link ? pastaPriceOf(link, l.sizeLabel) : null;
+          l.extras = (l.extras || []).filter((e) => !/^Pasta:\s/i.test(e.name || ""));
+          if (link && price !== null) {
+            l.extras.push({ name: "Pasta: " + link.pastaType.name, price: price || 0 });
+          } else {
+            l.pastaTypeId = null;
+          }
         }
         keep.push(l);
         continue;
@@ -374,11 +406,11 @@
           return '<div class="extras">' + (si.quantity > 1 ? si.quantity + "&times; " : "") + esc(si.item.name) + (si.sizeLabel ? " (" + esc(si.sizeLabel) + ")" : "") + extrasTxt + "</div>";
         }).join("");
     const meta = l.pizzas
-      ? "Pick " + (l.pizzas.length) + ", pay " + Math.ceil(l.pizzas.length / 2) + " | R" + l.unitPrice + " each"
+      ? "Pick " + (l.pizzas.length) + ", pay for " + (l.payCount || Math.ceil(l.pizzas.length / 2)) + " | R" + l.unitPrice + " each"
       : "Combo | R" + l.unitPrice + " each";
     return (
       '<div class="cart-line">' +
-      '<div class="top"><span class="name">' + esc(l.name) + '</span><span class="line-total">' + money(l.unitPrice * l.qty) + "</span></div>" +
+      '<div class="top"><span class="name">' + esc(l.name) + (l.collectionOnly ? ' <span class="meta">(Collection only)</span>' : "") + '</span><span class="line-total">' + money(l.unitPrice * l.qty) + "</span></div>" +
       '<div class="meta">' + meta + "</div>" + picks + bundle +
       '<div class="foot"><span class="qty"><button data-q="-1" data-idx="' + idx + '">&minus;</button><span class="n">' + l.qty + '</span><button data-q="1" data-idx="' + idx + '">+</button></span>' +
       '<button class="remove" data-remove-idx="' + idx + '">Remove</button></div>' +
@@ -425,8 +457,10 @@
     CART_KEY, $, $$, money, esc,
     lines, count, total, gross, deals, lineKey, addLine, changeQty, removeLine, setLines, clear, renderCart, syncUI,
     sizeRowOf, basePriceOf, topPriceOf, availBases, availToppings, hasCustom, categoryOf, activeSpecials, specialCurrentlyActive,
-    outOfSeasonToppings, affordableSwaps, bogoBaseTotal, extrasTotal, applyDeals, refreshDeals,
+    pastaPriceOf, availPastaTypes,
+    outOfSeasonToppings, affordableSwaps, bogoBaseTotal, extrasTotal, applyDeals, refreshDeals, setFulfilment,
     load, reconcile, toast, data: DATA, hooks,
+    get fulfilment() { return FULFILMENT; },
     get onCheckout() { return hooks.onCheckout; },
     set onCheckout(fn) { hooks.onCheckout = fn; },
     get onCartChange() { return hooks.onCartChange; },

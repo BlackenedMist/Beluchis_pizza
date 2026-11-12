@@ -184,6 +184,16 @@
   .sp-item-body { padding: 8px 10px; border-top: 1px solid var(--line); }
   .sp-item-body[hidden] { display: none; }
   .sp-extras { border-top: 1px dashed var(--line); padding-top: 6px; margin-top: 4px; }
+  .sp-preview { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 8px; }
+  .sp-prev-card { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; }
+  .sp-prev-media { height: 104px; background: #f3ece2 center/cover no-repeat; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 26px; color: #c3b199; }
+  .sp-prev-body { padding: 10px 12px; }
+  .sp-prev-kind { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .sp-prev-head { font-weight: 800; font-size: 15.5px; margin-top: 2px; line-height: 1.25; }
+  .sp-prev-sub { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+  .sp-prev-price { font-weight: 700; color: var(--accent); margin-top: 6px; }
+  .sp-badge { display: inline-block; background: var(--accent); color: #fff; border-radius: 999px; padding: 2px 9px; font-size: 10.5px; font-weight: 700; margin-bottom: 6px; }
+  .sp-badge.collection { background: #16603a; }
   .specials-grid .pick-size {
     width: 64px; padding: 4px 5px; border: 1px solid var(--line); border-radius: 6px;
     font-size: 12px; background: #fff; color: var(--ink);
@@ -269,6 +279,7 @@
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/special-display.js"></script>
 </head>
 <body>
 <header>
@@ -295,6 +306,7 @@
       <button data-tab="deals">Deals</button>
       <button data-tab="toppings">Toppings</button>
       <button data-tab="bases">Bases</button>
+      <button data-tab="pastatypes">Pasta Types</button>
       <button data-tab="categories">Categories</button>
     </div>
   </div>
@@ -320,6 +332,7 @@
   <section id="tab-deals" class="panel" hidden></section>
   <section id="tab-toppings" class="panel" hidden></section>
   <section id="tab-bases" class="panel" hidden></section>
+  <section id="tab-pastatypes" class="panel" hidden></section>
   <section id="tab-categories" class="panel" hidden></section>
   <section id="tab-users" class="panel" hidden></section>
   <section id="tab-loyalty" class="panel" hidden></section>
@@ -353,7 +366,7 @@ const shopDate = (d) =>
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const state = {
-  items: [], toppings: [], bases: [], categories: [], specials: [],
+  items: [], toppings: [], bases: [], pastaTypes: [], categories: [], specials: [],
   orders: [], users: [], contact: [], me: null,
   tab: "orders", search: "",
   fItems: { category: "", type: "", active: "" },
@@ -411,11 +424,11 @@ function toast(msg, isErr=false) {
 function roleLabel(r) { return ROLES[r] || r; }
 
 async function loadAll() {
-  const [items, toppings, bases, categories, specials, stats] = await Promise.all([
-    api("/api/items"), api("/api/toppings"), api("/api/bases"), api("/api/categories"), api("/api/specials"), api("/api/stats"),
+  const [items, toppings, bases, pastaTypes, categories, specials, stats] = await Promise.all([
+    api("/api/items"), api("/api/toppings"), api("/api/bases"), api("/api/pasta-types"), api("/api/categories"), api("/api/specials"), api("/api/stats"),
   ]);
-  state.items = items; state.toppings = toppings; state.bases = bases; state.categories = categories; state.specials = specials;
-  $("#stats").textContent = `${stats.items} items · ${stats.specials} specials · ${stats.toppings} toppings · ${stats.bases} bases · ${stats.categories} categories · ${stats.orders} orders`;
+  state.items = items; state.toppings = toppings; state.bases = bases; state.pastaTypes = pastaTypes; state.categories = categories; state.specials = specials;
+  $("#stats").textContent = `${stats.items} items · ${stats.specials} specials · ${stats.toppings} toppings · ${stats.bases} bases · ${stats.pastaTypes} pasta types · ${stats.categories} categories · ${stats.orders} orders`;
   if (state.me?.role === "admin") {
     try { state.settings = (await api("/api/settings")).settings; state.delivery = (await api("/api/delivery/config")); state.shop = await api("/api/shop/status"); }
     catch { state.settings = {}; state.delivery = null; state.shop = null; }
@@ -504,7 +517,7 @@ function renderOrders() {
   const q = state.orderSearch.trim().toLowerCase();
   const filtered = state.orders.filter((o) => {
     const statusOk = !state.fStatus || o.status === state.fStatus;
-    const dayOk = !state.orderQueueDate || String(o.createdAt || "").slice(0, 10) === state.orderQueueDate;
+    const dayOk = !state.orderQueueDate || (o.dayKey || String(o.createdAt || "").slice(0, 10)) === state.orderQueueDate;
     const name = `${o.customer?.firstName || ""} ${o.customer?.lastName || ""}`;
     const matchQ = !q || String(o.id).includes(q) || name.toLowerCase().includes(q) ||
       (o.customer?.cellphone || "").toLowerCase().includes(q) || (o.deliveryAddress || "").toLowerCase().includes(q);
@@ -525,7 +538,7 @@ function renderOrders() {
         <span class="order-time">${orderTime(o.createdAt)}</span>
         ${payChip}
       </div>
-      <div class="order-total">${o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Total R" + (o.grandTotal ?? o.total) + " · Paid online R" + (o.grandTotal ?? o.total) : "R" + (o.discountAmount ? (o.grandTotal ?? o.total) : o.total)}</div>
+      <div class="order-total">${o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Total R" + (o.grandTotal ?? o.total) + " · Paid online R" + (o.grandTotal ?? o.total) : "R" + (o.grandTotal ?? o.total)}</div>
     </div>`;
   };
 
@@ -894,7 +907,7 @@ function renderItems() {
         </div>
         ${c.dealText ? `<div class="muted" style="font-size:12px;margin-bottom:6px">${esc(c.dealText)}</div>` : ""}
         <table>
-          <thead><tr><th>Name</th><th>Type</th><th>Sizes</th><th>Toppings</th><th>Bases</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Sizes</th><th>Toppings</th><th>Bases</th><th>Pasta types</th><th></th></tr></thead>
           <tbody>
             ${c.items.map((i) => `
               <tr>
@@ -908,6 +921,7 @@ function renderItems() {
                 <td>${fmtSizes(i.sizes)}</td>
                 <td>${i.toppings.length ? i.toppings.slice(0,4).map((t) => `<span class="tag">${esc(t.topping.name)}</span>`).join("") + (i.toppings.length>4?`<span class="tag off">+${i.toppings.length-4}</span>`:"") : '<span class="muted">—</span>'}</td>
                 <td>${i.bases.length ? i.bases.map((b) => `<span class="tag">${esc(b.base.name)}</span>`).join("") : '<span class="muted">—</span>'}</td>
+                <td>${(i.pastaTypes || []).length ? i.pastaTypes.map((p) => `<span class="tag">${esc(p.pastaType.name)}</span>`).join("") : '<span class="muted">—</span>'}</td>
                 <td class="row-actions">
                   <button onclick="openItem(${i.id})">Edit</button>
                   <button class="danger" onclick="delItem(${i.id})">Delete</button>
@@ -984,6 +998,103 @@ function renderBases() {
     </table>` : `<div class="empty">${state.bases.length ? "No bases match your search" : "No bases"}</div>`}`;
 }
 
+// -------------------------------------------------------------- Pasta types
+function renderPastaTypes() {
+  const el = $("#tab-pastatypes");
+  const q = state.search.trim().toLowerCase();
+  const list = state.pastaTypes.filter((t) => !q || t.name.toLowerCase().includes(q) || (t.description || "").toLowerCase().includes(q));
+  el.innerHTML = `
+    <div class="toolbar">
+      <h2>Pasta types <span class="muted" style="font-size:12px;font-weight:400">${list.length} of ${state.pastaTypes.length}</span></h2>
+      <div style="display:flex;gap:8px">
+        <input class="search" placeholder="Search pasta types…" value="${esc(state.search)}" oninput="state.search=this.value;$('#global-search').value=this.value;render()" />
+        <button class="primary" onclick="openPastaType()">+ Add pasta type</button>
+      </div>
+    </div>
+    <p class="hint" style="max-width:640px;margin-bottom:12px">Pasta types work like pizza bases: add Spaghetti, Penne, Linguine, etc., set any extra charge per size, then tick them on the pasta items. The "Assign to every Pastas item" option links a type to the whole Pastas category in one go.</p>
+    ${list.length ? `
+    <table>
+      <thead><tr><th>Name</th><th>Description</th><th>Prices</th><th>On items</th><th></th></tr></thead>
+      <tbody>
+        ${list.map((t) => `
+          <tr>
+            <td><b>${esc(t.name)}</b>${t.isActive === false ? ' <span class="tag off">inactive</span>' : ""}</td>
+            <td class="muted">${esc(t.description || "—")}</td>
+            <td>${priceTable(t.prices)}</td>
+            <td>${t._count.items}</td>
+            <td class="row-actions">
+              <button onclick="openPastaType(${t.id})">Edit</button>
+              <button class="danger" onclick="delPastaType(${t.id})">Delete</button>
+            </td>
+          </tr>`).join("")}
+      </tbody>
+    </table>` : `<div class="empty">${state.pastaTypes.length ? "No pasta types match your search" : "No pasta types yet — add Spaghetti, Penne, Linguine…"}</div>`}`;
+}
+
+window.openPastaType = (id) => {
+  const t = id ? state.pastaTypes.find((x) => x.id === id) : null;
+  openModal(`
+    <h3>${t ? "Edit" : "Add"} pasta type</h3>
+    <div class="row">
+      ${field("Name *", `<input id="pt-name" value="${esc(t?.name || "")}" placeholder="e.g. Spaghetti" />`)}
+      ${field("Sort order", `<input id="pt-sort" type="number" value="${t?.sortOrder ?? 0}" />`)}
+    </div>
+    ${field("Description", `<textarea id="pt-desc" rows="2">${esc(t?.description || "")}</textarea>`)}
+    ${field("Availability", `<label style="display:flex;align-items:center;gap:8px;font-weight:600"><input type="checkbox" id="pt-active" ${t?.isActive !== false ? "checked" : ""} /> Active (untick to hide it from the menu)</label>`)}
+    ${field("Extra charge per size", `<div id="pt-prices"></div><button class="ghost" onclick="addPTPPrice()" style="margin-top:6px">+ Add size price</button>`)}
+    <p class="hint" style="margin:0 0 10px">Prices are added to the pasta's size price. Leave at 0 for no extra charge. Use the same size labels the pastas sell (usually M and L).</p>
+    ${field("Assign to items", `<label style="display:flex;align-items:center;gap:8px;font-weight:600"><input type="checkbox" id="pt-apply" ${t ? "" : "checked"} /> Assign to every item in the Pastas category</label>`)}
+    <div class="modal-actions">
+      <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+      <button class="primary" onclick="savePastaType(${id ?? ""})">Save</button>
+    </div>`);
+  window.ptPrices = t ? t.prices.map((p) => ({ ...p })) : [["M", "0"], ["L", "0"]].map(([s, p]) => ({ sizeLabel: s, price: p }));
+  window.renderPTPrices = () => {
+    $("#pt-prices").innerHTML = ptPrices.map((p, i) => `
+      <div class="price-row">
+        <span class="size">${esc(p.sizeLabel)}</span>
+        <span class="muted">R</span><input placeholder="price" value="${p.price}" oninput="ptPrices[${i}].price=this.value" />
+        <button class="ghost" onclick="ptPrices.splice(${i},1);renderPTPrices()">✕</button>
+      </div>`).join("");
+  };
+  window.addPTPPrice = () => { ptPrices.push({ sizeLabel: "M", price: "0" }); renderPTPrices(); };
+  renderPTPrices();
+};
+
+window.savePastaType = async (id) => {
+  const seen = new Set();
+  const prices = ptPrices
+    .map((p) => ({ sizeLabel: String(p.sizeLabel || "").trim(), price: Number(p.price) || 0 }))
+    .filter((p) => {
+      if (!p.sizeLabel || seen.has(p.sizeLabel)) return false;
+      seen.add(p.sizeLabel);
+      return true;
+    });
+  const payload = {
+    name: $("#pt-name").value.trim(),
+    description: $("#pt-desc").value.trim() || null,
+    sortOrder: Number($("#pt-sort").value) || 0,
+    isActive: $("#pt-active").checked,
+    prices,
+    applyToPastas: $("#pt-apply").checked,
+  };
+  if (!payload.name) return toast("Name is required", true);
+  try {
+    const saved = id
+      ? await api(`/api/pasta-types/${id}`, { method: "PUT", body: JSON.stringify(payload) })
+      : await api("/api/pasta-types", { method: "POST", body: JSON.stringify(payload) });
+    toast(saved.linked ? `Pasta type saved · linked to ${saved.linked} pasta item(s)` : "Pasta type saved");
+    $(".overlay")?.remove();
+    await loadAll();
+  } catch (e) { toast(e.message, true); }
+};
+
+window.delPastaType = async (id) => {
+  if (!confirm("Delete this pasta type? It will be removed from all items.")) return;
+  try { await api(`/api/pasta-types/${id}`, { method: "DELETE" }); toast("Pasta type deleted"); await loadAll(); }
+  catch (e) { toast(e.message, true); }
+};
+
 // -------------------------------------------------------------- Categories
 function renderCategories() {
   const el = $("#tab-categories");
@@ -1022,6 +1133,7 @@ function render() {
   renderDeals();
   renderToppings();
   renderBases();
+  renderPastaTypes();
   renderCategories();
   renderOrders();
   if (state.me?.role === "admin") renderUsers();
@@ -1170,6 +1282,7 @@ window.openItem = (id) => {
       ${field("Toppings", `<div id="f-toppings" class="link-grid"></div>`)}
       ${field("Bases", `<div id="f-bases" class="link-grid"></div>`)}
     </div>
+    ${field("Pasta types", `<div id="f-pastatypes" class="link-grid"></div>`)}
     <div class="modal-actions">
       <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
       <button class="primary" onclick="saveItem(${id ?? ""})">Save</button>
@@ -1199,6 +1312,10 @@ window.openItem = (id) => {
     <label><input type="checkbox" value="${t.id}" ${item?.toppings.some((x) => x.toppingId===t.id) ? "checked" : ""}> ${t.name}</label>`).join("");
   $("#f-bases").innerHTML = state.bases.map((b) => `
     <label><input type="checkbox" value="${b.id}" ${item?.bases.some((x) => x.baseId===b.id) ? "checked" : ""}> ${b.name}</label>`).join("");
+  $("#f-pastatypes").innerHTML = state.pastaTypes.length
+    ? state.pastaTypes.map((t) => `
+      <label><input type="checkbox" value="${t.id}" ${(item?.pastaTypes || []).some((x) => x.pastaTypeId===t.id) ? "checked" : ""}> ${esc(t.name)}</label>`).join("")
+    : '<span class="muted" style="font-size:12px">No pasta types yet — add them in Menu → Pasta Types.</span>';
 };
 
 window.saveItem = async (id) => {
@@ -1213,6 +1330,7 @@ window.saveItem = async (id) => {
     sizes: currentSizes.map((s) => ({ sizeLabel: s.sizeLabel, price: Number(s.price) || 0 })),
     toppingIds: $$("#f-toppings input:checked").map((c) => Number(c.value)),
     baseIds: $$("#f-bases input:checked").map((c) => Number(c.value)),
+    pastaTypeIds: $$("#f-pastatypes input:checked").map((c) => Number(c.value)),
     images: (window.currentImages || []).map((im, i) => ({ url: im.url, alt: im.alt, sortOrder: i })),
   };
   if (!payload.name) return toast("Name is required", true);
@@ -1370,9 +1488,9 @@ window.delCategory = async (id) => {
 function renderSpecials() {
   const el = $("#tab-specials");
   const q = state.search.trim().toLowerCase();
-  // Fixed-price deals live on their own tab - they are configured per size,
-  // not as bundle rows, so they are hidden from this list.
-  const list = state.specials.filter((s) => s.kind !== "deal").filter((s) => {
+  // Automatic deals are included here too so a special created from this tab
+  // is immediately visible (the Deals tab remains the bulk per-size editor).
+  const list = state.specials.filter((s) => {
     if (!q) return true;
     const parts = s.items.map((x) => x.item.name).join(" ");
     return s.name.toLowerCase().includes(q) || (s.description || "").toLowerCase().includes(q) || parts.toLowerCase().includes(q) || (s.category?.name || "").toLowerCase().includes(q);
@@ -1408,9 +1526,15 @@ function renderSpecials() {
           const deal = sum > 0 && s.price < sum ? Math.round((1 - s.price / sum) * 100) : null;
           return `
           <tr>
-            <td><b>${esc(s.name)}</b>${s.kind === "bogo" ? ' <span class="tag">bogo</span>' : ""}${s.kind === "bundle" ? ' <span class="tag">bundle</span>' : ""}${s.kind === "pick" ? ' <span class="tag">pick</span>' : ""}${s.imageUrl ? `<br><img src="${esc(s.imageUrl)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:7px;border:1px solid #e8e0d5;margin-top:4px" />` : ""}${s.description ? `<br><span class="muted">${esc(s.description)}</span>` : ""}</td>
-            <td>${s.kind === "bogo" ? `Pick ${s.count}, pay ${s.count / 2}${s.sizeLabel ? ` · ${esc(s.sizeLabel)}` : ""}` : s.kind === "pick" ? `Pick ${s.buyCount || s.count}, pay ${s.payCount || ((s.buyCount || s.count) - 1)}${s.sizeLabel ? ` · ${esc(s.sizeLabel)}` : ""}` : `R${s.price}${sum > 0 ? `<br><span class="muted">parts R${sum}</span>` : ""}${deal ? `<br><span class="parts-tag" style="background:#e8f5e9;color:#2e7d32">${deal}% off</span>` : ""}`}</td>
-            <td>${s.kind === "bogo" ? `<span class="parts-tag">${esc(s.category?.name || "—")}</span>` : s.items.map((x) => `<span class="parts-tag">${esc(x.item.name)}${x.sizeLabel ? ` (${esc(x.sizeLabel)})` : ""}${x.quantity > 1 ? ` ×${x.quantity}` : ""}</span>`).join("")}</td>
+            <td><b>${esc(s.name)}</b>${s.kind === "bogo" ? ' <span class="tag">bogo</span>' : ""}${s.kind === "bundle" ? ' <span class="tag">bundle</span>' : ""}${s.kind === "pick" ? ' <span class="tag">pick</span>' : ""}${s.kind === "deal" ? ' <span class="tag">automatic deal</span>' : ""}${s.collectionOnly ? ' <span class="tag">collection only</span>' : ""}${s.imageUrl ? `<br><img src="${esc(s.imageUrl)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:7px;border:1px solid #e8e0d5;margin-top:4px" />` : ""}${s.description ? `<br><span class="muted">${esc(s.description)}</span>` : ""}</td>
+            <td>${(s.kind === "bogo" || s.kind === "pick" || s.kind === "deal")
+              ? `${esc(SpecialDisplay.headline(s))}${SpecialDisplay.badge(s) ? ` <span class="parts-tag">${esc(SpecialDisplay.badge(s))}</span>` : ""}${s.kind === "deal" && s.sizeLabel ? `<br><span class="muted">${esc(s.sizeLabel)}</span>` : ""}`
+              : `R${s.price}${sum > 0 ? `<br><span class="muted">parts R${sum}</span>` : ""}${deal ? `<br><span class="parts-tag" style="background:#e8f5e9;color:#2e7d32">${deal}% off</span>` : ""}`}</td>
+            <td>${(s.kind === "bogo" || s.kind === "pick" && s.selectionMode !== "items")
+              ? `<span class="parts-tag">${esc(s.category?.name || "—")}${s.sizeLabel ? ` · ${esc(s.sizeLabel)}` : ""}</span>`
+              : s.kind === "deal"
+                ? `<span class="parts-tag">${esc(s.category?.name || "—")}${s.sizeLabel ? ` · ${esc(s.sizeLabel)}` : ""}</span><span class="muted"> auto</span>`
+                : s.items.map((x) => `<span class="parts-tag">${esc(x.item.name)}${x.sizeLabel ? ` (${esc(x.sizeLabel)})` : ""}${x.quantity > 1 ? ` ×${x.quantity}` : ""}</span>`).join("")}</td>
             <td>${s.showOnHome ? "Yes" : '<span class="muted">—</span>'}</td>
             <td>${(() => {
               if (s.isActive === false) return '<span class="muted">Inactive</span>';
@@ -1489,12 +1613,11 @@ function renderOrderHistory() {
   const el = $("#tab-orderhistory");
   if (!el) return;
   if (!state.orderHistoryDate) {
-    const d = new Date();
-    state.orderHistoryDate = d.toISOString().slice(0, 10);
+    state.orderHistoryDate = shopDate(new Date());
   }
   const q = (state.orderHistorySearch || "").trim().toLowerCase();
   const filtered = (state.orders || []).filter((o) => {
-    const day = (o.createdAt || "").slice(0, 10);
+    const day = o.dayKey || (o.createdAt || "").slice(0, 10);
     if (day !== state.orderHistoryDate) return false;
     if (!q) return true;
     const name = `${o.customer?.firstName || ""} ${o.customer?.lastName || ""}`;
@@ -1504,7 +1627,7 @@ function renderOrderHistory() {
 
   const card = (o) => {
     const payLabels = { cod_cash: "Cash on delivery", cod_card: "Card on delivery", payfast: "Online (PayFast)", paygate: "Online (PayGate)" };
-    const total = o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Total R" + (o.grandTotal ?? o.total) + " · Paid online R" + (o.grandTotal ?? o.total) : "R" + (o.discountAmount ? (o.grandTotal ?? o.total) : o.total);
+    const total = o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Total R" + (o.grandTotal ?? o.total) + " · Paid online R" + (o.grandTotal ?? o.total) : "R" + (o.grandTotal ?? o.total);
     return `
     <div class="order-card">
       <div class="order-head">
@@ -1719,128 +1842,185 @@ window.saveDeals = async (catId) => {
 
 window.openSpecial = (id) => {
   const s = id ? state.specials.find((x) => x.id === id) : null;
-  const isBogo = s?.kind === "bogo";
+
+  // Map the stored special back onto the owner-facing offer presets. Legacy
+  // "bogo" rows (always pay half) are edited as buy-X-get-Y and saved as the
+  // more flexible "pick" kind.
+  let preset = "pick_cat";
+  if (s) {
+    if (s.kind === "pick") preset = s.selectionMode === "items" ? "pick_items" : "pick_cat";
+    else if (s.kind === "bogo") preset = "pick_cat";
+    else if (s.kind === "deal") preset = "deal";
+    else if (s.kind === "bundle") preset = "bundle";
+    else preset = "flat";
+  }
+  const legacyBuy = s ? Number(s.kind === "bogo" ? s.count : (s.buyCount || s.count) || 2) : 3;
+  const legacyPay = s ? Number(s.kind === "bogo" ? Math.ceil(legacyBuy / 2) : (s.payCount || Math.max(1, legacyBuy - 1))) : 2;
+  const payFor = Math.max(1, legacyPay);
+  const freeCount = Math.max(1, legacyBuy - legacyPay);
+  const offers = [
+    ["pick_cat", "Buy X, get Y free — customer picks from a category"],
+    ["pick_items", "Buy X, get Y free — customer picks from these items"],
+    ["deal", "Any N for a set price — applied automatically in the cart"],
+    ["flat", "Combo of items at a set price"],
+    ["reduced", "One item at a reduced price"],
+    ["bundle", "Build-your-own bundle"],
+  ];
   openModal(`
-    <h3>${s ? "Edit" : "Add"} Special</h3>
-    <details open class="acc"><summary>Name</summary>
+    <h3>${s ? "Edit" : "Add"} special</h3>
+    <p class="hint" style="margin-top:-4px">Build the offer in plain language. Section 3 previews exactly what customers see on the home page and order page.</p>
+    <details open class="acc"><summary>1. The offer</summary>
       <div class="row">
-        ${field("Name *", `<input id="sp-name" value="${esc(s?.name || "")}" />`)}
-        ${field("Kind", `<select id="sp-kind" onchange="renderSpecialKind()">
-          <option value="flat"${s?.kind === "flat" || !s ? " selected" : ""}>Fixed price bundle</option>
-          <option value="bogo"${s?.kind === "bogo" ? " selected" : ""}>Buy a group, pay half (BOGO)</option>
-          <option value="deal"${s?.kind === "deal" ? " selected" : ""}>Fixed-price deal (auto-applies)</option>
-          <option value="pick"${s?.kind === "pick" ? " selected" : ""}>Custom pick (buy N, pay M)</option>
-          <option value="bundle"${s?.kind === "bundle" ? " selected" : ""}>Bundle (customer chooses per group)</option>
+        ${field("Name *", `<input id="sp-name" value="${esc(s?.name || "")}" oninput="renderSpecialPreview()" />`)}
+        ${field("Offer type", `<select id="sp-preset" onchange="renderSpecialKind()">
+          ${offers.map(([v, label]) => `<option value="${v}"${preset === v ? " selected" : ""}>${label}</option>`).join("")}
         </select>`)}
       </div>
+      <div class="row">
+        ${field("Status", `<select id="sp-active">
+          <option value="true"${s?.isActive !== false ? " selected" : ""}>Active</option>
+          <option value="false"${s?.isActive === false ? " selected" : ""}>Inactive</option>
+        </select>`)}
+        ${field("Sort order", `<input id="sp-sort" type="number" value="${s?.sortOrder ?? 0}" />`)}
+      </div>
+      <p class="hint" id="sp-preset-help" style="margin:0"></p>
     </details>
-    <details class="acc"><summary>Category and size</summary>
-      <div id="sp-bogo"${isBogo ? "" : " hidden"}>
+
+    <details open class="acc"><summary>2. What the customer gets</summary>
+      <div id="sp-cat-wrap">
         <div class="row">
-          ${field("Category *", `<select id="sp-cat" onchange="renderBogoSizes()">
+          ${field("Category *", `<select id="sp-cat" onchange="renderBogoSizes();renderSpecialPreview()">
             <option value="">— pick a category —</option>
             ${state.categories.map((c) => `<option value="${c.id}"${s?.categoryId===c.id?" selected":""}>${esc(c.name)}</option>`).join("")}
           </select>`)}
-          ${field("Size (optional)", `<select id="sp-size">${sizeSelectHtml(s?.sizeLabel, s?.categoryId)}</select>`)}
+          ${field("Size (optional)", `<select id="sp-size" onchange="renderSpecialPreview()">${sizeSelectHtml(s?.sizeLabel, s?.categoryId)}</select>`)}
         </div>
-        ${field("Pizzas the customer picks (even number)", `<input id="sp-count" type="number" min="2" step="2" value="${s?.count ?? 2}" />`)}
-        <p class="hint" style="margin:0 0 10px">The customer builds that many pizzas from the category (at the chosen size, if set) and pays for the higher half of the base prices &mdash; extras are always charged. Example: 2 pizzas &rarr; pay for 1; 4 pizzas &rarr; pay for 2.</p>
       </div>
-    </details>
-    <details class="acc"><summary>Item selection</summary>
-      <div id="sp-flat"${isBogo ? " hidden" : ""}>
-        ${field("Price (R)", `<input id="sp-price" type="number" value="${s && !isBogo ? s.price : ""}" oninput="renderSpecialSum()" />`)}
-        ${field("Items", `<div id="sp-items" class="specials-grid"></div>`)}
+
+      <div id="sp-buyget">
+        <div class="row">
+          ${field("Customer pays for", `<input id="sp-buy" type="number" min="1" value="${payFor}" oninput="renderSpecialKind()" />`)}
+          ${field("…and gets free", `<input id="sp-free" type="number" min="1" value="${freeCount}" oninput="renderSpecialKind()" />`)}
+        </div>
+        <p class="hint" id="sp-buyget-hint" style="margin:0 0 8px"></p>
+      </div>
+
+      <div id="sp-deal-fields">
+        <div class="row">
+          ${field("How many items", `<input id="sp-count" type="number" min="1" value="${s ? (s.count || 2) : 2}" oninput="renderSpecialPreview()" />`)}
+          ${field("Set price (R)", `<input id="sp-price" type="number" min="1" value="${s && s.kind === "deal" ? s.price : ""}" oninput="renderSpecialPreview()" />`)}
+        </div>
+      </div>
+
+      <div id="sp-flat-fields">
+        ${field("Set price (R)", `<input id="sp-flat-price" type="number" min="0" value="${s && s.kind === "flat" ? s.price : ""}" oninput="renderSpecialPreview()" />`)}
+      </div>
+
+      <div id="sp-items-wrap">
+        ${field("Items in the offer", `<div id="sp-items" class="specials-grid"></div>`)}
         <div id="sp-sum" class="muted" style="font-size:12.5px;margin-top:4px"></div>
       </div>
-      <div id="sp-bundle" hidden>
-        ${field("Price (R)", `<input id="sp-bundle-price" type="number" value="${s && s.kind === "bundle" ? s.price : ""}" />`)}
-        ${field("Bundle spec (JSON)", `<textarea id="sp-bundlespec" rows="6" style="font-family:monospace;font-size:12px">${esc(s?.bundleSpec || "")}</textarea>`)}
-        <p class="hint" style="margin:0 0 10px">JSON array of groups: [{"name":"Large","categories":[2,3],"sizeLabel":"L","count":1},{"name":"Medium","categories":[1],"sizeLabel":"M","count":2}]. Category ids from /api/categories.</p>
+
+      <div id="sp-paymode-wrap">
+        ${field("Free item rule", `<select id="sp-paymode" onchange="renderSpecialPreview()">
+          <option value="expensive"${(s?.payMode || "expensive") === "expensive" ? " selected" : ""}>Cheapest items are free</option>
+          <option value="fixed"${s?.payMode === "fixed" ? " selected" : ""}>Items marked free in the list</option>
+        </select>`)}
       </div>
-      <div id="sp-pick" hidden>
+
+      <div id="sp-bundle-wrap">
         <div class="row">
-          ${field("Selection mode", `<select id="sp-selmode" onchange="renderSpecialKind()">
-            <option value="items"${(s?.selectionMode || "items") === "items" ? " selected" : ""}>Curated items</option>
-            <option value="category"${s?.selectionMode === "category" ? " selected" : ""}>Category</option>
-          </select>`)}
-          ${field("Buy (pick) count", `<input id="sp-buy" type="number" min="2" value="${s?.buyCount || 3}" />`)}
-          ${field("Pay count", `<input id="sp-pay" type="number" min="1" value="${s?.payCount || 2}" />`)}
-          ${field("Pay mode", `<select id="sp-paymode">
-            <option value="expensive"${(s?.payMode || "expensive") === "expensive" ? " selected" : ""}>Pay for most expensive</option>
-            <option value="fixed"${s?.payMode === "fixed" ? " selected" : ""}>Pay for fixed selected items</option>
-          </select>`)}
+          ${field("Bundle price (R)", `<input id="sp-bundle-price" type="number" min="0" value="${s && s.kind === "bundle" ? s.price : ""}" oninput="renderSpecialPreview()" />`)}
         </div>
-        <p class="hint" style="margin:0 0 10px">Customer picks "buy count" pizzas and pays for "pay count" of them. E.g. buy 3 pay 2 = buy 2 get 1 free. Pay mode "fixed" charges only items marked paid in the list.</p>
+        ${field("Bundle groups (JSON)", `<textarea id="sp-bundlespec" rows="5" style="font-family:monospace;font-size:12px" oninput="renderSpecialPreview()">${esc(s?.bundleSpec || "")}</textarea>`)}
+        <p class="hint" style="margin:0 0 8px">Advanced: one group per course, e.g. <code>[{"name":"Large","categories":[2,3],"sizeLabel":"L","count":1}]</code>. Category ids come from /api/categories.</p>
       </div>
     </details>
-    <details class="acc"><summary>Description</summary>
-      ${field("Description", `<textarea id="sp-desc" rows="2">${esc(s?.description || "")}</textarea>`)}
-      ${pictureField("sp-img", s?.imageUrl)}
-    </details>
-    <details class="acc"><summary>5. Schedule</summary>
+
+    <details open class="acc"><summary>3. Home page and order page</summary>
       <div class="row">
-        ${field("Weekdays (optional)", `<div style="display:flex;gap:6px;flex-wrap:wrap">${["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d) => `<label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" class="sp-wd" value="${d}" ${(s?.weekdays||"").split(",").includes(d)?"checked":""} /> ${d}</label>`).join("")}</div>`)}
+        ${field("Show on", `<label style="display:flex;align-items:center;gap:8px;font-weight:600;padding-top:6px"><input type="checkbox" id="sp-home" ${s?.showOnHome ? "checked" : ""} onchange="renderSpecialPreview()" /> Home page</label>`)}
+        ${field("Home display", `<select id="sp-display" onchange="renderSpecialPreview()">
+          <option value="tile"${(s?.homeDisplay || "tile") === "tile" ? " selected" : ""}>Tile</option>
+          <option value="banner"${s?.homeDisplay === "banner" ? " selected" : ""}>Full-width banner</option>
+        </select>`)}
+      </div>
+      <div class="row">
+        ${field("Order type", `<label style="display:flex;align-items:center;gap:8px;font-weight:600;padding-top:6px"><input type="checkbox" id="sp-collection" ${s?.collectionOnly ? "checked" : ""} onchange="renderSpecialPreview()" /> Collection only</label>`)}
+        ${field("Badge (optional)", `<input id="sp-badge" maxlength="24" placeholder="e.g. SAVE R89" value="${esc(s?.homeBadge || "")}" oninput="renderSpecialPreview()" />`)}
+      </div>
+      <p class="hint" style="margin:0 0 8px">Collection only keeps this offer off delivery orders: it still advertises on the home page, but delivery customers cannot add it.</p>
+      <details class="acc" style="margin:8px 0"><summary>Custom wording (optional)</summary>
+        ${field("Headline", `<input id="sp-headline" maxlength="120" placeholder="Auto — e.g. Buy 3, get 1 free" value="${esc(s?.homeHeadline || "")}" oninput="renderSpecialPreview()" />`)}
+        ${field("Supporting line", `<textarea id="sp-subtext" rows="2" maxlength="240" placeholder="Auto-generated from the offer" oninput="renderSpecialPreview()">${esc(s?.homeSubtext || "")}</textarea>`)}
+        ${field("Price label", `<input id="sp-price-text" maxlength="40" placeholder="Auto" value="${esc(s?.homePriceText || "")}" oninput="renderSpecialPreview()" />`)}
+      </details>
+      <div class="muted" style="font-size:12.5px;font-weight:700;margin:4px 0 0">Live preview</div>
+      <div class="sp-preview" id="sp-preview"></div>
+    </details>
+
+    <details class="acc"><summary>4. Description, picture and schedule</summary>
+      ${field("Description (menu card)", `<textarea id="sp-desc" rows="2">${esc(s?.description || "")}</textarea>`)}
+      ${pictureField("sp-img", s?.imageUrl)}
+      <div class="row">
+        ${field("Days (optional)", `<div style="display:flex;gap:6px;flex-wrap:wrap">${["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d) => `<label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" class="sp-wd" value="${d}" ${(s?.weekdays||"").split(",").includes(d)?"checked":""} /> ${d}</label>`).join("")}</div>`)}
       </div>
       <div class="row">
         ${field("Start date (optional)", `<input id="sp-start" type="date" value="${s?.startDate ? String(s.startDate).slice(0,10) : ""}" />`)}
         ${field("End date (optional)", `<input id="sp-end" type="date" value="${s?.endDate ? String(s.endDate).slice(0,10) : ""}" />`)}
       </div>
     </details>
-    <details class="acc"><summary>HomePage + Social</summary>
-      <div class="row">
-        ${field("Sort order", `<input id="sp-sort" type="number" value="${s?.sortOrder ?? 0}" />`)}
-        ${field("Active", `<select id="sp-active">
-          <option value="true"${s?.isActive !== false ? " selected" : ""}>Active</option>
-          <option value="false"${s?.isActive === false ? " selected" : ""}>Inactive</option>
-        </select>`)}
-      </div>
-      <div class="row">
-        ${field("Display type", `<select id="sp-display">
-          <option value="tile"${(s?.homeDisplay || "tile") === "tile" ? " selected" : ""}>Tile (square)</option>
-          <option value="banner"${s?.homeDisplay === "banner" ? " selected" : ""}>Banner (full row)</option>
-        </select>`)}
-        ${field("Home page", `<label style="display:flex;align-items:center;gap:8px;font-weight:600;padding-top:6px"><input type="checkbox" id="sp-home" ${s?.showOnHome ? "checked" : ""} onchange="if(this.checked){if(!confirm('Are you sure you want this on the home page?')) this.checked=false;}" /> Show on home</label>`)}
-      </div>
+    <details class="acc"><summary>5. Social</summary>
       ${field("Facebook", `<label style="display:flex;align-items:center;gap:8px;font-weight:600;padding-top:6px"><input type="checkbox" id="sp-fb" /> Post to Facebook on save</label>`)}
     </details>
     <div class="modal-actions">
       <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
-      <button class="primary" onclick="saveSpecial(${id ?? ""})">Save</button>
+      <button class="primary" onclick="saveSpecial(${id ?? ""})">Save special</button>
     </div>`);
 
   window.renderSpecialKind = () => {
-    const kind = $("#sp-kind").value;
-    const isBogo = kind === "bogo";
-    const isDeal = kind === "deal";
-    const isPick = kind === "pick";
-    const isBundle = kind === "bundle";
-    const selMode = $("#sp-selmode") ? $("#sp-selmode").value : "items";
-    $("#sp-flat").hidden = !(kind === "flat" || (isPick && selMode === "items"));
-    // Always show category/size for pick so they can be populated/edited.
-    $("#sp-bogo").hidden = !(isBogo || isDeal || isPick);
-    $("#sp-pick").hidden = !isPick;
-    const spBundle = $("#sp-bundle"); if (spBundle) spBundle.hidden = !isBundle;
-    if (!$("#sp-bogo").hidden) { try { renderBogoSizes(); } catch (e) {} }
+    const preset = $("#sp-preset").value;
+    const isPick = preset === "pick_cat" || preset === "pick_items";
+    const isDeal = preset === "deal";
+    const isFlat = preset === "flat" || preset === "reduced";
+    const isBundle = preset === "bundle";
+    $("#sp-cat-wrap").hidden = !(isPick || isDeal);
+    $("#sp-buyget").hidden = !isPick;
+    $("#sp-deal-fields").hidden = !isDeal;
+    $("#sp-flat-fields").hidden = !isFlat;
+    $("#sp-items-wrap").hidden = !(isFlat || preset === "pick_items");
+    $("#sp-paymode-wrap").hidden = !(preset === "pick_items");
+    $("#sp-bundle-wrap").hidden = !isBundle;
+    if (!$("#sp-cat-wrap").hidden) { try { renderBogoSizes(); } catch (e) {} }
     try { renderSpecialPicks(); } catch (e) {}
-    const details = Array.from(document.querySelectorAll(".overlay details.acc"));
-    const openBy = (needle) => details.forEach((d) => {
-      const s = d.querySelector("summary");
-      if (s && s.textContent.toLowerCase().includes(needle)) d.open = true;
-    });
-    if (kind === "flat") openBy("item selection");
-    if (isBogo || isDeal) openBy("category and size");
-    if (isPick) { openBy("category and size"); openBy("item selection"); }
+    try { renderSpecialSum(); } catch (e) {}
+    const help = {
+      pick_cat: "The customer chooses any X+Y items from the chosen category (and size, if set), pays for X, and the cheapest Y are free.",
+      pick_items: "The customer chooses from the specific items below. Pays for X of them; the cheapest Y are free.",
+      deal: "Puts a set price on a group of items. The saving is applied automatically in the cart — no button to press.",
+      flat: "A fixed combo at one price. The customer adds it to the cart as-is.",
+      reduced: "A single menu item at a lower price for a limited time or on set days.",
+      bundle: "The customer builds their own bundle from the groups below (e.g. 2 large pizzas + 1 side).",
+    }[preset] || "";
+    const helpEl = $("#sp-preset-help");
+    if (helpEl) helpEl.textContent = help;
+    const bh = $("#sp-buyget-hint");
+    if (bh) {
+      const pay = Number($("#sp-buy")?.value) || 0;
+      const free = Number($("#sp-free")?.value) || 0;
+      bh.textContent = pay > 0 && free > 0
+        ? "Customer picks " + (pay + free) + " and pays for " + pay + " — the cheapest " + free + (free === 1 ? " is" : " are") + " free."
+        : "Enter how many the customer pays for and how many they get free.";
+    }
+    renderSpecialPreview();
   };
 
   const sizesOf = (item) => ((item && item.sizes) || []).filter((z) => z.isActive !== false);
-  window.specialPicks = s && !isBogo
-    ? s.items.map((x) => {
-        let extras = [];
-        try { extras = x.extras ? JSON.parse(x.extras) : []; } catch (e) { extras = []; }
-        return { itemId: x.itemId, quantity: x.quantity, sizeLabel: x.sizeLabel || null, extras, paid: x.paid !== false };
-      })
-    : [];
+  window.specialPicks = (s?.items || []).map((x) => {
+    let extras = [];
+    try { extras = x.extras ? JSON.parse(x.extras) : []; } catch (e) { extras = []; }
+    return { itemId: x.itemId, quantity: x.quantity, sizeLabel: x.sizeLabel || null, extras, paid: x.paid !== false };
+  });
   window.renderSpecialPicks = () => {
     $("#sp-items").innerHTML = state.items.map((i) => {
       const pick = specialPicks.find((p) => p.itemId === i.id);
@@ -1937,7 +2117,7 @@ window.openSpecial = (id) => {
   };
   window.renderSpecialSum = () => {
     const el = $("#sp-sum");
-    const priceEl = $("#sp-price");
+    const priceEl = $("#sp-flat-price");
     if (!el) return;
     const price = Number(priceEl?.value);
     const itemsById = new Map(state.items.map((i) => [i.id, i]));
@@ -1953,13 +2133,91 @@ window.openSpecial = (id) => {
     const save = price > 0 ? (price < sum ? `  ·  ~${Math.round((1 - price / sum) * 100)}% off` : "  ·  above parts total") : "";
     el.textContent = `Parts total (chosen sizes): R${sum}${priceTxt}${save}`;
   };
+  window.renderSpecialPreview = () => {
+    const el = $("#sp-preview");
+    if (!el) return;
+    const preset = $("#sp-preset")?.value || "pick_cat";
+    const name = ($("#sp-name")?.value || "").trim() || "Special name";
+    const catId = Number($("#sp-cat")?.value || 0);
+    const category = state.categories.find((c) => c.id === catId) || null;
+    const sizeLabel = $("#sp-size")?.value || null;
+    const pay = Number($("#sp-buy")?.value) || 0;
+    const free = Number($("#sp-free")?.value) || 0;
+    const draft = {
+      name, category, sizeLabel,
+      kind: preset === "pick_cat" || preset === "pick_items" ? "pick" : preset,
+      buyCount: pay + free, payCount: pay, count: pay + free,
+      price: 0,
+      collectionOnly: Boolean($("#sp-collection")?.checked),
+      homeHeadline: ($("#sp-headline")?.value || "").trim(),
+      homeSubtext: ($("#sp-subtext")?.value || "").trim(),
+      homeBadge: ($("#sp-badge")?.value || "").trim(),
+      homePriceText: ($("#sp-price-text")?.value || "").trim(),
+      items: specialPicks.map((p) => ({
+        itemId: p.itemId, quantity: p.quantity, sizeLabel: p.sizeLabel,
+        item: state.items.find((i) => i.id === p.itemId),
+      })),
+    };
+    if (preset === "deal") {
+      draft.count = Number($("#sp-count")?.value) || 0;
+      draft.price = Number($("#sp-price")?.value) || 0;
+    } else if (preset === "bundle") {
+      draft.price = Number($("#sp-bundle-price")?.value) || 0;
+      draft.bundleSpec = $("#sp-bundlespec")?.value || "";
+    } else if (preset === "flat" || preset === "reduced") {
+      draft.price = Number($("#sp-flat-price")?.value) || 0;
+    }
+
+    const head = SpecialDisplay.headline(draft);
+    const sub = SpecialDisplay.subtext(draft);
+    const price = SpecialDisplay.priceText(draft);
+    const badge = SpecialDisplay.badge(draft);
+    const img = ($("#sp-img")?.value || "").trim() || (SpecialDisplay.images(draft, state.items)[0] || "");
+    const media = img
+      ? `<div class="sp-prev-media" style="background-image:url('${esc(img)}')"></div>`
+      : `<div class="sp-prev-media">${esc(name.charAt(0).toUpperCase())}</div>`;
+    const badges = (badge ? `<span class="sp-badge">${esc(badge)}</span> ` : "") +
+      (draft.collectionOnly ? `<span class="sp-badge collection">Collection only</span>` : "");
+    const tile = `<div class="sp-prev-card">${media}<div class="sp-prev-body">
+      ${badges}
+      <div class="sp-prev-kind">${esc(SpecialDisplay.kindLabel(draft))}</div>
+      <div class="sp-prev-head">${esc(name)}</div>
+      ${head && head !== name ? `<div class="sp-prev-sub" style="color:var(--ink);font-weight:700">${esc(head)}</div>` : ""}
+      ${sub ? `<div class="sp-prev-sub">${esc(sub)}</div>` : ""}
+      ${price ? `<div class="sp-prev-price">${esc(price)}</div>` : ""}
+    </div></div>`;
+    const banner = `<div class="sp-prev-card" style="grid-column:1/-1;display:flex;gap:12px;align-items:center;padding:12px">
+      ${img ? `<img src="${esc(img)}" alt="" style="width:92px;height:64px;object-fit:cover;border-radius:8px" />` : ""}
+      <div style="flex:1">
+        <div>${badges}</div>
+        <div class="sp-prev-head">${esc(name)}</div>
+        ${head && head !== name ? `<div style="font-weight:700;font-size:13px;margin-top:2px">${esc(head)}</div>` : ""}
+        ${sub ? `<div class="sp-prev-sub">${esc(sub)}</div>` : ""}
+      </div>
+      ${price ? `<div class="sp-prev-price" style="margin:0;white-space:nowrap">${esc(price)}</div>` : ""}
+    </div>`;
+    el.innerHTML = tile + banner;
+  };
   renderSpecialPicks();
   renderSpecialSum();
   renderSpecialKind();
 };
 
 window.saveSpecial = async (id) => {
-  const kind = $("#sp-kind").value;
+  const preset = $("#sp-preset").value;
+  const kind = preset === "deal" ? "deal"
+    : preset === "bundle" ? "bundle"
+    : (preset === "pick_cat" || preset === "pick_items") ? "pick"
+    : "flat";
+  const categoryId = $("#sp-cat").value ? Number($("#sp-cat").value) : null;
+  const sizeLabel = $("#sp-size").value || null;
+  const pickItems = () => specialPicks.map((p) => ({
+    itemId: p.itemId,
+    quantity: p.quantity,
+    sizeLabel: p.sizeLabel || null,
+    extras: p.extras || [],
+    paid: p.paid !== false,
+  }));
   const base = {
     name: $("#sp-name").value.trim(),
     description: $("#sp-desc").value.trim() || null,
@@ -1968,87 +2226,63 @@ window.saveSpecial = async (id) => {
     showOnHome: $("#sp-home").checked,
     postToFacebook: $("#sp-fb") ? $("#sp-fb").checked : false,
     homeDisplay: $("#sp-display") ? $("#sp-display").value : "tile",
-    payMode: $("#sp-paymode") ? $("#sp-paymode").value : "expensive",
+    collectionOnly: $("#sp-collection").checked,
+    homeHeadline: $("#sp-headline").value.trim() || null,
+    homeSubtext: $("#sp-subtext").value.trim() || null,
+    homeBadge: $("#sp-badge").value.trim() || null,
+    homePriceText: $("#sp-price-text").value.trim() || null,
     imageUrl: $("#sp-img").value.trim() || null,
     weekdays: Array.from(document.querySelectorAll(".sp-wd:checked")).map((x) => x.value).join(",") || null,
     startDate: $("#sp-start").value || null,
     endDate: $("#sp-end").value || null,
   };
+  if (!base.name) return toast("Name is required", true);
   let payload;
-  if (kind === "bogo") {
+
+  if (kind === "pick") {
+    const payCount = Number($("#sp-buy").value) || 0;
+    const freeCount = Number($("#sp-free").value) || 0;
+    const buyCount = payCount + freeCount;
+    if (payCount < 1) return toast("Enter how many the customer pays for", true);
+    if (freeCount < 1) return toast("Enter how many are free", true);
+    if (buyCount < 2) return toast("A buy-X-get-Y offer needs at least 2 items", true);
+    if (preset === "pick_cat" && !categoryId) return toast("Pick a category for the offer", true);
+    if (preset === "pick_items" && specialPicks.length < buyCount)
+      return toast(`Pick at least ${buyCount} items for the customer to choose from`, true);
     payload = {
       ...base,
-      kind: "bogo",
-      categoryId: $("#sp-cat").value ? Number($("#sp-cat").value) : null,
-      sizeLabel: $("#sp-size").value || null,
-      count: Number($("#sp-count").value) || 0,
+      kind: "pick",
+      selectionMode: preset === "pick_cat" ? "category" : "items",
+      payMode: $("#sp-paymode") ? $("#sp-paymode").value : "expensive",
+      buyCount,
+      payCount,
+      count: buyCount,
+      price: 0,
+      ...(preset === "pick_cat" ? { categoryId, sizeLabel } : { items: pickItems() }),
     };
-    if (!payload.categoryId) return toast("Pick a category for the BOGO special", true);
-    if (payload.count < 2 || payload.count % 2 !== 0) return toast("Pizzas to pick must be an even number (2, 4, 6…)", true);
   } else if (kind === "deal") {
-    payload = {
-      ...base,
-      kind: "deal",
-      categoryId: $("#sp-cat").value ? Number($("#sp-cat").value) : null,
-      sizeLabel: $("#sp-size").value || null,
-      count: Number($("#sp-count").value) || 0,
-      price: Number($("#sp-price").value) || 0,
-    };
-    if (!payload.categoryId) return toast("Pick a category for the deal", true);
-    if (payload.count < 2) return toast("Deal needs 2 or more", true);
-    if (!payload.price) return toast("Deal needs a price", true);
-  } else if (kind === "pick") {
-    const selMode = $("#sp-selmode").value;
-    const buyCount = Number($("#sp-buy").value) || 0;
-    const payCount = Number($("#sp-pay").value) || 0;
-    if (buyCount < 2) return toast("Buy count must be 2 or more", true);
-    if (payCount < 1 || payCount >= buyCount) return toast("Pay count must be between 1 and buy count-1", true);
-    if (selMode === "category") {
-      payload = {
-        ...base,
-        kind: "pick",
-        selectionMode: "category",
-        categoryId: $("#sp-cat").value ? Number($("#sp-cat").value) : null,
-        sizeLabel: $("#sp-size").value || null,
-        count: buyCount,
-        buyCount,
-        payCount,
-        price: 0,
-      };
-      if (!payload.categoryId) return toast("Pick a category", true);
-    } else {
-      payload = {
-        ...base,
-        kind: "pick",
-        selectionMode: "items",
-        buyCount,
-        payCount,
-        price: 0,
-        items: specialPicks.map((p) => ({ itemId: p.itemId, quantity: p.quantity, sizeLabel: p.sizeLabel || null, extras: p.extras || [], paid: p.paid !== false })),
-      };
-      if (!payload.items.length) return toast("Pick at least one item", true);
-    }
+    const count = Number($("#sp-count").value) || 0;
+    const price = Number($("#sp-price").value) || 0;
+    if (!categoryId) return toast("Pick a category for the deal", true);
+    if (count < 1) return toast("Enter how many items the deal covers", true);
+    if (!(price > 0)) return toast("Enter the set price", true);
+    payload = { ...base, kind: "deal", categoryId, sizeLabel, count, price };
   } else if (kind === "bundle") {
     let spec = null;
-    try { spec = JSON.parse($("#sp-bundlespec").value.trim()); } catch (e) { return toast("Bundle spec must be valid JSON", true); }
-    if (!Array.isArray(spec) || !spec.length) return toast("Bundle spec must be a non-empty array", true);
-    payload = {
-      ...base,
-      kind: "bundle",
-      price: Number($("#sp-bundle-price").value) || 0,
-      bundleSpec: spec,
-    };
-    if (!payload.price) return toast("Bundle needs a price", true);
+    try { spec = JSON.parse($("#sp-bundlespec").value.trim()); } catch (e) { return toast("Bundle groups must be valid JSON", true); }
+    if (!Array.isArray(spec) || !spec.length) return toast("Bundle groups must be a non-empty list", true);
+    const price = Number($("#sp-bundle-price").value) || 0;
+    const hasPaid = spec.some((g) => typeof g.paid === "boolean");
+    if (!hasPaid && !(price > 0)) return toast("Bundle needs a price", true);
+    payload = { ...base, kind: "bundle", price, bundleSpec: spec };
   } else {
-    payload = {
-      ...base,
-      kind: "flat",
-      price: Number($("#sp-price").value) || 0,
-      items: specialPicks.map((p) => ({ itemId: p.itemId, quantity: p.quantity, sizeLabel: p.sizeLabel || null, extras: p.extras || [], paid: p.paid !== false })),
-    };
-    if (!payload.items.length) return toast("Pick at least one item", true);
+    const price = Number($("#sp-flat-price").value) || 0;
+    if (!pickItems().length) return toast("Pick at least one item", true);
+    if (preset === "reduced" && pickItems().length !== 1) return toast("A reduced-price offer needs exactly one item", true);
+    if (!(price > 0)) return toast("Enter the set price", true);
+    payload = { ...base, kind: "flat", price, items: pickItems() };
   }
-  if (!payload.name) return toast("Name is required", true);
+
   try {
     if (id) await api(`/api/specials/${id}`, { method: "PUT", body: JSON.stringify(payload) });
     else await api("/api/specials", { method: "POST", body: JSON.stringify(payload) });

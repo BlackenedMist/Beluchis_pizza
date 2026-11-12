@@ -20,7 +20,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.PORT || 3100;
-const ADMIN_PIN = process.env.ADMIN_PIN || "1234";
+// Never fall back to the well-known 1234 PIN in production. Local dev keeps it
+// for convenience; a deployed app without ADMIN_PIN disables the env-PIN login
+// (staff usernames/PINs still work).
+const ADMIN_PIN = process.env.ADMIN_PIN || (process.env.NODE_ENV === "production" ? null : "1234");
 
 // PayGate (PayWeb3) online payment config. Online payment stays disabled until
 // both PAYGATE_ID and PAYGATE_KEY are present in the environment.
@@ -54,7 +57,19 @@ const PUBLIC_ORIGIN = (PUBLIC_BASE_URL || `http://localhost:${PORT}`).replace(/\
 const PAYMENT_METHODS = new Set(["cod_cash", "cod_card", "paygate", "payfast", "pay_at_counter"]);
 const PAYMENT_STATUSES = new Set(["pending", "paid", "failed"]);
 
-app.use(express.json({ limit: "8mb" }));
+// Uploads carry a base64 data URL, so they need a bigger JSON body than the
+// rest of the API. Keeping the global limit small blunts oversized-payload
+// abuse on the public order/contact endpoints.
+app.use("/api/upload", express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "256kb" }));
+// Baseline browser hardening. CSP is intentionally omitted: the pages use
+// inline scripts and third-party map/font assets.
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  next();
+});
 // Keep the raw form body: both PayFast's ITN signature and PayGate's notify
 // checksum are computed over the fields in the order they were posted, and
 // express's parser may reorder keys.
@@ -66,6 +81,10 @@ app.use(
     },
   })
 );
+// The homepage is served at "/", but "/home" is a natural URL too. The static
+// handler would redirect "/home" to the public/home/ image directory and 404,
+// so register the alias before express.static.
+app.get("/home", (_req, res) => res.sendFile(path.join(__dirname, "..", "public", "home.html")));
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 // Printable guides (served as HTML for printing from the admin portal).
@@ -105,11 +124,51 @@ const slugify = (s) =>
 
 const asyncHandler = (fn) => (req, res) =>
   fn(req, res).catch((e) => {
-    console.error(e);
-    res.status(e.status || 500).json({ error: e.message });
+    const code = e.status || 500;
+    // Log unexpected failures only; expected 400s are part of normal traffic.
+    if (code >= 500) console.error(`[${req.method} ${req.originalUrl}]`, e);
+    res.status(code).json({ error: code >= 500 ? "Something went wrong. Please try again." : e.message });
   });
 
+// Order extras (toppings/bases/pasta display rows) are supplied by the browser.
+// The price must never be negative or absurd: a negative extra would otherwise
+// reduce an order below zero (and online orders under R0 are marked paid).
+const MAX_EXTRA_PRICE = 5000;
+const parseOrderExtras = (raw) => {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((x) => {
+    const name = String((x && x.name) ?? "").trim();
+    const price = Number(x && x.price);
+    if (!name) throw badRequest("each extra needs a name");
+    if (!Number.isFinite(price) || price < 0 || price > MAX_EXTRA_PRICE)
+      throw badRequest(`extra prices must be between R0 and R${MAX_EXTRA_PRICE}`);
+    return { name, price };
+  });
+};
+
 const publicCustomer = ({ passwordHash, ...rest }) => rest;
+
+// Look up a customer by phone, tolerating legacy formatted values
+// ("+27 82 555 0123") stored before canonicalisation. New rows are always
+// stored canonically; this keeps older imports able to log in.
+const findCustomerByPhone = async (raw) => {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return null;
+  const canonical = canonicalPhone(trimmed);
+  const candidates = [...new Set([canonical, trimmed].filter(Boolean))];
+  let unclaimed = null;
+  for (const cellphone of candidates) {
+    const row = await prisma.customer.findUnique({ where: { cellphone } });
+    if (!row) continue;
+    if (row.claimedAt) return row;
+    unclaimed = unclaimed || row;
+  }
+  // Legacy rows may still carry formatted numbers. Fall back to a normalised
+  // comparison and prefer a claimed account when duplicates exist.
+  const all = await prisma.customer.findMany({ where: { cellphone: { not: null } } });
+  const matches = all.filter((c) => canonicalPhone(c.cellphone) === canonical);
+  return matches.find((c) => c.claimedAt) || unclaimed || matches[0] || null;
+};
 
 const publicOrder = ({ customer, ...rest }) => ({ ...rest, customer: customer ? publicCustomer(customer) : null });
 
@@ -366,7 +425,10 @@ const readCookie = (req, name) => {
   const header = req.headers.cookie || "";
   for (const part of header.split(";")) {
     const [k, ...rest] = part.trim().split("=");
-    if (k === name) return decodeURIComponent(rest.join("="));
+    if (k === name) {
+      const raw = rest.join("=");
+      try { return decodeURIComponent(raw); } catch { return raw; }
+    }
   }
   return null;
 };
@@ -397,6 +459,15 @@ const createSession = (res, session) => {
   return token;
 };
 
+// Deactivating, deleting or resetting a staff member must not leave an old
+// browser session working until its 12h TTL expires.
+const revokeStaffSessions = (staffId) => {
+  const principal = `staff:${staffId}`;
+  for (const [token, s] of sessions) {
+    if (s.principal === principal) sessions.delete(token);
+  }
+};
+
 // ---- Customer portal sessions (separate cookie so staff/customer don't clash)
 const CUSTOMER_COOKIE = "beluchis_customer";
 const customerSessions = new Map(); // token -> { customerId, expiresAt }
@@ -425,6 +496,13 @@ const createCustomerSession = (res, customerId) => {
     `${CUSTOMER_COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`
   );
   return token;
+};
+
+// Password set/reset invalidates every existing portal session for the account.
+const revokeCustomerSessions = (customerId) => {
+  for (const [token, s] of customerSessions) {
+    if (s.customerId === customerId) customerSessions.delete(token);
+  }
 };
 
 const requireCustomerSession = (req, res, next) => {
@@ -490,6 +568,7 @@ app.post(
     const uname = String(username || "").trim();
 
     if (!uname || uname.toLowerCase() === "admin") {
+      if (!ADMIN_PIN) return res.status(503).json({ error: "Admin PIN is not configured on this server" });
       if (!safeEquals(entered, ADMIN_PIN)) return res.status(401).json({ error: "Invalid PIN" });
       createSession(res, { principal: "env-admin", role: "admin", name: "Admin (env PIN)" });
       return res.json({ ok: true, role: "admin", name: "Admin (env PIN)" });
@@ -538,14 +617,15 @@ app.post(
     if (throttledLogin(req)) return res.status(429).json({ error: "too many attempts, try again later" });
 
     const phone = canonicalPhone(cellphone);
-    let customer = await prisma.customer.findUnique({ where: { cellphone: phone } });
+    let customer = await findCustomerByPhone(cellphone);
     if (!customer)
       return res.status(404).json({
         error: "No account found for that cellphone. Place an order with it first, then come back to set your password.",
       });
 
     const nameProvided = String(firstName || "").trim();
-    if (nameProvided && !customer.username.startsWith("guest-") && customer.firstName.toLowerCase() !== nameProvided.toLowerCase()) {
+    if (!nameProvided) return res.status(400).json({ error: "First name is required to claim this account" });
+    if (customer.firstName.toLowerCase() !== nameProvided.toLowerCase()) {
       return res.status(401).json({ error: "That name does not match this account" });
     }
     if (customer.claimedAt) return res.status(400).json({ error: "This account already has a password - log in instead" });
@@ -559,6 +639,7 @@ app.post(
       },
     });
 
+    revokeCustomerSessions(customer.id);
     createCustomerSession(res, customer.id);
     res.status(201).json({ ok: true, customer: publicCustomer(customer) });
   })
@@ -568,12 +649,13 @@ app.post(
   "/api/customer/auth/register",
   asyncHandler(async (req, res) => {
     const { firstName, lastName, cellphone, email, password } = req.body || {};
+    if (throttledLogin(req)) return res.status(429).json({ error: "too many attempts, try again later" });
     if (!String(firstName || "").trim()) return res.status(400).json({ error: "First name is required." });
     if (!String(lastName || "").trim()) return res.status(400).json({ error: "Last name is required." });
     if (!String(cellphone || "").trim()) return res.status(400).json({ error: "Cellphone is required." });
     if (!password || String(password).length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
     const phone = canonicalPhone(cellphone);
-    const existing = await prisma.customer.findUnique({ where: { cellphone: phone } });
+    const existing = await findCustomerByPhone(cellphone);
     if (existing) return res.status(400).json({ error: "An account with that cellphone already exists. Log in or reset your password." });
     const username = "cust-" + phone.replace(/[^0-9]/g, "").slice(-8) + "-" + Math.random().toString(36).slice(2, 6);
     const customer = await prisma.customer.create({
@@ -596,17 +678,21 @@ app.post(
   "/api/customer/auth/reset-password",
   asyncHandler(async (req, res) => {
     const { cellphone, firstName, password } = req.body || {};
+    if (throttledLogin(req)) return res.status(429).json({ error: "too many attempts, try again later" });
     if (!String(cellphone || "").trim()) return res.status(400).json({ error: "Cellphone is required." });
     if (!password || String(password).length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
     const phone = canonicalPhone(cellphone);
-    const customer = await prisma.customer.findUnique({ where: { cellphone: phone } });
+    const customer = await findCustomerByPhone(cellphone);
     if (!customer || !customer.claimedAt) return res.status(404).json({ error: "No account found for that cellphone." });
-    if (firstName && String(firstName).trim() && customer.firstName.toLowerCase() !== String(firstName).trim().toLowerCase())
+    const first = String(firstName || "").trim();
+    if (!first) return res.status(400).json({ error: "First name is required to reset the password." });
+    if (customer.firstName.toLowerCase() !== first.toLowerCase())
       return res.status(401).json({ error: "That name does not match this account." });
     const updated = await prisma.customer.update({
       where: { id: customer.id },
       data: { passwordHash: await bcrypt.hash(String(password), 10) },
     });
+    revokeCustomerSessions(updated.id);
     createCustomerSession(res, updated.id);
     res.json({ ok: true, customer: publicCustomer(updated) });
   })
@@ -620,7 +706,7 @@ app.post(
       return res.status(400).json({ error: "cellphone and password are required" });
     if (throttledLogin(req)) return res.status(429).json({ error: "too many attempts, try again later" });
 
-    const customer = await prisma.customer.findUnique({ where: { cellphone: canonicalPhone(cellphone) } });
+    const customer = await findCustomerByPhone(cellphone);
     if (!customer || !customer.claimedAt) return res.status(401).json({ error: "invalid cellphone or password" });
     const ok = await bcrypt.compare(String(password), customer.passwordHash);
     if (!ok) return res.status(401).json({ error: "invalid cellphone or password" });
@@ -664,18 +750,18 @@ app.get(
         },
         orderBy: { createdAt: "desc" },
         take: 5,
-        select: { id: true, status: true, total: true, createdAt: true },
+        select: { id: true, dailyNumber: true, status: true, total: true, createdAt: true },
       });
       return res.json({
         hasActive: rows.length > 0,
         count: rows.length,
-        orders: rows.map((o) => ({ id: o.id, status: o.status, total: Number(o.total), createdAt: o.createdAt })),
+        orders: rows.map((o) => ({ id: o.id, dailyNumber: o.dailyNumber, status: o.status, total: Number(o.total), createdAt: o.createdAt })),
       });
     }
     // Guest: identify by cellphone query param.
     const phone = canonicalPhone(req.query.phone || "");
     if (!phone) return res.json({ hasActive: false, count: 0, orders: [] });
-    const customer = await prisma.customer.findUnique({ where: { cellphone: phone } });
+    const customer = await findCustomerByPhone(req.query.phone);
     if (!customer) return res.json({ hasActive: false, count: 0, orders: [] });
     const rows = await prisma.order.findMany({
       where: {
@@ -684,12 +770,15 @@ app.get(
       },
       orderBy: { createdAt: "desc" },
       take: 5,
-      select: { id: true, status: true, total: true, createdAt: true },
+      select: { id: true, dailyNumber: true, status: true, total: true, createdAt: true },
     });
     res.json({
       hasActive: rows.length > 0,
       count: rows.length,
-      orders: rows.map((o) => ({ id: o.id, status: o.status, total: Number(o.total), createdAt: o.createdAt })),
+      // Guests only learn that an active order exists. Order ids/status/totals
+      // stay private so a phone number cannot be used to probe someone else's
+      // orders.
+      orders: [],
     });
   })
 );
@@ -970,6 +1059,7 @@ app.put(
           ...(isActive !== undefined ? { isActive } : {}),
         },
       });
+      if (isActive === false || role !== undefined) revokeStaffSessions(id);
       res.json(publicStaffUser(row));
     } catch (e) {
       if (isUniqueViolation(e)) return res.status(400).json({ error: "username already exists" });
@@ -983,7 +1073,9 @@ app.delete(
   requireAuth,
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    await prisma.staffUser.delete({ where: { id: Number(req.params.id) } });
+    const id = Number(req.params.id);
+    await prisma.staffUser.delete({ where: { id } });
+    revokeStaffSessions(id);
     res.json({ ok: true });
   })
 );
@@ -1002,6 +1094,7 @@ app.post(
       where: { id },
       data: { pinHash: await bcrypt.hash(String(pin), 10) },
     });
+    revokeStaffSessions(id);
     res.json(publicStaffUser(row));
   })
 );
@@ -1069,7 +1162,12 @@ const specialIncludes = {
   category: true,
   items: {
     include: {
-      item: { include: { sizes: true } },
+      item: {
+        include: {
+          sizes: true,
+          images: { orderBy: { sortOrder: "asc" }, select: { url: true } },
+        },
+      },
     },
   },
 };
@@ -1080,6 +1178,17 @@ const specialIncludes = {
 const normalizeSpecialSize = (value) => {
   const label = value == null ? "" : String(value).trim();
   return label || null;
+};
+
+// Owner-authored home-page copy. Empty strings become null so the storefront
+// can fall back to generated text, and long input is clipped rather than
+// breaking a tile layout.
+const SPECIAL_TEXT_LIMITS = { homeHeadline: 120, homeSubtext: 240, homeBadge: 24, homePriceText: 40 };
+const normalizeSpecialText = (value, field) => {
+  const text = value == null ? "" : String(value).trim();
+  if (!text) return null;
+  const limit = SPECIAL_TEXT_LIMITS[field];
+  return limit ? text.slice(0, limit) : text;
 };
 
 const aggregateSpecialItems = (items) => {
@@ -1213,6 +1322,11 @@ app.post(
       payMode = "expensive",
       bundleSpec = null,
       exemptFromDeals = true,
+      collectionOnly = false,
+      homeHeadline = null,
+      homeSubtext = null,
+      homeBadge = null,
+      homePriceText = null,
     } = req.body || {};
     if (!name?.trim()) return res.status(400).json({ error: "name is required" });
     const kindNorm = normalizeSpecialKind(kind);
@@ -1252,7 +1366,9 @@ app.post(
       if (!Number.isInteger(pc) || pc < 1 || pc >= bc) return res.status(400).json({ error: "payCount must be between 1 and buyCount-1" });
       if (sm === "category") {
         try {
-          pick = await validatePickKind("deal", categoryId, sizeLabel, bc, price);
+          // A category pick is priced dynamically ("buy 3, get 1 free"), so it
+          // needs a category/size/count but not a flat price.
+          pick = await validatePickKind("pick", categoryId, sizeLabel, bc, price);
         } catch (e) {
           return res.status(e.status || 400).json({ error: e.message });
         }
@@ -1288,6 +1404,11 @@ app.post(
         selectionMode: pickMeta ? pickMeta.selectionMode : "",
         payMode: pickMeta ? payMode : (payMode || "expensive"),
         homeDisplay: homeDisplay === "banner" ? "banner" : "tile",
+        homeHeadline: normalizeSpecialText(homeHeadline, "homeHeadline"),
+        homeSubtext: normalizeSpecialText(homeSubtext, "homeSubtext"),
+        homeBadge: normalizeSpecialText(homeBadge, "homeBadge"),
+        homePriceText: normalizeSpecialText(homePriceText, "homePriceText"),
+        collectionOnly: Boolean(collectionOnly),
         imageUrl: imageUrl?.trim() || null,
         showOnHome: Boolean(showOnHome),
         isActive,
@@ -1324,7 +1445,7 @@ app.put(
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const { name, description, price, kind, categoryId, sizeLabel, count, imageUrl, showOnHome, isActive, sortOrder, items, weekdays, startDate, endDate, homeDisplay, payMode, bundleSpec, exemptFromDeals, selectionMode, buyCount, payCount } = req.body || {};
+    const { name, description, price, kind, categoryId, sizeLabel, count, imageUrl, showOnHome, isActive, sortOrder, items, weekdays, startDate, endDate, homeDisplay, payMode, bundleSpec, exemptFromDeals, selectionMode, buyCount, payCount, collectionOnly, homeHeadline, homeSubtext, homeBadge, homePriceText } = req.body || {};
     const existing = await prisma.special.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ error: "special not found" });
 
@@ -1353,8 +1474,9 @@ app.put(
       if (!Number.isInteger(pc) || pc < 1 || pc >= bc) return res.status(400).json({ error: "payCount must be between 1 and buyCount-1" });
       if (sm === "category") {
         try {
+          // Dynamic category pick: category/size/count, no flat price needed.
           pick = await validatePickKind(
-            "deal",
+            "pick",
             categoryId !== undefined ? categoryId : existing.categoryId,
             sizeLabel !== undefined ? sizeLabel : existing.sizeLabel,
             bc,
@@ -1412,6 +1534,11 @@ app.put(
           ...(startDate !== undefined ? { startDate: startDate ? new Date(startDate) : null } : {}),
           ...(endDate !== undefined ? { endDate: endDate ? new Date(endDate) : null } : {}),
           ...(homeDisplay !== undefined ? { homeDisplay: homeDisplay === "banner" ? "banner" : "tile" } : {}),
+          ...(homeHeadline !== undefined ? { homeHeadline: normalizeSpecialText(homeHeadline, "homeHeadline") } : {}),
+          ...(homeSubtext !== undefined ? { homeSubtext: normalizeSpecialText(homeSubtext, "homeSubtext") } : {}),
+          ...(homeBadge !== undefined ? { homeBadge: normalizeSpecialText(homeBadge, "homeBadge") } : {}),
+          ...(homePriceText !== undefined ? { homePriceText: normalizeSpecialText(homePriceText, "homePriceText") } : {}),
+          ...(collectionOnly !== undefined ? { collectionOnly: Boolean(collectionOnly) } : {}),
           ...(payMode !== undefined ? { payMode: payMode === "fixed" ? "fixed" : "expensive" } : {}),
           ...(bundleSpec !== undefined ? { bundleSpec: kindNorm === "bundle" ? (typeof bundleSpec === "string" ? bundleSpec : JSON.stringify(bundleSpec)) : null } : {}),
           ...(exemptFromDeals !== undefined ? { exemptFromDeals: Boolean(exemptFromDeals) } : {}),
@@ -1640,7 +1767,7 @@ app.post(
           firstName: firstName.trim(),
           lastName: lastName.trim(),
           email: email?.trim() || null,
-          cellphone: cellphone?.trim() || null,
+          cellphone: cellphone?.trim() ? canonicalPhone(cellphone) : null,
           username: username.trim(),
           passwordHash,
           lat: lat != null ? Number(lat) : null,
@@ -1685,7 +1812,7 @@ app.put(
     if (!existing) return res.status(404).json({ error: "customer not found" });
 
     const finalEmail = email !== undefined ? (String(email).trim() || null) : existing.email;
-    const finalCell = cellphone !== undefined ? (String(cellphone).trim() || null) : existing.cellphone;
+    const finalCell = cellphone !== undefined ? (String(cellphone).trim() ? canonicalPhone(cellphone) : null) : existing.cellphone;
     if (!validContact(finalEmail, finalCell)) return res.status(400).json({ error: "email or cellphone is required" });
 
     const data = {
@@ -1713,7 +1840,9 @@ app.delete(
   "/api/customers/:id",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    await prisma.customer.delete({ where: { id: Number(req.params.id) } });
+    const id = Number(req.params.id);
+    await prisma.customer.delete({ where: { id } });
+    revokeCustomerSessions(id);
     res.json({ ok: true });
   })
 );
@@ -2146,9 +2275,7 @@ const resolvePicks = async (special, picks) => {
     if (special.sizeLabel && item.sizes.length && sizeLabel !== special.sizeLabel)
       throw badRequest(`${special.name} is only available in ${special.sizeLabel}`);
 
-    const extras = Array.isArray(pick.extras)
-      ? pick.extras.map((x) => ({ name: String(x.name ?? ""), price: Number(x.price) || 0 }))
-      : [];
+    const extras = parseOrderExtras(pick.extras);
     resolved.push({ item, sizeLabel, base, extras, extrasTotal: extras.reduce((sum, x) => sum + x.price, 0) });
   }
   return resolved;
@@ -2187,9 +2314,7 @@ const resolvePickSpecial = async (special, picks) => {
     if (special.sizeLabel && item.sizes.length && sizeLabel !== special.sizeLabel)
       throw badRequest(`${special.name} is only available in ${special.sizeLabel}`);
 
-    const extras = Array.isArray(pick.extras)
-      ? pick.extras.map((x) => ({ name: String(x.name ?? ""), price: Number(x.price) || 0 }))
-      : [];
+    const extras = parseOrderExtras(pick.extras);
     resolved.push({ item, sizeLabel, base, extras, extrasTotal: extras.reduce((sum, x) => sum + x.price, 0) });
   }
   return resolved;
@@ -2225,9 +2350,7 @@ const resolveBundleSpecial = async (special, picks) => {
       base = size.price;
     }
 
-    const extras = Array.isArray(pick.extras)
-      ? pick.extras.map((x) => ({ name: String(x.name ?? ""), price: Number(x.price) || 0 }))
-      : [];
+    const extras = parseOrderExtras(pick.extras);
     resolved.push({ item, sizeLabel, base, extras, extrasTotal: extras.reduce((sum, x) => sum + x.price, 0) });
   }
 
@@ -2282,11 +2405,19 @@ app.post(
       deliveryAddress = null,
       deliveryAddressId = null,
       notes = null,
-      status = "placed",
+      status: statusInput = "placed",
       couponCode = null,
       paymentMethod = "cod_cash",
       quote = false,
     } = req.body || {};
+
+    // Only a staff session may choose the starting order state or attach an
+    // arbitrary customerId. Public storefront requests always start "placed"
+    // and identify the customer by their portal session or guest contact
+    // details (prevents a guest from writing into someone else's history).
+    const staffSession = getSession(req);
+    const status = staffSession ? statusInput : "placed";
+    const trustedCustomerId = staffSession ? customerId : null;
 
     // Legacy field names from the original storefront (lat/lng) are accepted
     // alongside the canonical deliveryLat/deliveryLng.
@@ -2295,6 +2426,9 @@ app.post(
     let resolvedDeliveryAddress = deliveryAddress;
     let resolvedAddressLabel = null;
     const isQuote = quote === true || quote === "true" || quote === 1 || quote === "1";
+    // Optional customer tip (delivery only). The storefront sends `tip`;
+    // older callers may send `tipAmount`. Rands, whole numbers.
+    let tipAmount = Math.max(0, Math.round(Number(req.body?.tip ?? req.body?.tipAmount ?? 0) || 0));
 
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "items are required" });
 
@@ -2331,7 +2465,7 @@ app.post(
 
     // Storefront hours: online ordering pauses outside the owner-set window,
     // unless the owner has forced "still open". Staff orders bypass the check.
-    if (!getSession(req)) {
+    if (!staffSession) {
       const shop = await getShopStatus();
       if (!shop.open) {
         return res.status(403).json({
@@ -2350,7 +2484,7 @@ app.post(
       Number.isFinite(nOr(lat)) ||
       Number.isFinite(nOr(lng));
     const sessCustomer = await currentCustomer(req);
-    if (wantsDeliveryInitial && !sessCustomer && !customerId) {
+    if (wantsDeliveryInitial && !sessCustomer && !trustedCustomerId) {
       return res.status(400).json({
         error: "Unregistered customers can only place collection orders. Please sign in for delivery, or clear the delivery address.",
         code: "guest_collection_only",
@@ -2358,12 +2492,13 @@ app.post(
     }
 
     // Customer resolution: a logged-in portal customer wins (guest orders placed
-    // while signed in attach to their account), otherwise explicit customerId or
-    // guest checkout that lazily finds/reuses/creates a Customer by cellphone/email.
+    // while signed in attach to their account), otherwise a staff-supplied
+    // customerId, or guest checkout that lazily finds/reuses/creates a Customer
+    // by cellphone/email.
     let customer = null;
     if (sessCustomer) {
       customer = sessCustomer;
-    } else if (!customerId) {
+    } else if (!trustedCustomerId) {
       if (isQuote) {
         // Never create a customer row for a price-only quote.
         customer = null;
@@ -2373,10 +2508,9 @@ app.post(
         if (!validContact(email, cellphone))
           return res.status(400).json({ error: "email or cellphone is required for guest checkout" });
         const lookupPhone = canonicalPhone(cellphone);
-        const lookup = lookupPhone
-          ? { cellphone: lookupPhone }
-          : { email: String(email).trim() };
-        customer = await prisma.customer.findUnique({ where: lookup });
+        customer = lookupPhone
+          ? await findCustomerByPhone(cellphone)
+          : await prisma.customer.findUnique({ where: { email: String(email).trim() } });
         if (!customer) {
           const guestUser = `guest-${String(cellphone || email).replace(/[^a-z0-9]/gi, "").slice(-10) || Math.random().toString(36).slice(2, 8)}`;
           customer = await prisma.customer.create({
@@ -2392,7 +2526,7 @@ app.post(
         }
       }
     } else {
-      customer = await prisma.customer.findUnique({ where: { id: Number(customerId) } });
+      customer = await prisma.customer.findUnique({ where: { id: Number(trustedCustomerId) } });
       if (!customer) return res.status(400).json({ error: "customer not found" });
     }
 
@@ -2440,6 +2574,10 @@ app.post(
     const delivery = await classifyDelivery({ deliveryAddress: resolvedDeliveryAddress, lat, lng });
 
     const wantsDelivery = wantsDeliveryInitial;
+    if (!wantsDelivery) tipAmount = 0;
+    // Collection-only specials cannot be redeemed on a delivery order. Collect
+    // every offender so the customer gets one clear message listing them all.
+    const blockedCollectionSpecials = [];
 
     const rows = [];
     // Regular item lines, remembered so the automatic-deal pass below can
@@ -2457,6 +2595,7 @@ app.post(
         const special = await prisma.special.findUnique({ where: { id: Number(line.specialId) } });
         if (!special) return res.status(400).json({ error: `special ${line.specialId} not found` });
         if (!special.isActive) return res.status(400).json({ error: `special ${special.id} is not active` });
+        if (special.collectionOnly && wantsDelivery) blockedCollectionSpecials.push(special.name);
 
         // Fixed-price deals (kind === "deal") have no line of their own.
         // They are applied server-side off the cart's regular item lines in
@@ -2611,7 +2750,10 @@ app.post(
       if (line.itemId == null) return res.status(400).json({ error: "each line needs itemId or specialId" });
       const item = await prisma.item.findUnique({
         where: { id: Number(line.itemId) },
-        include: { sizes: true },
+        include: {
+          sizes: true,
+          pastaTypes: { include: { pastaType: { include: { prices: true } } } },
+        },
       });
       if (!item) return res.status(400).json({ error: `item ${line.itemId} not found` });
       if (!item.isActive) return res.status(400).json({ error: `item ${item.id} is not active` });
@@ -2628,7 +2770,25 @@ app.post(
       }
 
       const quantity = Math.max(1, Number(line.quantity) || 1);
-      const extras = Array.isArray(line.extras) ? line.extras.map((x) => ({ name: String(x.name ?? ""), price: Number(x.price) || 0 })) : [];
+      const extras = parseOrderExtras(line.extras);
+
+      // Pasta type: priced from the DB, never the client. The client's copy of
+      // the "Pasta: …" display row is replaced so a stale/tampered price cannot
+      // survive. Types not linked to the item, inactive, or not sold in this
+      // size are rejected.
+      if (line.pastaTypeId != null && line.pastaTypeId !== "") {
+        const link = (item.pastaTypes || []).find((x) => x.pastaTypeId === Number(line.pastaTypeId));
+        if (!link || link.pastaType.isActive === false)
+          return res.status(400).json({ error: `pasta type ${line.pastaTypeId} is not available for ${item.name}` });
+        const priceRow = (link.pastaType.prices || []).find((p) => p.sizeLabel === sizeLabel);
+        if (!priceRow)
+          return res.status(400).json({ error: `${link.pastaType.name} is not available for ${item.name} in size ${sizeLabel || "—"}` });
+        for (let i = extras.length - 1; i >= 0; i--) {
+          if (/^Pasta:\s/i.test(extras[i].name)) extras.splice(i, 1);
+        }
+        extras.push({ name: "Pasta: " + link.pastaType.name, price: Number(priceRow.price) || 0 });
+      }
+
       const extrasTotal = extras.reduce((sum, x) => sum + x.price, 0);
       const unitPrice = item.sizes.length ? item.sizes.find((s) => s.sizeLabel === sizeLabel).price : 0;
       rows.push({
@@ -2645,6 +2805,17 @@ app.post(
       itemRows.push({ key: itemRows.length, item, sizeLabel, base: unitPrice, qty: quantity });
     }
 
+    if (blockedCollectionSpecials.length) {
+      return res.status(400).json({
+        error:
+          blockedCollectionSpecials.join(", ") +
+          (blockedCollectionSpecials.length === 1 ? " is" : " are") +
+          " only available on collection orders. Remove the special or choose collection.",
+        code: "special_collection_only",
+        specials: blockedCollectionSpecials,
+      });
+    }
+
     // ---- Automatic fixed-price deals (kind === "deal") --------------------------
     // Applied here, server-side, off the real item rows - the same rule the
     // cart previews with Shop.applyDeals(), so what the customer saw is what
@@ -2656,7 +2827,13 @@ app.post(
     // units stay billed at full price on their OrderItems.
     if (itemRows.length) {
       const dealSpecials = await prisma.special.findMany({
-        where: { kind: "deal", isActive: true, categoryId: { not: null } },
+        where: {
+          kind: "deal",
+          isActive: true,
+          categoryId: { not: null },
+          // Collection-only deals never discount a delivery order.
+          ...(wantsDelivery ? { collectionOnly: false } : {}),
+        },
       });
       // A unit is one individual pizza, so a qty-3 line contributes three.
       // `claimed` stops two overlapping deals from discounting the same pizza.
@@ -2756,7 +2933,7 @@ app.post(
     const dealLabel = [...dealLabels].join(", ") || null;
     const discountAmount = dealSaving + couponDiscount;
     const discountLabel = [dealLabel, couponLabel].filter(Boolean).join(" + ") || null;
-    const grandTotal = orderTotal - discountAmount;
+    const grandTotal = orderTotal - discountAmount + tipAmount;
 
     // Price-only quote: validate everything, return totals, never create an
     // order, never touch coupons, never call the payment gateway.
@@ -2905,6 +3082,9 @@ app.post(
 
     const full = await prisma.order.findUnique({ where: { id: order.id }, include: orderIncludes });
     const payload = publicOrder(full);
+    // A guest order must not echo a matched customer's profile (email, address
+    // pins, etc.) back to the browser that typed the phone number.
+    if (!staffSession && !sessCustomer) delete payload.customer;
     if (payRedirect) payload.redirect = payRedirect;
     // Best-effort order confirmation email (never blocks checkout; fire & forget).
     // Online orders wait for payment confirmation so an abandoned PayGate page
@@ -3314,10 +3494,11 @@ app.get(
     const minSpend = req.query.minSpend != null && req.query.minSpend !== "" ? Number(req.query.minSpend) : null;
     const minOrders = req.query.minOrders != null && req.query.minOrders !== "" ? Number(req.query.minOrders) : null;
 
-    // Revenue = payable (grandTotal ?? total) on non-cancelled orders.
+    // Revenue = payable (grandTotal ?? total) on non-cancelled orders, less
+    // driver tips (tips are not shop spend).
     const orders = await prisma.order.findMany({
       where: { status: { not: "cancelled" } },
-      select: { customerId: true, total: true, grandTotal: true, createdAt: true },
+      select: { customerId: true, total: true, grandTotal: true, tipAmount: true, createdAt: true },
     });
     const customers = await prisma.customer.findMany({
       select: { id: true, firstName: true, lastName: true, cellphone: true, email: true },
@@ -3330,7 +3511,7 @@ app.get(
     const lastOrder = new Map();
     const now = Date.now();
     for (const o of orders) {
-      const pay = o.grandTotal ?? o.total;
+      const pay = Math.max(0, (o.grandTotal ?? o.total) - (o.tipAmount || 0));
       const cid = o.customerId;
       orderCount.set(cid, (orderCount.get(cid) || 0) + 1);
       totals.lifetime += pay;
@@ -3531,6 +3712,7 @@ const itemIncludes = {
   images: { orderBy: { sortOrder: "asc" } },
   toppings: { include: { topping: { include: { prices: true } } } },
   bases: { include: { base: { include: { prices: true } } } },
+  pastaTypes: { include: { pastaType: { include: { prices: true } } } },
 };
 
 app.get(
@@ -3548,7 +3730,7 @@ app.post(
   "/api/items",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    const { name, description = null, itemType = "menuitem", categoryId = null, imageUrl = null, showOnHome = false, sizes = [], toppingIds = [], baseIds = [], images = [], sortOrder = 0 } = req.body || {};
+    const { name, description = null, itemType = "menuitem", categoryId = null, imageUrl = null, showOnHome = false, sizes = [], toppingIds = [], baseIds = [], pastaTypeIds = [], images = [], sortOrder = 0 } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     const row = await prisma.$transaction(async (tx) => {
@@ -3579,6 +3761,11 @@ app.post(
           data: baseIds.map((id) => ({ itemId: item.id, baseId: Number(id) })),
         });
       }
+      if (pastaTypeIds.length) {
+        await tx.itemPastaType.createMany({
+          data: pastaTypeIds.map((id) => ({ itemId: item.id, pastaTypeId: Number(id) })),
+        });
+      }
       if (Array.isArray(images) && images.length) {
         await tx.itemImage.createMany({
           data: images.map((im, i) => ({ itemId: item.id, url: (im && im.url) || String(im), alt: (im && im.alt) || null, sortOrder: (im && im.sortOrder) ?? i })),
@@ -3595,7 +3782,7 @@ app.put(
   "/api/items/:id",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    const { name, description, itemType, categoryId, imageUrl, showOnHome, sizes, toppingIds, baseIds, images, sortOrder, isActive } = req.body || {};
+    const { name, description, itemType, categoryId, imageUrl, showOnHome, sizes, toppingIds, baseIds, pastaTypeIds, images, sortOrder, isActive } = req.body || {};
     const id = Number(req.params.id);
     const row = await prisma.$transaction(async (tx) => {
       const item = await tx.item.update({
@@ -3633,6 +3820,14 @@ app.put(
         if (baseIds.length) {
           await tx.itemBase.createMany({
             data: baseIds.map((bid) => ({ itemId: id, baseId: Number(bid) })),
+          });
+        }
+      }
+      if (Array.isArray(pastaTypeIds)) {
+        await tx.itemPastaType.deleteMany({ where: { itemId: id } });
+        if (pastaTypeIds.length) {
+          await tx.itemPastaType.createMany({
+            data: pastaTypeIds.map((pid) => ({ itemId: id, pastaTypeId: Number(pid) })),
           });
         }
       }
@@ -3810,6 +4005,108 @@ app.delete(
   })
 );
 
+// ---------------------------------------------------------------- Pasta types
+// Mirrors Bases: a named type with a price adjustment per size, linked to
+// items. `applyToPastas` is an admin convenience that links the type to every
+// item in the "pastas" category so the owner does not have to tick 11 items.
+const PASTA_CATEGORY_SLUG = "pastas";
+
+const linkPastaTypeToPastas = async (pastaTypeId) => {
+  // Follow the category even if the owner renames it (the slug follows the
+  // name on save), with a small fallback for singular "Pasta".
+  const cat = await prisma.category.findFirst({
+    where: { OR: [{ slug: PASTA_CATEGORY_SLUG }, { name: { in: ["Pastas", "Pasta"] } }, { name: { startsWith: "Pasta" } }] },
+  });
+  if (!cat) return 0;
+  const items = await prisma.item.findMany({ where: { categoryId: cat.id }, select: { id: true } });
+  if (!items.length) return 0;
+  const existing = await prisma.itemPastaType.findMany({ where: { pastaTypeId }, select: { itemId: true } });
+  const have = new Set(existing.map((x) => x.itemId));
+  const rows = items.filter((i) => !have.has(i.id)).map((i) => ({ itemId: i.id, pastaTypeId }));
+  if (rows.length) await prisma.itemPastaType.createMany({ data: rows });
+  return rows.length;
+};
+
+app.get(
+  "/api/pasta-types",
+  asyncHandler(async (_req, res) => {
+    const rows = await prisma.pastaType.findMany({
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      include: { prices: true, _count: { select: { items: true } } },
+    });
+    res.json(rows);
+  })
+);
+
+app.post(
+  "/api/pasta-types",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    const { name, description = null, prices = [], sortOrder = 0, isActive = true, applyToPastas = false } = req.body || {};
+    if (!name?.trim()) return res.status(400).json({ error: "name is required" });
+    const row = await prisma.pastaType.create({
+      data: {
+        name: name.trim(),
+        slug: slugify(name),
+        description,
+        sortOrder: Number(sortOrder) || 0,
+        isActive: isActive !== false,
+        prices: Array.isArray(prices) && prices.length
+          ? { create: prices.map((p) => ({ sizeLabel: String(p.sizeLabel).trim(), price: Number(p.price) || 0 })) }
+          : undefined,
+      },
+      include: { prices: true, _count: { select: { items: true } } },
+    });
+    let linked = 0;
+    if (applyToPastas) linked = await linkPastaTypeToPastas(row.id);
+    res.status(201).json({ ...row, linked });
+  })
+);
+
+app.put(
+  "/api/pasta-types/:id",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const { name, description, prices, sortOrder, isActive, applyToPastas = false } = req.body || {};
+    await prisma.$transaction(async (tx) => {
+      await tx.pastaType.update({
+        where: { id },
+        data: {
+          ...(name !== undefined ? { name: String(name).trim(), slug: slugify(name) } : {}),
+          ...(description !== undefined ? { description } : {}),
+          ...(sortOrder !== undefined ? { sortOrder: Number(sortOrder) || 0 } : {}),
+          ...(isActive !== undefined ? { isActive: Boolean(isActive) } : {}),
+        },
+      });
+      if (Array.isArray(prices)) {
+        await tx.pastaTypePrice.deleteMany({ where: { pastaTypeId: id } });
+        if (prices.length) {
+          await tx.pastaTypePrice.createMany({
+            data: prices.map((p) => ({ pastaTypeId: id, sizeLabel: String(p.sizeLabel).trim(), price: Number(p.price) || 0 })),
+          });
+        }
+      }
+    });
+    let linked = 0;
+    if (applyToPastas) linked = await linkPastaTypeToPastas(id);
+    const full = await prisma.pastaType.findUnique({
+      where: { id },
+      include: { prices: true, _count: { select: { items: true } } },
+    });
+    res.json({ ...full, linked });
+  })
+);
+
+app.delete(
+  "/api/pasta-types/:id",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    await prisma.pastaType.delete({ where: { id: Number(req.params.id) } });
+    res.json({ ok: true });
+  })
+);
+
 // --------------------------------------------------------- PayGate callbacks
 app.post(
   "/paygate/notify",
@@ -3856,10 +4153,11 @@ async function paygateReturn(req, res) {
 app.get(
   "/api/stats",
   asyncHandler(async (_req, res) => {
-    const [items, toppings, bases, categories, links, customers, orders, orderItems, specials, contact, coupons, orderStatusEvents] = await Promise.all([
+    const [items, toppings, bases, pastaTypes, categories, links, customers, orders, orderItems, specials, contact, coupons, orderStatusEvents] = await Promise.all([
       prisma.item.count(),
       prisma.topping.count(),
       prisma.base.count(),
+      prisma.pastaType.count(),
       prisma.category.count(),
       prisma.itemTopping.count(),
       prisma.customer.count(),
@@ -3874,6 +4172,7 @@ app.get(
       items,
       toppings,
       bases,
+      pastaTypes,
       categories,
       links,
       customers,

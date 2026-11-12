@@ -35,6 +35,7 @@ model Item {
   sizes       ItemSize[]
   toppings    ItemTopping[]
   bases       ItemBase[]
+  pastaTypes  ItemPastaType[]
   images      ItemImage[]
   orderItems  OrderItem[]
   specialItems SpecialItem[]
@@ -70,7 +71,12 @@ model Special {
   payMode       String        @default("expensive") // "expensive" | "fixed"
   bundleSpec    String?       // JSON array of groups for kind="bundle": [{name, categories:[id], sizeLabel, count}]
   exemptFromDeals Boolean @default(true) // specials are exempt from automatic deals by default
+  collectionOnly Boolean      @default(false) // only redeemable on collection (pickup) orders
   homeDisplay   String        @default("tile") // "tile" | "banner"
+  homeHeadline  String?       // custom home tile/banner headline (falls back to generated copy)
+  homeSubtext   String?       // custom home supporting line
+  homeBadge     String?       // optional promo badge, e.g. "SAVE R89"
+  homePriceText String?       // custom price label, e.g. "Buy 3, get 1 FREE"
   weekdays      String?       // comma list e.g. "Wed" or "Mon,Wed,Fri"
   startDate     DateTime?
   endDate       DateTime?
@@ -321,6 +327,39 @@ model ItemBase {
   base   Base @relation(fields: [baseId], references: [id], onDelete: Cascade)
 
   @@unique([itemId, baseId])
+}
+
+// Pasta types (Spaghetti, Penne, Linguine, …) work like pizza bases: each type
+// can add a different amount per size, and items opt in to the types they sell.
+model PastaType {
+  id          Int              @id @default(autoincrement())
+  name        String
+  slug        String           @unique
+  description String?
+  sortOrder   Int              @default(0)
+  isActive    Boolean          @default(true)
+  prices      PastaTypePrice[]
+  items       ItemPastaType[]
+}
+
+model PastaTypePrice {
+  id          Int       @id @default(autoincrement())
+  pastaTypeId Int
+  pastaType   PastaType @relation(fields: [pastaTypeId], references: [id], onDelete: Cascade)
+  sizeLabel   String
+  price       Int
+
+  @@unique([pastaTypeId, sizeLabel])
+}
+
+model ItemPastaType {
+  id          Int       @id @default(autoincrement())
+  itemId      Int
+  item        Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  pastaTypeId Int
+  pastaType   PastaType @relation(fields: [pastaTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, pastaTypeId])
 }
 
 model StaffUser {

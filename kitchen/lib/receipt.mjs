@@ -116,6 +116,7 @@ export function buildReceipt(order) {
     segs.push({ text: `Subtotal: ${money(order.total)}` });
     segs.push({ text: `Discount: -${money(order.discountAmount)}` });
   }
+  if (order.tipAmount > 0) segs.push({ text: `Tip: ${money(order.tipAmount)}` });
   const totalAmount = order.grandTotal ?? order.total;
   const paidOnline = order.paymentStatus === 'paid' && (order.paymentMethod === 'paygate' || order.paymentMethod === 'payfast');
   if (paidOnline) {

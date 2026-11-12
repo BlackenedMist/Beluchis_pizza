@@ -218,8 +218,8 @@
         <input type="tel" id="setpw-phone" placeholder="e.g. 081 234 5678" autocomplete="tel" required />
       </div>
       <div class="field">
-        <label for="setpw-name">First name (optional, for guest accounts)</label>
-        <input type="text" id="setpw-name" placeholder="e.g. Paul" autocomplete="name" />
+        <label for="setpw-name">First name (required to verify the account)</label>
+        <input type="text" id="setpw-name" placeholder="e.g. Paul" autocomplete="name" required />
       </div>
       <div class="field">
         <label for="setpw-pass">Choose a password</label>
@@ -237,7 +237,7 @@
      </form>
      <form id="reset-form" hidden>
        <div class="field"><label for="reset-phone">Cellphone</label><input type="tel" id="reset-phone" placeholder="e.g. 081 234 5678" autocomplete="tel" required /></div>
-       <div class="field"><label for="reset-name">First name (verification)</label><input type="text" id="reset-name" placeholder="e.g. Paul" autocomplete="name" /></div>
+       <div class="field"><label for="reset-name">First name</label><input type="text" id="reset-name" placeholder="e.g. Paul" autocomplete="name" required /></div>
        <div class="field"><label for="reset-pass">New password</label><input type="password" id="reset-pass" placeholder="At least 4 characters" autocomplete="new-password" required /></div>
        <button class="primary" type="submit" id="reset-btn">Reset password</button>
      </form>
@@ -610,6 +610,7 @@ function orderCard(o) {
         <div class="order-total">
           ${hasDiscount ? `<span class="was">${money(o.total)}</span> <span class="discount">−${money(o.discountAmount)}</span><br>` : ""}
           <b>${money(o.grandTotal)}</b>
+          ${o.tipAmount ? `<div class="discount">incl. ${money(o.tipAmount)} tip</div>` : ""}
           ${o.discountCode ? `<div class="discount">code ${esc(o.discountCode)}</div>` : ""}
         </div>
       </div>
@@ -1042,6 +1043,24 @@ window.reorder = async (orderId) => {
     let sizeLabel = row.sizeLabel || null;
     if (sizes.length && !sizes.some((s) => s.sizeLabel === sizeLabel)) sizeLabel = sizes[0].sizeLabel;
     const sz = sizes.length ? sizes.find((s) => s.sizeLabel === sizeLabel) : null;
+    // Rebuild the pasta-type choice from the "Pasta: <name>" extra and refresh
+    // its price from today's menu (the server re-prices it again at checkout).
+    let extras = parseExtras(row.extras);
+    let pastaTypeId = null;
+    const pastaEntry = extras.find((e) => /^Pasta:\s/i.test(e.name || ""));
+    if (pastaEntry) {
+      const want = String(pastaEntry.name).replace(/^Pasta:\s*/i, "").trim().toLowerCase();
+      const link = (item.pastaTypes || []).find((pt) =>
+        pt.pastaType && pt.pastaType.name.toLowerCase() === want && Shop.pastaPriceOf(pt, sizeLabel) !== null);
+      if (link) {
+        pastaTypeId = link.pastaType.id;
+        const current = Shop.pastaPriceOf(link, sizeLabel) || 0;
+        extras = extras.map((e) => (e === pastaEntry ? { name: e.name, price: current } : e));
+      } else {
+        // The type is no longer offered on this dish — never charge for it.
+        extras = extras.filter((e) => e !== pastaEntry);
+      }
+    }
     Shop.addLine({
       kind: "item",
       itemId: item.id,
@@ -1049,7 +1068,8 @@ window.reorder = async (orderId) => {
       catHint: item.category ? item.category.name : "",
       sizeLabel,
       unitPrice: sz ? sz.price : 0,
-      extras: parseExtras(row.extras),
+      extras,
+      pastaTypeId,
       qty: row.quantity || 1,
     });
     added += row.quantity || 1;

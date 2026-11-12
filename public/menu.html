@@ -76,7 +76,30 @@
     display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
   }
   .banner b { color: var(--ink); }
-  section.category { margin-bottom: 26px; }
+  /* Sticky category shortcuts so long menus (pasta, desserts, …) are one tap away. */
+  .menu-nav {
+    position: sticky; top: var(--menu-nav-top, 68px); z-index: 15;
+    margin: 0 -16px 16px; padding: 8px 16px 6px;
+    background: rgba(250, 247, 240, .94);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  .menu-nav-track {
+    display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 4px;
+    scrollbar-width: none; -ms-overflow-style: none;
+  }
+  .menu-nav-track::-webkit-scrollbar { display: none; }
+  .menu-chip {
+    flex: 0 0 auto; white-space: nowrap; text-decoration: none;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 700;
+    line-height: 1.2; transition: background .15s, color .15s, border-color .15s;
+  }
+  .menu-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .menu-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .menu-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #menu-deals { scroll-margin-top: var(--menu-nav-offset, 130px); }
+  section.category { margin-bottom: 26px; scroll-margin-top: var(--menu-nav-offset, 130px); }
   section.category.flash { animation: catFlash 2.2s ease; border-radius: var(--radius); }
   @keyframes catFlash { 0%, 55% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 60%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
   .item.flash { animation: itemFlash 2.2s ease; }
@@ -147,6 +170,9 @@
   }
   .special-img { height: 120px; overflow: hidden; margin: -16px -18px 12px; }
   .special-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .special-img .special-slides { position: relative; height: 100%; }
+  .special-img .special-slides img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .9s ease; }
+  .special-img .special-slides img.on { opacity: 1; }
   .special-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
   .special-top h3 { margin: 0; font-size: 16px; }
   .special-top .price { color: var(--accent); font-weight: 800; font-size: 16px; }
@@ -478,6 +504,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="/special-display.js"></script>
 <script src="/shop.js"></script>
 <script>
 "use strict";
@@ -572,7 +599,7 @@ function refreshDeliveryHint() {
   }
 }
 
-let CATS = [], ITEMS = [], SPECIALS = [], TOPPINGS_BY_ID = {};
+let CATS = [], ITEMS = [], SPECIALS = [];
 let DUPE_NAMES = new Set();
 let itemById = new Map();
 let activeItems = [];
@@ -591,11 +618,23 @@ const reconcileCart = Shop.reconcile;
 const addLine = Shop.addLine;
 const changeQty = Shop.changeQty;
 const removeLine = Shop.removeLine;
+// Collection-only specials: advertisement is welcome, but delivery orders
+// cannot redeem them. `Shop.fulfilment` is kept in step with the checkout
+// Delivery/Collection toggle.
+const collectionOnlyLines = () => CART.filter((l) => l && l.collectionOnly);
+function collectionOnlyBlocked(s) {
+  if (!s || !s.collectionOnly) return false;
+  if (Shop.fulfilment !== "delivery") return false;
+  toast(s.name + " is collection only. Choose Collection at checkout to use it.");
+  return true;
+}
 const sizeRowOf = Shop.sizeRowOf;
 const basePriceOf = Shop.basePriceOf;
 const topPriceOf = Shop.topPriceOf;
 const availBases = Shop.availBases;
 const availToppings = Shop.availToppings;
+const pastaPriceOf = Shop.pastaPriceOf;
+const availPastaTypes = Shop.availPastaTypes;
 const hasCustom = Shop.hasCustom;
 
 const customUnitTotal = () => {
@@ -606,6 +645,11 @@ const customUnitTotal = () => {
   if (baseBtn) {
     const b = item.bases.find((x) => x.base.id === Number(baseBtn.value));
     if (b) unit += basePriceOf(b, size) || 0;
+  }
+  const pastaSel = $("#pick-pasta", $("#customize-modal"));
+  if (pastaSel) {
+    const pt = (item.pastaTypes || []).find((x) => x.pastaType.id === Number(pastaSel.value));
+    if (pt) unit += pastaPriceOf(pt, size) || 0;
   }
   for (const c of $$("input[data-top-id]:checked", $("#customize-modal"))) {
     const t = item.toppings.find((x) => x.topping.id === Number(c.dataset.topId));
@@ -619,6 +663,18 @@ const customDisplay = (el) => {
   el.textContent = qty > 1 ? money(unit) + " \u00d7 " + qty + " = " + money(unit * qty) : money(unit);
 };
 
+function menuNavHtml() {
+  const cats = CATS.filter((c) => (c._items || []).length);
+  if (!cats.length) return "";
+  const chips = [];
+  if (SPECIALS.length) chips.push('<a class="menu-chip" href="#menu-deals" data-menu-jump="deals">Deals</a>');
+  for (const c of cats) {
+    chips.push('<a class="menu-chip" href="#cat-' + c.id + '" data-menu-jump="' + c.id + '">' + esc(c.name) + "</a>");
+  }
+  return '<nav class="menu-nav" id="menu-nav" aria-label="Jump to a menu section">' +
+    '<div class="menu-nav-track">' + chips.join("") + "</div></nav>";
+}
+
 function renderMenu() {
   const app = $("#app");
   const parts = [];
@@ -631,9 +687,14 @@ function renderMenu() {
     );
   }
 
+  parts.push(menuNavHtml());
+
   if (SPECIALS.length) {
-    parts.push('<h2 style="margin:0 0 10px;font-size:18px;">Deals</h2>');
+    parts.push('<h2 id="menu-deals" style="margin:0 0 10px;font-size:18px;">Deals</h2>');
     parts.push('<div class="deals-carousel"><div class="deals-track">' + SPECIALS.map((s) => {
+      const D = window.SpecialDisplay;
+      const collectionOnly = Boolean(s.collectionOnly);
+      const locked = collectionOnly ? ' data-collection-only="1"' : "";
       const bogo = s.kind === "bogo" || s.kind === "pick";
       const bundle = s.kind === "bundle";
       // Fixed-price deals are never added as a cart line - they price
@@ -642,22 +703,22 @@ function renderMenu() {
       const deal = s.kind === "deal";
       const dealCat = deal && s.category ? s.category.name : "";
       const action = bogo || bundle
-        ? '<button class="add-special" data-bogo-id="' + s.id + '">' + (bundle ? "Build your bundle" : "Build your deal") + '</button>'
+        ? '<button class="add-special" data-bogo-id="' + s.id + '"' + locked + '>' + (bundle ? "Build your bundle" : "Build your deal") + '</button>'
         : deal
-          ? '<button class="add-special" data-goto-cat="' + (s.categoryId ?? "") + '">' +
+          ? '<button class="add-special" data-goto-cat="' + (s.categoryId ?? "") + '"' + locked + '>' +
             (dealCat ? "Shop " + esc(dealCat) : "Shop the menu") + "</button>"
           : '<span class="stepper" role="group" aria-label="Quantity for ' + esc(s.name) + '">' +
             '<button type="button" data-qdec-special="' + s.id + '" aria-label="Decrease">&minus;</button>' +
             '<span class="n" data-qty-special="' + s.id + '">' + (specQty.get(s.id) || 1) + "</span>" +
             '<button type="button" data-qinc-special="' + s.id + '" aria-label="Increase">+</button></span>' +
-            '<button class="add-special" data-special-id="' + s.id + '">Add to Order</button>';
+            '<button class="add-special" data-special-id="' + s.id + '"' + locked + '>Add to Order</button>';
       const detail = bundle
         ? '<div class="special-parts">' + (JSON.parse(s.bundleSpec || "[]").map((g) => '<span class="part">' + esc(g.name) + ": " + g.count + " x " + esc(g.sizeLabel) + "</span>").join("")) + "</div>"
         : bogo
         ? '<div class="special-parts">' +
             (s.category ? '<span class="part">Pick any ' + esc(s.category.name) + "</span>" : "") +
             (s.sizeLabel ? '<span class="part">' + esc(s.sizeLabel) + " only</span>" : "") +
-            '<span class="part">Choose ' + (s.kind === "pick" ? (s.buyCount || s.count) : s.count) + " &middot; pay for " + (s.kind === "pick" ? (s.payCount || (s.buyCount || s.count) - 1) : s.count / 2) + "</span>" +
+            '<span class="part">' + esc(D.headline(s)) + "</span>" +
           "</div>"
         : deal
           ? '<div class="special-parts">' +
@@ -666,18 +727,26 @@ function renderMenu() {
             "</div>"
           : (s.items || []).map((si) => '<span class="part">' + (si.quantity > 1 ? si.quantity + "&times; " : "") + esc(si.item.name) + (si.sizeLabel ? " (" + esc(si.sizeLabel) + ")" : "") + "</span>").join("");
       const partsHtml = bogo || deal ? detail : (detail ? '<div class="special-parts">' + detail + "</div>" : "");
-      const priceText = bogo
-        ? "Pick " + s.count + ", pay " + s.count / 2
-        : deal
-          ? money(s.price) + " for " + s.count
-          : money(s.price);
+      const priceText = D.priceText(s) || (Number(s.price) > 0 ? money(s.price) : "");
+      const offerLine = D.headline(s) && D.headline(s) !== s.name
+        ? '<div class="special-desc" style="font-weight:700;color:var(--ink)">' + esc(D.headline(s)) + "</div>"
+        : "";
+      const pics = D.images(s, ITEMS);
       const imgHtml = s.imageUrl
         ? '<div class="special-img"><img src="' + esc(s.imageUrl) + '" alt="' + esc(s.name) + '" loading="lazy" onerror="this.parentElement.style.display=\'none\'" /></div>'
-        : "";
+        : pics.length
+          ? '<div class="special-img"><div class="special-slides" data-special-slides>' +
+            pics.map((u, i) => '<img src="' + esc(u) + '" alt="" class="' + (i === 0 ? "on" : "") + '" loading="lazy" onerror="this.remove()" />').join("") +
+            '</div></div>'
+          : "";
+      const badges = (D.badge(s) ? '<span class="part" style="background:var(--accent);color:#fff">' + esc(D.badge(s)) + "</span>" : "") +
+        (collectionOnly ? '<span class="part" style="background:#16603a;color:#fff">Collection only</span>' : "");
       return (
         '<div class="special-card">' +
         imgHtml +
-        '<div class="special-top"><h3>' + esc(s.name) + '</h3><span class="price">' + priceText + "</span>" + favButton("special", s.id) + "</div>" +
+        '<div class="special-top"><h3>' + esc(s.name) + '</h3><span class="price">' + esc(priceText) + "</span>" + favButton("special", s.id) + "</div>" +
+        (badges ? '<div class="special-parts">' + badges + "</div>" : "") +
+        offerLine +
         (s.description ? '<div class="special-desc">' + esc(s.description) + "</div>" : "") +
         partsHtml +
         '<div class="special-actions">' + action + "</div></div>"
@@ -689,7 +758,7 @@ function renderMenu() {
     const rows = cat._items || [];
     if (!rows.length) continue;
     parts.push(
-      '<section class="category" data-cat-id="' + cat.id + '" data-cat-slug="' + esc(cat.slug || "") + '">' +
+      '<section class="category" id="cat-' + cat.id + '" data-cat-id="' + cat.id + '" data-cat-slug="' + esc(cat.slug || "") + '">' +
       '<div class="cat-head"><h2>' + esc(cat.name) + "</h2>" + (cat.dealText ? '<span class="deal">' + esc(cat.dealText) + "</span>" : "") + "</div>" +
       '<div class="card">' +
       rows.map((item) => {
@@ -724,6 +793,9 @@ function renderMenu() {
   }
 
   app.innerHTML = parts.join("");
+  try { window.SpecialDisplay.mountSlideshows(app); } catch (e) {}
+  syncMenuNavOffset();
+  trackMenuNav();
   refreshCartUI();
 }
 
@@ -803,10 +875,25 @@ function renderCustomize() {
   const { item, size } = customModal;
   const bases = availBases(item, size);
   const tops = availToppings(item, size);
+  const pastaTypes = availPastaTypes(item, size);
 
   let base = bases.find((b) => b.base.id === Number(customModal.baseId));
   if (!base) base = bases.find((b) => basePriceOf(b, size) === 0) || bases[0];
   customModal.baseId = base ? base.base.id : null;
+
+  let pasta = pastaTypes.find((p) => p.pastaType.id === Number(customModal.pastaTypeId));
+  if (!pasta) pasta = pastaTypes.find((p) => (pastaPriceOf(p, size) || 0) === 0) || pastaTypes[0];
+  customModal.pastaTypeId = pasta ? pasta.pastaType.id : null;
+
+  const pastaOpts = pastaTypes.length
+    ? '<div class="field"><label>Pasta type</label><select id="pick-pasta">' +
+      pastaTypes.map((p) => {
+        const adj = pastaPriceOf(p, size) || 0;
+        return '<option value="' + p.pastaType.id + '"' + (p.pastaType.id === customModal.pastaTypeId ? " selected" : "") + ">" +
+          esc(p.pastaType.name) + (adj ? " (+" + money(adj) + ")" : "") + "</option>";
+      }).join("") +
+      "</select></div>"
+    : "";
 
   const baseOpts = (bases.length
     ? '<div class="field"><label>Base</label><select id="pick-base">' +
@@ -850,7 +937,7 @@ function renderCustomize() {
   } else {
     customModal.swapFor = null;
   }
-  const note = !bases.length && !tops.length ? '<p class="hint">Includes base and standard toppings. Not available with extra toppings.</p>' : "";
+  const note = !bases.length && !tops.length && !pastaTypes.length ? '<p class="hint">Includes base and standard toppings. Not available with extra toppings.</p>' : "";
 
   const cImgs = (item.images && item.images.length) ? item.images : (item.imageUrl ? [{ url: item.imageUrl, alt: item.name }] : []);
   const cGallery = cImgs.length
@@ -865,7 +952,7 @@ function renderCustomize() {
     "<h3>" + esc(item.name) + "</h3>" +
     '<p class="sub">' + esc(size) + " &middot; " + money(sizeRowOf(item, size).price) + (item.description ? " &middot; " + esc(item.description) : "") + "</p>" +
     '<div class="size-pick">' + customizeSizes() + "</div>" +
-    baseOpts + topList + swapHtml + note +
+    pastaOpts + baseOpts + topList + swapHtml + note +
     '<div class="modal-actions">' +
     '<span class="total" id="custom-total"></span>' +
     '<span class="stepper" role="group" aria-label="Quantity">' +
@@ -884,7 +971,8 @@ $("#customize-modal").addEventListener("change", (e) => {
     customModal.swapPick = Number(e.target.value);
     return;
   }
-  if (e.target.matches("#pick-base") || e.target.matches("input[data-top-id]")) {
+  if (e.target.matches("#pick-base") || e.target.matches("#pick-pasta") || e.target.matches("input[data-top-id]")) {
+    if (e.target.matches("#pick-pasta")) customModal.pastaTypeId = Number(e.target.value);
     const totalEl = $("#custom-total");
     if (totalEl && customModal.item) customDisplay(totalEl);
   }
@@ -903,6 +991,7 @@ $("#customize-modal").addEventListener("click", (e) => {
   if (sz) {
     customModal.size = sz.dataset.csize;
     customModal.baseId = null;
+    customModal.pastaTypeId = null;
     customModal.swapPick = 0;
     renderCustomize();
     return;
@@ -942,6 +1031,13 @@ $("#customize-modal").addEventListener("click", (e) => {
     const t = item.toppings.find((x) => x.topping.id === tid);
     if (t) extras.push({ name: t.topping.name, price: topPriceOf(t, size) || 0 });
   }
+  // Pasta type: mirror the cart preview. The server re-prices it from the DB
+  // and replaces this display row, so a stale price cannot slip through.
+  const pastaSel = $("#pick-pasta", $("#customize-modal"));
+  const pastaLink = pastaSel ? (item.pastaTypes || []).find((x) => x.pastaType.id === Number(pastaSel.value)) : null;
+  if (pastaLink) {
+    extras.push({ name: "Pasta: " + pastaLink.pastaType.name, price: pastaPriceOf(pastaLink, size) || 0 });
+  }
   if (customModal.swapFor && customModal.swapPick) {
     const swap = item.toppings.find((x) => x.topping.id === Number(customModal.swapPick));
     const gone = item.toppings.find((x) => x.topping.id === customModal.swapFor);
@@ -952,15 +1048,16 @@ $("#customize-modal").addEventListener("click", (e) => {
   addLine({
     kind: "item", itemId: item.id, name: item.name, catHint: cat ? cat.name : "",
     sizeLabel: size, unitPrice, extras, qty,
+    pastaTypeId: pastaLink ? pastaLink.pastaType.id : null,
   });
   closeOverlay("#customize-overlay");
   toast("Added " + (qty > 1 ? qty + " \u00d7 " : "") + item.name + " (" + size + ")");
 });
 
-let customModal = { item: null, size: null, baseId: null, tops: [], qty: 1, swapFor: null, swapPick: 0 };
+let customModal = { item: null, size: null, baseId: null, pastaTypeId: null, tops: [], qty: 1, swapFor: null, swapPick: 0 };
 
 const openCustomize = (item, size) => {
-  customModal = { item, size, baseId: null, tops: [], qty: 1, swapFor: null, swapPick: 0 };
+  customModal = { item, size, baseId: null, pastaTypeId: null, tops: [], qty: 1, swapFor: null, swapPick: 0 };
   $("#customize-overlay").hidden = false;
   renderCustomize();
 };
@@ -1229,7 +1326,7 @@ $("#bundle-modal").addEventListener("click", (e) => {
     else unitPrice += bases.reduce((sum, v) => sum + v, 0);
   });
   unitPrice += Shop.extrasTotal(pizzas);
-  addLine({ kind: "special", specialId: s.id, name: s.name, unitPrice, pizzas, qty: 1 });
+  addLine({ kind: "special", specialId: s.id, name: s.name, unitPrice, pizzas, collectionOnly: Boolean(s.collectionOnly), qty: 1 });
   closeOverlay("#bundle-overlay");
   toast("Added bundle: " + s.name);
 });
@@ -1283,8 +1380,9 @@ $("#bogo-modal").addEventListener("click", (e) => {
     .map((p) => ({ itemId: p.itemId, sizeLabel: p.sizeLabel, name: (Shop.data.byId.get(Number(p.itemId)) || {}).name, extras: (p.extras || []).map((x) => ({ name: x.name, price: x.price })) }));
   const cnt = (s.kind === "pick") ? (s.buyCount || s.count || 3) : (s.count || 2);
   if (pizzas.length !== cnt) { toast("Please choose " + cnt + " pizzas"); return; }
-  const unitPrice = Shop.bogoBaseTotal(pizzas, (s.kind === "pick") ? (s.payCount || cnt - 1) : (cnt / 2)) + Shop.extrasTotal(pizzas);
-  addLine({ kind: "special", specialId: s.id, name: s.name, unitPrice, pizzas, qty: 1 });
+  const payCount = (s.kind === "pick") ? (s.payCount || cnt - 1) : (cnt / 2);
+  const unitPrice = Shop.bogoBaseTotal(pizzas, payCount) + Shop.extrasTotal(pizzas);
+  addLine({ kind: "special", specialId: s.id, name: s.name, unitPrice, pizzas, payCount, collectionOnly: Boolean(s.collectionOnly), qty: 1 });
   closeOverlay("#bogo-overlay");
   toast("Added deal: " + s.name);
 });
@@ -1323,6 +1421,10 @@ $("#app").addEventListener("click", (e) => {
   }
   const gc = e.target.closest("button[data-goto-cat]");
   if (gc) {
+    if (gc.dataset.collectionOnly && Shop.fulfilment === "delivery") {
+      toast("That deal is collection only. Choose Collection at checkout to use it.");
+      return;
+    }
     const id = Number(gc.dataset.gotoCat);
     const node = id ? document.querySelector('section[data-cat-id="' + id + '"]') : null;
     if (node) {
@@ -1337,8 +1439,9 @@ $("#app").addEventListener("click", (e) => {
   if (sp) {
     const s = SPECIALS.find((x) => x.id === Number(sp.dataset.specialId));
     if (s) {
+      if (collectionOnlyBlocked(s)) return;
       const qty = specQty.get(s.id) || 1;
-      addLine({ kind: "special", specialId: s.id, name: s.name, price: s.price, unitPrice: s.price, qty });
+      addLine({ kind: "special", specialId: s.id, name: s.name, price: s.price, unitPrice: s.price, collectionOnly: Boolean(s.collectionOnly), qty });
       toast("Added combo: " + s.name + (qty > 1 ? " \u00d7 " + qty : ""));
     }
     return;
@@ -1351,7 +1454,10 @@ $("#app").addEventListener("click", (e) => {
   const bg = e.target.closest("button[data-bogo-id]");
   if (bg) {
     const s = SPECIALS.find((x) => x.id === Number(bg.dataset.bogoId));
-    if (s) { if (s.kind === "bundle") openBundle(s); else openBogo(s); }
+    if (s) {
+      if (collectionOnlyBlocked(s)) return;
+      if (s.kind === "bundle") openBundle(s); else openBogo(s);
+    }
     return;
   }
 });
@@ -1858,12 +1964,12 @@ function showCheckoutReview(quote, payload, activeOrders) {
   let dupeHtml = "";
   if (hasActiveOrders) {
     const ordersList = (activeOrders.orders || []).map((o) =>
-      '<span style="font-size:12px;">#' + o.id + ' (' + esc(o.status) + ')</span>'
+      '<span style="font-size:12px;">#' + (o.dailyNumber || o.id) + ' (' + esc(o.status) + ')</span>'
     ).join(", ");
     dupeHtml =
       '<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:10px;padding:12px 14px;margin:10px 0;font-size:13px;color:#856404;">' +
       '<strong>&#9888; You already have ' + activeOrders.count + ' active order' + (activeOrders.count > 1 ? "s" : "") + ' on the queue.</strong><br />' +
-      'Existing: ' + ordersList + '<br />' +
+      (ordersList ? 'Existing: ' + ordersList + '<br />' : '') +
       'Are you sure you want to place another?' +
       '</div>';
   }
@@ -1912,7 +2018,7 @@ function showCheckoutReview(quote, payload, activeOrders) {
         confirmBtn.addEventListener("click", () => {
           const ctx = window.__lastReview;
           if (!ctx) return;
-          const existing = (activeOrders.orders || []).map(o => "#" + o.id + " (" + o.status + ")").join(", ");
+          const existing = (activeOrders.orders || []).map(o => "#" + (o.dailyNumber || o.id) + " (" + o.status + ")").join(", ");
           const ok = confirm("You already have an active order on the queue: " + existing + ".\n\nAre you sure you want to place another order?");
           if (ok) confirmCheckoutOrder(ctx.payload, ctx.quote);
         });
@@ -2040,7 +2146,7 @@ async function confirmCheckoutOrder(payload, quote) {
       $("#checkout-modal").innerHTML =
         '<div class="success-box"><div class="big">&#128274;</div>' +
         "<h3>Redirecting to secure payment\u2026</h3>" +
-        '<p class="sub">Your order #' + data.id + " is saved. You\u2019ll be taken to " + providerName + " to complete the payment.</p>" +
+        '<p class="sub">Your order #' + (data.dailyNumber || data.id) + " is saved. You\u2019ll be taken to " + providerName + " to complete the payment.</p>" +
         '<p class="sub">Subtotal: ' + money(data.total) + '</p>' +
         feeLine +
         '<p class="sub" style="font-weight:700">Total to pay: ' + money(pay) + '</p>' +
@@ -2066,7 +2172,7 @@ async function confirmCheckoutOrder(payload, quote) {
         '<div class="success-box"><div class="big">&#127829;</div>' +
         "<h3>Order placed!</h3>" +
         '<p class="sub">Thanks, ' + esc(CUSTOMER?.firstName || payload.firstName || "there") + ". We\u2019ll call to confirm your delivery.</p>" +
-        '<div class="id">#' + data.id + "</div>" +
+        '<div class="id">#' + (data.dailyNumber || data.id) + "</div>" +
         totalTxt +
         '<p class="sub">Track it on your <a href="/portal" style="font-weight:700">My orders</a> page.</p>' +
         '<button class="primary" data-action="close-checkout">Done</button></div>';
@@ -2086,6 +2192,12 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
   if (checkoutStep < 3) { checkoutNext(checkoutStep); return; }
   const f = new FormData(e.target);
   const isDelivery = String(f.get("orderMethod")) === "delivery";
+  if (isDelivery && collectionOnlyLines().length) {
+    const errEl = $("#checkout-error");
+    errEl.textContent = [...new Set(collectionOnlyLines().map((l) => l.name))].join(", ") + " is collection only. Remove it or choose Collection.";
+    errEl.hidden = false;
+    return;
+  }
   if (isDelivery) {
     const sel = $("#delivery-location");
     const val = sel ? sel.value : "";
@@ -2116,7 +2228,7 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
               ? { pizzas: l.pizzas.map((p) => ({ itemId: p.itemId, sizeLabel: p.sizeLabel, extras: p.extras || [] })) }
               : {}),
           }
-        : { itemId: l.itemId, sizeLabel: l.sizeLabel, quantity: l.qty, extras: (l.extras || []).map((x) => ({ name: x.name, price: x.price })) }
+        : { itemId: l.itemId, sizeLabel: l.sizeLabel, quantity: l.qty, pastaTypeId: l.pastaTypeId ?? null, extras: (l.extras || []).map((x) => ({ name: x.name, price: x.price })) }
     ),
   };
   window.__lastCheckoutPayload = payload;
@@ -2161,6 +2273,20 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
 // Toggle delivery block based on Collection / Delivery radio.
 function syncOrderMethod() {
   const method = document.querySelector('input[name="orderMethod"]:checked')?.value || "delivery";
+  // Keep the shared cart in step: collection-only deals stop discounting and
+  // collection-only specials cannot be added while Delivery is selected.
+  try { Shop.setFulfilment(method); } catch (e) {}
+  document.querySelectorAll("[data-collection-only]").forEach((btn) => {
+    btn.disabled = method === "delivery";
+    btn.title = method === "delivery" ? "Collection only — choose Collection at checkout" : "";
+  });
+  const err = $("#checkout-error");
+  if (method === "delivery" && collectionOnlyLines().length) {
+    const names = [...new Set(collectionOnlyLines().map((l) => l.name))].join(", ");
+    if (err) { err.textContent = names + " is collection only. Remove it from the cart or choose Collection."; err.hidden = false; }
+  } else if (err && err.textContent.includes("collection only")) {
+    err.hidden = true;
+  }
   const block = $("#delivery-block");
   if (method === "collection") {
     if (block) block.style.display = "none";
@@ -2441,7 +2567,6 @@ async function load() {
         applyPaymentOptions();
       }
     } catch { shopCfg = null; }
-    TOPPINGS_BY_ID = Object.fromEntries(data.toppings.map((t) => [t.id, t]));
     activeItems = data.items;
     itemById = data.byId;
     DUPE_NAMES = data.dupeNames;
@@ -2466,6 +2591,17 @@ function handleDeepLink() {
     if (CART.length) openCheckout();
     else toast("Your cart is empty");
     return;
+  }
+
+  // Direct links from the shortcut chips (or a shared /order#cat-71 URL).
+  const hash = location.hash || "";
+  if (hash === "#menu-deals" || hash.startsWith("#cat-")) {
+    const node = document.querySelector(hash);
+    if (node) {
+      node.classList.add("flash");
+      setTimeout(() => scrollIntoView(node), 60);
+      return;
+    }
   }
 
   let found;
@@ -2502,8 +2638,75 @@ function handleDeepLink() {
   }
 }
 
+/* ------------------------------------------- sticky menu shortcuts (chips) */
+function syncMenuNavOffset() {
+  const header = document.querySelector("header");
+  const nav = document.getElementById("menu-nav");
+  if (!header) return;
+  const headerH = header.getBoundingClientRect().height || 0;
+  const navH = nav ? nav.getBoundingClientRect().height || 0 : 0;
+  document.documentElement.style.setProperty("--menu-nav-top", headerH + "px");
+  document.documentElement.style.setProperty("--menu-nav-offset", Math.round(headerH + navH + 12) + "px");
+}
+
+function setActiveMenuChip(key) {
+  document.querySelectorAll("[data-menu-jump]").forEach((chip) => {
+    const on = String(chip.dataset.menuJump) === String(key);
+    chip.classList.toggle("on", on);
+    if (on) chip.setAttribute("aria-current", "true");
+    else chip.removeAttribute("aria-current");
+  });
+}
+
+function stickyOffset() {
+  const header = document.querySelector("header");
+  const nav = document.getElementById("menu-nav");
+  const headerH = header ? header.getBoundingClientRect().height : 0;
+  const navH = nav ? nav.getBoundingClientRect().height : 0;
+  return Math.round(headerH + navH + 12);
+}
+
+let menuNavRaf = null;
+function trackMenuNav() {
+  const chips = Array.from(document.querySelectorAll("[data-menu-jump]"));
+  if (!chips.length) return;
+  const line = stickyOffset() + 8;
+  let current = String(chips[0].dataset.menuJump);
+  for (const chip of chips) {
+    const key = String(chip.dataset.menuJump);
+    const node = key === "deals" ? document.getElementById("menu-deals") : document.getElementById("cat-" + key);
+    if (node && node.getBoundingClientRect().top <= line) current = key;
+  }
+  setActiveMenuChip(current);
+}
+
+document.addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-menu-jump]");
+  if (!chip) return;
+  e.preventDefault();
+  const key = String(chip.dataset.menuJump);
+  const node = key === "deals" ? document.getElementById("menu-deals") : document.getElementById("cat-" + key);
+  if (!node) return;
+  setActiveMenuChip(key);
+  scrollIntoView(node);
+  const href = chip.getAttribute("href");
+  if (href) history.replaceState(null, "", href);
+});
+
+window.addEventListener("scroll", () => {
+  if (menuNavRaf) return;
+  menuNavRaf = requestAnimationFrame(() => {
+    menuNavRaf = null;
+    trackMenuNav();
+  });
+}, { passive: true });
+window.addEventListener("resize", () => {
+  syncMenuNavOffset();
+  trackMenuNav();
+});
+
 function scrollIntoView(node) {
-  const top = node.getBoundingClientRect().top + window.scrollY - 86;
+  const top = node.getBoundingClientRect().top + window.scrollY - stickyOffset();
   window.scrollTo({ top, behavior: "smooth" });
 }
 Shop.onCheckout = openCheckout;

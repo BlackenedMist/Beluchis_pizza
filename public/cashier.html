@@ -258,7 +258,7 @@ function orderHead(o) {
         <span class="order-time">${orderTime(o.createdAt)}</span>
         ${payChip}
       </div>
-      <div class="order-total">${o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Total R" + (o.grandTotal ?? o.total) + " · Paid online R" + (o.grandTotal ?? o.total) : "R" + (o.discountAmount ? (o.grandTotal ?? o.total) : o.total)}</div>
+      <div class="order-total">${o.paymentStatus === "paid" && (o.paymentMethod === "paygate" || o.paymentMethod === "payfast") ? "Total R" + (o.grandTotal ?? o.total) + " · Paid online R" + (o.grandTotal ?? o.total) : "R" + (o.grandTotal ?? o.total)}</div>
     </div>`;
 }
 
@@ -305,7 +305,7 @@ function render() {
       <button class="ghost" onclick="state.dateFilter='';render()">All days</button>
     </div>`;
 
-  const filtered = (state.filter ? state.orders.filter((o) => o.status === state.filter) : state.orders).filter((o) => !state.dateFilter || String(o.createdAt || "").slice(0, 10) === state.dateFilter);
+  const filtered = (state.filter ? state.orders.filter((o) => o.status === state.filter) : state.orders).filter((o) => !state.dateFilter || (o.dayKey || String(o.createdAt || "").slice(0, 10)) === state.dateFilter);
   listEl.innerHTML = filtered.length ? filtered.map((o) => `
     <div class="order-card ${!state.known.has(o.id) ? "is-new" : ""}">
       ${orderHead(o)}

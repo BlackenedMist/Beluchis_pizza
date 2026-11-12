@@ -108,7 +108,7 @@ try {
   bogoId = made.body.id;
 
   // ---- load the storefront ---------------------------------------------
-  const shop = await api("/api/shop/config");
+  const shop = await api("/api/shop/status");
   const testCustomer = await seedTestCustomer();
   check("test customer seeded", Number.isInteger(testCustomer.id));
   const allItems = (await api("/api/items")).body || [];
@@ -155,7 +155,7 @@ try {
   // ---- build a BOGO deal ------------------------------------------------
   await evalJs(`document.querySelector('[data-bogo-id="${bogoId}"]').click()`);
   await delay(250);
-  const rows = await evalJs(`document.querySelectorAll("#bogo-modal select[data-bogo-item]").length`);
+  const rows = await evalJs(`document.querySelectorAll("#bogo-modal .field > label").length`);
   check(`bogo modal renders 2 pickers (${rows})`, rows === 2);
   const total0 = await evalJs(`document.querySelector("#bogo-total").textContent`);
   check(`bogo total shown (${total0})`, /^R\d/.test(total0 || ""));
@@ -226,7 +226,7 @@ try {
   const tileCount = await evalJs(`document.querySelectorAll("#home-tiles .tile").length`);
   check(`home tiles rendered (${tileCount})`, tileCount >= 7);
   const hours = await evalJs(`document.querySelector("#hours-line").textContent`);
-  const cfg0 = await api("/api/shop/config");
+  const cfg0 = await api("/api/shop/status");
   check(`home hours are dynamic (${hours})`, hours === cfg0.body.openTime + " \u2013 " + cfg0.body.closeTime);
   const flag = await evalJs(`document.querySelector("#shop-flag").textContent`);
   check(`home shop flag renders (${flag})`, /open|closed/i.test(flag || ""));

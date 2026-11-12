@@ -42,7 +42,7 @@ async function setShopTime(closeTime) {
 }
 
 async function shopOpenNow() {
-  const r = await fetch(`${BASE_URL}/api/shop/config`);
+  const r = await fetch(`${BASE_URL}/api/shop/status`);
   const j = await r.json();
   return Boolean(j && j.open);
 }

@@ -57,6 +57,7 @@ export function buildOrderConfirmation(order) {
   // Prices are stored in Rand, not cents.
   const rand = (v) => Number(v || 0).toFixed(2);
   const items = Array.isArray(order.items) ? order.items : [];
+  const displayId = order.dailyNumber || order.id;
   const name = order.customer?.firstName || order.customer?.lastName || "there";
   const pickup = !order.deliveryAddress;
   const paid = order.paymentStatus === "paid";
@@ -74,13 +75,14 @@ export function buildOrderConfirmation(order) {
   const text = [
     `Hi ${name},`,
     "",
-    `Thanks — your Beluchis order #${order.id} has been received.`,
+    `Thanks — your Beluchis order #${displayId} has been received.`,
     pickup ? "We'll have it ready for collection." : "We're preparing your delivery.",
     "",
     ...lines,
     "",
     ...(order.discountLabel ? [`Discount (${order.discountLabel}): -R${rand(order.discountAmount)}`, ""] : []),
     ...(order.deliveryFee ? [`Delivery fee: R${rand(order.deliveryFee)}`, ""] : []),
+    ...(order.tipAmount ? [`Driver tip: R${rand(order.tipAmount)}`, ""] : []),
     `Total: R${rand(order.grandTotal ?? order.total)}`,
     `Payment: ${payLabel}`,
     "",
@@ -94,15 +96,16 @@ export function buildOrderConfirmation(order) {
   <div style="background:#b3351f;color:#fff;border-radius:12px 12px 0 0;padding:18px 24px"><strong>Beluchis Pizza</strong></div>
   <div style="background:#fff;border:1px solid #e8e0d5;border-top:0;border-radius:0 0 12px 12px;padding:24px">
     <h2 style="margin:0 0 4px;font-size:18px">Hi ${esc(name)},</h2>
-    <p style="margin:0 0 14px;color:#6d6d6d">Thanks — your order <strong>#${esc(order.id)}</strong> has been received. ${pickup ? "We'll have it ready for collection." : "We're preparing your delivery."}</p>
+    <p style="margin:0 0 14px;color:#6d6d6d">Thanks — your order <strong>#${esc(displayId)}</strong> has been received. ${pickup ? "We'll have it ready for collection." : "We're preparing your delivery."}</p>
     <table style="width:100%;border-collapse:collapse">${itemRows}</table>
     ${order.discountLabel ? `<p style="margin:10px 0 0">Discount (${esc(order.discountLabel)}): <strong>-R${rand(order.discountAmount)}</strong></p>` : ""}
     ${order.deliveryFee ? `<p style="margin:4px 0 0">Delivery fee: <strong>R${rand(order.deliveryFee)}</strong></p>` : ""}
+    ${order.tipAmount ? `<p style="margin:4px 0 0">Driver tip: <strong>R${rand(order.tipAmount)}</strong></p>` : ""}
     <p style="margin:12px 0 0;font-size:16px">Total: <strong>R${rand(order.grandTotal ?? order.total)}</strong></p>
     <p style="margin:4px 0 0;color:#6d6d6d">Payment: ${esc(payLabel)}</p>
     <p style="margin-top:18px;color:#9a8f80;font-size:13px">— The Beluchis team</p>
   </div>
 </div></body></html>`;
 
-  return { subject: `Beluchis order #${order.id} received`, text, html };
+  return { subject: `Beluchis order #${displayId} received`, text, html };
 }

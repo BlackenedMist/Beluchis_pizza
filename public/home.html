@@ -139,6 +139,12 @@
      the static <img> and hides every dish photo. */
   .tile a.media img { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: cover; transition: transform .35s ease; }
   .tile:hover a.media img { transform: scale(1.05); }
+  .tile a.media .special-slides { position: absolute; inset: 0; z-index: 1; }
+  .tile a.media .special-slides img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .9s ease, transform .35s ease; }
+  .tile a.media .special-slides img.on { opacity: 1; }
+  .banner-slides { position: relative; width: 120px; height: 80px; flex: 0 0 120px; border-radius: 8px; overflow: hidden; }
+  .banner-slides img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .9s ease; }
+  .banner-slides img.on { opacity: 1; }
   .tile .ph {
     position: absolute; inset: 0; display: grid; place-items: center;
     background: linear-gradient(135deg, var(--brand), var(--brand-dark));
@@ -152,6 +158,14 @@
   }
   .tile .cap small { display: block; font-size: 11.5px; font-weight: 500; color: #ffd9a0; letter-spacing: 1px; text-transform: uppercase; }
   .tile .cap .price { display: block; margin-top: 2px; font-size: 13px; font-weight: 600; color: #ffd9a0; }
+  .tile .cap .offer { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 3px; font-size: 13.5px; font-weight: 800; color: #fff; }
+  .tile .cap .sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 2px; font-size: 11.5px; font-weight: 500; line-height: 1.3; color: rgba(255,255,255,.85); }
+  .tile .cap .cap-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #16603a; color: #fff; letter-spacing: .3px; }
+  .tile .promo {
+    position: absolute; top: 10px; left: 10px; z-index: 2;
+    background: var(--brand); color: #fff; border-radius: 999px; padding: 4px 11px;
+    font-size: 11.5px; font-weight: 800; letter-spacing: .4px; box-shadow: 0 4px 12px rgba(0,0,0,.25);
+  }
   .tile .quick, .tile .choose {
     position: absolute; top: 10px; right: 10px; z-index: 2;
     border-radius: 999px; padding: 8px 15px; font-weight: 800; font-size: 13px;
@@ -448,6 +462,7 @@
   <button class="btn" type="button" data-action="checkout">Go to checkout</button>
 </div>
 
+<script src="/special-display.js"></script>
 <script src="/shop.js"></script>
 <script>
 "use strict";
@@ -525,39 +540,64 @@ function tileHtml(t) {
   const { item, special } = t;
   const isSpecial = Boolean(special);
   const name = isSpecial ? special.name : item.name;
+  const D = window.SpecialDisplay;
   const catName = isSpecial
-    ? (special.kind === "bogo" ? "Weekly deal" : special.kind === "deal" ? "Automatic deal" : "Combo deal")
+    ? D.kindLabel(special) + (special.sizeLabel ? " \u00b7 " + special.sizeLabel : "")
     : (item.category ? item.category.name : "");
   const sz = isSpecial ? null : firstSize(item);
-  const priceTxt = isSpecial
-    ? (special.kind === "bogo"
-        ? "Pick " + special.count + ", pay " + special.count / 2
-        : special.kind === "deal"
-          ? money(special.price) + " for " + special.count
-          : money(special.price))
-    : (sz ? money(sz.price) : "");
+
+  let head = "", sub = "", priceTxt = "", promo = "", collectionOnly = false;
+  if (isSpecial) {
+    const customHead = Boolean(String(special.homeHeadline || "").trim());
+    collectionOnly = D.isCollectionOnly(special);
+    promo = D.badge(special);
+    // Auto headlines only help for offer kinds; a fixed combo already reads
+    // as its name + price.
+    head = (customHead || ["pick", "bogo", "deal", "bundle"].includes(special.kind)) ? D.headline(special) : "";
+    if (head === name) head = "";
+    sub = D.subtext(special);
+    priceTxt = D.priceText(special);
+    if (priceTxt && (head === priceTxt || head.includes(priceTxt))) priceTxt = "";
+  } else if (sz) {
+    priceTxt = money(sz.price);
+  }
   const href = isSpecial ? "/order" : "/order?item=" + encodeURIComponent(item.slug || "");
 
   let action = "";
-  if (isSpecial && special.kind === "bogo") action = '<a class="choose" href="/order">Build your deal</a>';
+  if (isSpecial && (special.kind === "bogo" || special.kind === "pick")) action = '<a class="choose" href="/order">Build your deal</a>';
   // A fixed-price deal prices itself in the cart, so there is nothing to add
   // here - send the customer to the menu and it will apply on its own.
   else if (isSpecial && special.kind === "deal") action = '<a class="choose" href="/order">Get this deal</a>';
+  else if (isSpecial && special.kind === "bundle") action = '<a class="choose" href="/order">Build your bundle</a>';
   else if (isSpecial) action = '<button class="quick" type="button" data-add-special="' + special.id + '">+ Add</button>';
   else if (Shop.hasCustom(item)) action = '<a class="choose" href="' + href + '">Choose</a>';
   else if (sz) action = '<button class="quick" type="button" data-add-item="' + item.id + '" data-add-size="' + esc(sz.sizeLabel) + '">+ Add</button>';
 
-  const media = t.img
-    ? '<span class="ph">' + esc(name.charAt(0).toUpperCase()) + "</span>" +
-      '<img src="' + esc(t.img) + '" alt="' + esc(name) + '" loading="lazy" onerror="this.style.display=\'none\'" />'
-    : '<span class="ph">' + esc(name.charAt(0).toUpperCase()) + "</span>";
+  let media;
+  if (t.img) {
+    media = '<span class="ph">' + esc(name.charAt(0).toUpperCase()) + "</span>" +
+      '<img src="' + esc(t.img) + '" alt="' + esc(name) + '" loading="lazy" onerror="this.style.display=\'none\'" />';
+  } else if (isSpecial) {
+    const pics = D.images(special, Shop.data.items);
+    media = '<span class="ph">' + esc(name.charAt(0).toUpperCase()) + "</span>" +
+      (pics.length
+        ? '<div class="special-slides" data-special-slides>' +
+          pics.map((u, i) => '<img src="' + esc(u) + '" alt="" class="' + (i === 0 ? "on" : "") + '" loading="lazy" onerror="this.remove()" />').join("") +
+          "</div>"
+        : "");
+  } else {
+    media = '<span class="ph">' + esc(name.charAt(0).toUpperCase()) + "</span>";
+  }
 
   return (
     '<div class="tile">' +
     '<a class="media" href="' + href + '" aria-label="Open ' + esc(name) + '">' + media + "</a>" +
+    (promo ? '<span class="promo">' + esc(promo) + "</span>" : "") +
     action +
-    '<span class="cap"><small>' + esc(catName) + "</small>" + esc(name) +
-    (priceTxt ? '<span class="price">' + priceTxt + "</span>" : "") + "</span>" +
+    '<span class="cap"><small>' + esc(catName) + (collectionOnly ? '<span class="cap-badge">Collection only</span>' : "") + "</small>" + esc(name) +
+    (head ? '<span class="offer">' + esc(head) + "</span>" : "") +
+    (sub ? '<span class="sub">' + esc(sub) + "</span>" : "") +
+    (priceTxt ? '<span class="price">' + esc(priceTxt) + "</span>" : "") + "</span>" +
     "</div>"
   );
 }
@@ -573,16 +613,33 @@ function renderTiles() {
   }
   // Render banners above the tile grid.
   const bannerHtml = banners.map((s) => {
-    const priceTxt = s.kind === "bogo"
-      ? "Pick " + s.count + ", pay " + s.count / 2
-      : s.kind === "deal"
-        ? money(s.price) + " for " + s.count
-        : (s.kind === "pick" ? "Pick " + (s.buyCount || s.count) + ", pay " + (s.payCount || (s.buyCount || s.count) - 1) : money(s.price));
+    const D = window.SpecialDisplay;
+    const head = D.headline(s) === s.name ? "" : D.headline(s);
+    const sub = D.subtext(s);
+    let price = D.priceText(s);
+    if (price && (head === price || head.includes(price))) price = "";
+    const promo = D.badge(s);
+    const collection = D.isCollectionOnly(s);
+    const pics = s.imageUrl ? [] : D.images(s, Shop.data.items);
+    const bannerMedia = s.imageUrl
+      ? '<img src="' + esc(s.imageUrl) + '" alt="" style="width:120px;height:80px;object-fit:cover;border-radius:8px;flex:0 0 120px" />'
+      : pics.length
+        ? '<div class="banner-slides" data-special-slides>' +
+          pics.map((u, i) => '<img src="' + esc(u) + '" alt="" class="' + (i === 0 ? "on" : "") + '" loading="lazy" onerror="this.remove()" />').join("") +
+          "</div>"
+        : "";
     return '<div class="banner" style="grid-column:1/-1;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;gap:16px;align-items:center;margin-bottom:12px;">' +
-      (s.imageUrl ? '<img src="' + esc(s.imageUrl) + '" alt="" style="width:120px;height:80px;object-fit:cover;border-radius:8px;" />' : '') +
-      '<div style="flex:1"><div style="font-weight:700;font-size:18px">' + esc(s.name) + '</div>' +
-      (s.description ? '<div class="muted" style="font-size:13px;margin:4px 0">' + esc(s.description) + '</div>' : '') +
-      '<div style="font-weight:600;color:var(--accent);margin-top:4px">' + priceTxt + '</div></div>' +
+      bannerMedia +
+      '<div style="flex:1">' +
+      (promo || collection ? '<div style="margin-bottom:6px">' +
+        (promo ? '<span style="display:inline-block;background:var(--brand);color:#fff;border-radius:999px;padding:2px 10px;font-size:11px;font-weight:800;margin-right:6px">' + esc(promo) + '</span>' : '') +
+        (collection ? '<span style="display:inline-block;background:#16603a;color:#fff;border-radius:999px;padding:2px 10px;font-size:11px;font-weight:800">Collection only</span>' : '') +
+        '</div>' : '') +
+      '<div style="font-weight:700;font-size:18px">' + esc(s.name) + '</div>' +
+      (head ? '<div style="font-weight:700;font-size:14px;margin-top:2px">' + esc(head) + '</div>' : '') +
+      (sub ? '<div class="muted" style="font-size:13px;margin:4px 0">' + esc(sub) + '</div>' : '') +
+      (price ? '<div style="font-weight:600;color:var(--accent);margin-top:4px">' + esc(price) + '</div>' : '') +
+      '</div>' +
       '<a class="choose" href="/order" style="padding:8px 14px;background:var(--accent);color:#fff;border-radius:8px;text-decoration:none">Shop now</a></div>';
   }).join("");
   if (bannerHtml) {
@@ -602,6 +659,7 @@ function renderTiles() {
     tiles.push({ item: i, img: "/home/gallery/" + GALLERY_IMG[slug] });
   }
   $("#home-tiles").innerHTML = tiles.map(tileHtml).join("");
+  window.SpecialDisplay.mountSlideshows(document);
 }
 
 $("#home-tiles").addEventListener("click", (e) => {
@@ -622,7 +680,7 @@ $("#home-tiles").addEventListener("click", (e) => {
   if (sp) {
     const s = Shop.data.specials.find((x) => x.id === Number(sp.dataset.addSpecial));
     if (!s) return;
-    Shop.addLine({ kind: "special", specialId: s.id, name: s.name, price: s.price, unitPrice: s.price, qty: 1 });
+    Shop.addLine({ kind: "special", specialId: s.id, name: s.name, price: s.price, unitPrice: s.price, collectionOnly: Boolean(s.collectionOnly), qty: 1 });
     toast("Added " + s.name);
   }
 });
