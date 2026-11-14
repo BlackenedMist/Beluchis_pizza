@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { canonicalPhone } from "./phone.mjs";
-import { buildOrderConfirmation, fill, mailEnabled, sendMail } from "./mail.mjs";
+import { buildOrderConfirmation, buildSpecialsEmail, fill, mailEnabled, sendMail } from "./mail.mjs";
 import { payfastCheckoutFields, validPayfastSignature } from "./payfast.mjs";
 import {
   paygateInitiateFields,
@@ -364,7 +364,7 @@ const normalizeSettingsPayload = (raw) => {
   const s = raw && typeof raw.settings === "object" ? raw.settings : raw && typeof raw === "object" ? raw : {};
   const boolKeys = ["delivery.enabled", "shop.onlineEnabled", "shop.forceOpen", "shop.forceClosed"];
   const timeKeys = ["shop.openTime", "shop.closeTime"];
-  const textKeys = ["mail.inviteSubject", "mail.inviteBody"];
+  const textKeys = ["mail.inviteSubject", "mail.inviteBody", "shop.ownerEmail"];
   const numKeys = [
     "shop.lat",
     "shop.lng",
@@ -1925,6 +1925,108 @@ app.post("/api/mail/test-invite", requireRole("admin"), asyncHandler(async (req,
   });
   res.status(res2.ok ? 200 : 502).json(res2);
 }));
+
+// ------------------------------------------------------------ Specials mailer
+// The owner picks customers (with checkboxes) and specials, then sends a
+// personalised "specials" email to each. Recipients are customers who have an
+// email address on file; the total count lets the UI say how many are missing one.
+app.get(
+  "/api/mailer/recipients",
+  requireRole("admin"),
+  asyncHandler(async (_req, res) => {
+    const [total, rows] = await Promise.all([
+      prisma.customer.count(),
+      prisma.customer.findMany({
+        where: { email: { not: null } },
+        orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+        select: {
+          id: true, firstName: true, lastName: true, email: true, cellphone: true,
+          createdAt: true,
+          _count: { select: { orders: true } },
+        },
+      }),
+    ]);
+    res.json({ total, emailable: rows.length, recipients: rows });
+  })
+);
+
+const MAX_MAILER_SUBJECT = 120;
+const MAX_MAILER_MESSAGE = 4000;
+
+app.post(
+  "/api/mailer/send",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    const { customerIds = [], specialIds = [], subject = null, message = null, test = false, testEmail = null } = req.body || {};
+
+    const ids = (Array.isArray(specialIds) ? specialIds : [])
+      .map((x) => Number(x))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    if (!ids.length) return res.status(400).json({ ok: false, error: "Pick at least one special to email about." });
+
+    const subj = String(subject || "").trim();
+    const msg = String(message || "").trim();
+    if (subj.length > MAX_MAILER_SUBJECT)
+      return res.status(400).json({ ok: false, error: `Subject is too long (max ${MAX_MAILER_SUBJECT} characters).` });
+    if (msg.length > MAX_MAILER_MESSAGE)
+      return res.status(400).json({ ok: false, error: `Message is too long (max ${MAX_MAILER_MESSAGE} characters).` });
+
+    const specials = await prisma.special.findMany({
+      where: { id: { in: ids } },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      include: specialIncludes,
+    });
+
+    const orderUrl = `${PUBLIC_ORIGIN}/order`;
+
+    // Test send: one email to an address of the owner's choosing, no customers.
+    if (test) {
+      if (!mailEnabled()) return res.status(503).json({ ok: false, error: "SMTP is not configured on this server" });
+      const to = String(testEmail || "").trim();
+      if (!to || !to.includes("@"))
+        return res.status(400).json({ ok: false, error: "A valid test email address is required." });
+      const built = buildSpecialsEmail({ firstName: "there", specials, subject: subj, message: msg, orderUrl });
+      const out = await sendMail({ to, subject: built.subject, text: built.text, html: built.html });
+      if (!out.ok) return res.status(502).json({ ok: false, error: out.error || "Failed to send the test email" });
+      return res.json({ ok: true, test: true, to });
+    }
+
+    const custIds = (Array.isArray(customerIds) ? customerIds : [])
+      .map((x) => Number(x))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    if (!custIds.length) return res.status(400).json({ ok: false, error: "Pick at least one customer to email." });
+
+    const customers = await prisma.customer.findMany({
+      where: { id: { in: custIds }, email: { not: null } },
+      select: { id: true, firstName: true, lastName: true, email: true },
+    });
+    if (!customers.length)
+      return res.status(400).json({ ok: false, error: "None of the selected customers have an email address." });
+
+    if (!mailEnabled()) return res.status(503).json({ ok: false, error: "SMTP is not configured on this server" });
+
+    let sent = 0;
+    let failed = 0;
+    const failures = [];
+    for (const customer of customers) {
+      const built = buildSpecialsEmail({
+        firstName: customer.firstName,
+        specials,
+        subject: subj,
+        message: msg,
+        orderUrl,
+      });
+      const out = await sendMail({ to: customer.email, subject: built.subject, text: built.text, html: built.html });
+      if (out.ok) sent += 1;
+      else {
+        failed += 1;
+        failures.push({ email: customer.email, error: out.error });
+        console.error(`[mailer] failed ${customer.email}: ${out.error}`);
+      }
+    }
+    res.json({ ok: true, sent, failed, failures });
+  })
+);
 
 // ------------------------------------------------------------------- Orders
 const orderIncludes = {
