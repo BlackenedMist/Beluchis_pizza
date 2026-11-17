@@ -1354,6 +1354,8 @@ app.post(
       }
       const hasPaid = Array.isArray(spec) && spec.some((g) => typeof g.paid === "boolean");
       const p = Number(price);
+      const payModeNorm = String(req.body?.payMode ?? payMode ?? "expensive").toLowerCase();
+      if (payModeNorm === "fixed" && (!Number.isInteger(p) || p <= 0)) return res.status(400).json({ error: "a fixed-price bundle needs a price above R0" });
       if (!hasPaid && (!Number.isInteger(p) || p <= 0)) return res.status(400).json({ error: "a bundle needs a price above R0" });
       bundleCount = spec.reduce((acc, g) => acc + Number(g.count || 0), 0);
       if (bundleCount < 1) return res.status(400).json({ error: "bundle needs at least one item" });
@@ -1506,6 +1508,8 @@ app.put(
       try { spec2 = typeof bs2 === "string" ? JSON.parse(bs2) : bs2; } catch (e) { spec2 = null; }
       const hasPaid2 = Array.isArray(spec2) && spec2.some((g) => typeof g.paid === "boolean");
       const p = price !== undefined ? Number(price) : existing.price;
+      const payModeNorm2 = String((price !== undefined ? req.body?.payMode : (req.body?.payMode ?? existing.payMode)) ?? "expensive").toLowerCase();
+      if (payModeNorm2 === "fixed" && (!Number.isInteger(p) || p <= 0)) return res.status(400).json({ error: "a fixed-price bundle needs a price above R0" });
       if (!hasPaid2 && (!Number.isInteger(p) || p <= 0)) return res.status(400).json({ error: "a bundle needs a price above R0" });
     } else if (Array.isArray(items)) {
       if (items.length === 0) return res.status(400).json({ error: "at least one item is required" });
@@ -2793,8 +2797,9 @@ app.post(
           let groups = [];
           try { groups = typeof special.bundleSpec === "string" ? JSON.parse(special.bundleSpec) : (special.bundleSpec || []); } catch (e) { groups = []; }
           const hasPaidFlag = groups.some((g) => typeof g.paid === "boolean");
+          const fixedBundlePrice = String(special.payMode || "").toLowerCase() === "fixed";
           let price = special.price || 0;
-          if (hasPaidFlag) {
+          if (!fixedBundlePrice && hasPaidFlag) {
             price = 0;
             // Map each resolved pick to its group by cumulative count.
             let acc = 0;

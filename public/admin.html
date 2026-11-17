@@ -1520,6 +1520,7 @@ function renderSpecials() {
         <button class="ghost" onclick="quickBundle()">Fixed Bundle</button>
         <button class="ghost" onclick="quickSelectionBundle()">Selection Bundle</button>
         <button class="ghost" onclick="quickRangeBundle()">Range Bundle</button>
+        <button class="ghost" onclick="quickFixedRangeBundle()">Fixed Range Bundle</button>
       </div>
     </div>
     ${list.length ? `
@@ -2787,6 +2788,136 @@ window.quickRangeBundle = () => {
     try {
       await api("/api/specials", { method: "POST", body: JSON.stringify(payload) });
       toast("Range bundle saved");
+      $(".overlay")?.remove();
+      await loadAll();
+    } catch (e) { toast(e.message, true); }
+  };
+};
+
+window.quickFixedRangeBundle = () => {
+  window.qfrbGroups = [];
+  openModal(`
+    <h3>Fixed Range Bundle</h3>
+    ${field("Name", `<input id="qfrb-name" value="Fixed Range Bundle" />`)}
+    <div style="display:flex;gap:8px;margin:8px 0">
+      <button class="ghost" type="button" onclick="qfrbAddCategory(true)">+ Add paid category</button>
+      <button class="ghost" type="button" onclick="qfrbAddCategory(false)">+ Add free category</button>
+    </div>
+    <div id="qfrb-groups"></div>
+    ${field("Bundle price (R)", `<input id="qfrb-price" type="number" min="1" />`)}
+    ${field("Image", `<input type="hidden" id="qfrb-img" value="" /><input type="file" accept="image/*" onchange="uploadPicture(this,'qfrb-img')" />`)}
+    ${field("Start date (optional)", `<input id="qfrb-start" type="date" />`)}
+    ${field("End date (optional)", `<input id="qfrb-end" type="date" />`)}
+    ${field("Exempt from deals", `<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="qfrb-exempt" /> Exempt from automatic deals</label>`)}
+    ${field("Collection only", `<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="qfrb-collection" /> Collection only</label>`)}
+    ${field("Show on home", `<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="qfrb-home" /> Show on home</label>`)}
+    <div class="modal-actions">
+      <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+      <button class="primary" onclick="saveQuickFixedRangeBundle()">Save</button>
+    </div>`);
+  window.renderQfrbGroups = () => {
+    const el = $("#qfrb-groups");
+    if (!el) return;
+    el.innerHTML = window.qfrbGroups.map((g, gi) => {
+      const cat = state.categories.find((c) => c.id === g.catId);
+      const itemLabels = (g.itemIds || []).map((id) => {
+        const it = state.items.find((x) => x.id === id);
+        return it ? `${esc(it.name)} (${esc(g.sizeLabel)})` : id;
+      }).join(", ");
+      const border = g.paid ? "#2e7d32" : "#e65100";
+      const label = g.paid ? "Paid item selection" : "Free item selection";
+      return `<div style="border:2px solid ${border};border-radius:8px;padding:10px;margin-bottom:10px;background:${g.paid ? "#e8f5e9" : "#fff3e0"}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <b style="font-size:13px;color:${border}">${label}${cat ? " — " + esc(cat.name) : ""}</b>
+          <button class="danger" type="button" style="padding:2px 6px;font-size:11px" onclick="qfrbRemoveGroup(${gi})">Remove</button>
+        </div>
+        <div style="font-size:12px;margin-bottom:4px;color:${border}">Size: ${esc(g.sizeLabel)} · Count: ${g.count}</div>
+        <div style="font-size:12px;margin-bottom:4px">Items: ${itemLabels || "All items in category"}</div>
+        <div style="display:flex;gap:6px">
+          <button class="ghost" type="button" style="padding:2px 6px;font-size:11px" onclick="qfrbEditGroup(${gi})">Edit</button>
+        </div>
+      </div>`;
+    }).join("");
+  };
+  window.qfrbRemoveGroup = (gi) => { window.qfrbGroups.splice(gi, 1); window.renderQfrbGroups(); };
+  window.qfrbAddCategory = (paid) => {
+    const catOpts = state.categories.filter((c) => c.isActive !== false).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+    openModal(`
+      <h3>${paid ? "Paid" : "Free"} item selection</h3>
+      ${field("Category", `<select id="qfrb-pop-cat" onchange="qfrbPopLoadItems()">${catOpts}</select>`)}
+      <div id="qfrb-pop-size-wrap"></div>
+      <div id="qfrb-pop-items" style="max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px;margin:8px 0"></div>
+      ${field("Count", `<input id="qfrb-pop-count" type="number" min="1" value="1" />`)}
+      <div class="modal-actions">
+        <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+        <button class="primary" onclick="qfrbPopSave(${paid})">Add</button>
+      </div>`);
+    window.qfrbPopLoadItems = () => {
+      const catId = Number($("#qfrb-pop-cat").value);
+      const cat = state.categories.find((c) => c.id === catId);
+      const items = (cat?._items) || state.items.filter((i) => i.categoryId === catId && i.isActive !== false);
+      const sizes = [...new Set(items.flatMap((it) => (it.sizes||[]).filter((z)=>z.isActive!==false).map((z)=>z.sizeLabel)))];
+      const sizeHtml = sizes.length ? `<label style="font-size:12px">Size</label><select id="qfrb-pop-size" style="width:100%">${sizes.map((z) => `<option value="${z}">${z}</option>`).join("")}</select>` : "";
+      $("#qfrb-pop-size-wrap").innerHTML = sizeHtml;
+      $("#qfrb-pop-items").innerHTML = items.map((it) => {
+        const has = (it.sizes||[]).some((z) => z.isActive!==false && (!sizes.length || sizes.includes(z.sizeLabel)));
+        if (!has) return "";
+        return `<label style="display:block;font-size:12px;padding:2px 0"><input type="checkbox" class="qfrb-pop-item" value="${it.id}" /> ${esc(it.name)}</label>`;
+      }).join("") || '<span class="muted" style="font-size:12px">No items</span>';
+    };
+    window.qfrbPopSave = (paid) => {
+      const catId = Number($("#qfrb-pop-cat").value);
+      const sizeLabel = $("#qfrb-pop-size") ? $("#qfrb-pop-size").value : null;
+      const itemIds = Array.from(document.querySelectorAll(".qfrb-pop-item:checked")).map((x) => Number(x.value));
+      const count = Number($("#qfrb-pop-count").value) || 1;
+      const cat = state.categories.find((c) => c.id === catId);
+      window.qfrbGroups.push({
+        name: cat ? cat.name : "Group",
+        categories: [catId],
+        sizeLabel,
+        count,
+        paid,
+        ...(itemIds.length ? { itemIds } : {}),
+      });
+      const overlays = document.querySelectorAll(".overlay");
+      if (overlays.length) overlays[overlays.length-1].remove();
+      window.renderQfrbGroups();
+    };
+    window.qfrbPopLoadItems();
+  };
+  window.qfrbEditGroup = (gi) => { toast("Remove and re-add to edit", true); };
+  window.renderQfrbGroups();
+  window.saveQuickFixedRangeBundle = async () => {
+    const name = $("#qfrb-name").value.trim() || "Fixed Range Bundle";
+    if (!window.qfrbGroups.length) return toast("Add at least one category", true);
+    const price = Number($("#qfrb-price").value) || 0;
+    if (price <= 0) return toast("Bundle price is required", true);
+    const spec = window.qfrbGroups.map((g) => ({
+      name: g.name,
+      categories: g.categories,
+      sizeLabel: g.sizeLabel,
+      count: Math.max(1, Number(g.count) || 1),
+      paid: g.paid,
+      ...(g.itemIds && g.itemIds.length ? { itemIds: g.itemIds } : {}),
+    }));
+    const payload = {
+      name,
+      kind: "bundle",
+      price,
+      payMode: "fixed",
+      bundleSpec: spec,
+      startDate: $("#qfrb-start").value || null,
+      endDate: $("#qfrb-end").value || null,
+      exemptFromDeals: $("#qfrb-exempt").checked,
+      collectionOnly: $("#qfrb-collection").checked,
+      showOnHome: $("#qfrb-home").checked,
+      isActive: true,
+      homeDisplay: "tile",
+      imageUrl: ($("#qfrb-img").value || "").trim() || null,
+    };
+    try {
+      await api("/api/specials", { method: "POST", body: JSON.stringify(payload) });
+      toast("Fixed range bundle saved");
       $(".overlay")?.remove();
       await loadAll();
     } catch (e) { toast(e.message, true); }
