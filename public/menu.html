@@ -276,6 +276,13 @@
   .bundle-choice { font-size: 12px; font-weight: 500; opacity: .9; max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bundle-body { padding: 10px 12px; }
   .bundle-body[hidden] { display: none; }
+  .bundle-summary {
+    border: 1.5px solid #c9b59d; border-radius: 10px; padding: 12px 14px;
+    margin: 10px 0; background: #fffdf9; font-size: 14px;
+  }
+  .bundle-summary b { display: block; margin-bottom: 6px; }
+  .bundle-summary ul { margin: 0; padding-left: 18px; }
+  .bundle-summary li { margin: 3px 0; }
 
   /* Checkout accordion */
   .co-step { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; overflow: hidden; background: #fff; }
@@ -1361,21 +1368,32 @@ function renderBundle() {
       '</div>'
     );
   }).join("");
+  const allPicked = bundleModal.picks.every((p) => p.itemId);
+  const summaryHtml = (bundleModal.openStep === -1 && allPicked)
+    ? '<div class="bundle-summary"><b>All set &mdash; here is your bundle</b><ul>' +
+      bundleModal.picks.map((p, i) => {
+        const g = groups[bundlePickGroupIndex(bundleModal.picks, i)];
+        const it = Shop.data.byId.get(Number(p.itemId));
+        const extras = (p.extras || []).map((x) => " +" + esc(x.name)).join("");
+        return "<li>" + esc(g.name) + ": <b>" + esc((it || {}).name || "?") + "</b>" +
+          (p.sizeLabel ? " (" + esc(p.sizeLabel) + ")" : "") + extras + "</li>";
+      }).join("") + "</ul></div>"
+    : "";
   $("#bundle-modal").innerHTML =
     "<h3>" + esc(s.name) + "</h3>" +
     '<p class="sub">Build your bundle &middot; Total: <span id="bundle-total-top">' + bundleTotalText() + '</span> &middot; Tap a step to open it</p>' +
     rows +
+    summaryHtml +
     '<div class="modal-actions">' +
     '<span class="total" id="bundle-total">' + bundleTotalText() + "</span>" +
+    '<button class="ghost" data-action="restart-bundle">Start again</button>' +
     '<button class="ghost" data-action="close-bundle">Cancel</button>' +
     '<button class="primary" data-action="confirm-bundle">Add to Order</button>' +
     "</div>";
   if (overlay) overlay.scrollTop = scroll;
 }
 
-const openBundle = (s) => {
-  const groups = bundleGroups(s);
-  const total = groups.reduce((acc, g) => acc + Number(g.count || 0), 0);
+function freshBundlePicks(groups) {
   const picks = [];
   groups.forEach((g) => {
     for (let n = 0; n < Number(g.count || 0); n++) {
@@ -1385,7 +1403,12 @@ const openBundle = (s) => {
       picks.push({ itemId: item ? item.id : null, sizeLabel: sizes[0] ? sizes[0].sizeLabel : (g.sizeLabel || null), extras: [], group: g });
     }
   });
-  bundleModal = { special: s, groups, picks, openStep: 0 };
+  return picks;
+}
+
+const openBundle = (s) => {
+  const groups = bundleGroups(s);
+  bundleModal = { special: s, groups, picks: freshBundlePicks(groups), openStep: 0 };
   $("#bundle-overlay").hidden = false;
   renderBundle();
 };
@@ -1409,7 +1432,8 @@ $("#bundle-modal").addEventListener("click", (e) => {
     const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && (!g.sizeLabel || x.sizeLabel === g.sizeLabel)) : [];
     bundleModal.picks[i] = { itemId: item.id, sizeLabel: sizes[0] ? sizes[0].sizeLabel : g.sizeLabel, extras: [] };
     // Collapse this step and open the next one — a guided, one-at-a-time flow.
-    bundleModal.openStep = i + 1 < bundleModal.picks.length ? i + 1 : i;
+    // After the last pick, collapse everything and show the summary.
+    bundleModal.openStep = i + 1 < bundleModal.picks.length ? i + 1 : -1;
     renderBundle();
     return;
   }
@@ -1445,6 +1469,14 @@ $("#bundle-modal").addEventListener("change", (e) => {
 
 $("#bundle-modal").addEventListener("click", (e) => {
   if (e.target.closest('[data-action="close-bundle"]')) { closeOverlay("#bundle-overlay"); return; }
+  if (e.target.closest('[data-action="restart-bundle"]')) {
+    bundleModal.picks = freshBundlePicks(bundleModal.groups);
+    bundleModal.openStep = 0;
+    const ov = $("#bundle-overlay");
+    if (ov) ov.scrollTop = 0;
+    renderBundle();
+    return;
+  }
   if (!e.target.closest('[data-action="confirm-bundle"]')) return;
   const s = bundleModal.special;
   const groups = bundleModal.groups;
