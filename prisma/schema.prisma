@@ -389,3 +389,19 @@ model Setting {
   key   String @id
   value String
 }
+
+// Named streets inside the delivery bands, refreshed from OpenStreetMap.
+// `zoneId` matches the band ids returned by /api/delivery/zones.
+model DeliveryStreet {
+  id        Int      @id @default(autoincrement())
+  name      String
+  lat       Float
+  lng       Float
+  zoneId    String
+  wayCount  Int      @default(1)
+  source    String   @default("overpass")
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, zoneId])
+  @@index([zoneId])
+}

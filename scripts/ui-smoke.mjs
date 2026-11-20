@@ -83,8 +83,39 @@ try {
 
   await send("Page.enable");
   await send("Runtime.enable");
-  await send("Page.navigate", { url: BASE });
+  await send("Network.enable");
+
+  // The admin console is auth-gated. Older versions of this script landed on
+  // "/" (the public homepage) and then queried admin-only elements, which
+  // always failed. Log in through the API and install the session cookie in
+  // the browser, then navigate straight to /admin.
+  const loginRes = await fetch(BASE + "/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "", pin: process.env.ADMIN_PIN || "1234" }),
+  });
+  check("admin API login", loginRes.ok);
+  const sessionCookie = (loginRes.headers.getSetCookie?.() || [])[0]?.split(";")[0] || "";
+  const [, token = ""] = sessionCookie.split("=");
+  check("admin session cookie received", Boolean(token));
+  await send("Network.setCookie", {
+    name: "beluchis_admin",
+    value: token,
+    url: BASE,
+    httpOnly: true,
+    sameSite: "Strict",
+  });
+  await send("Page.navigate", { url: BASE + "/admin" });
   await delay(1500);
+
+  // wait for the admin page to fetch its counts
+  await evalJs(`(async () => {
+    for (let i = 0; i < 60; i++) {
+      if (document.querySelector("#stats")?.textContent.includes("items")) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return false;
+  })()`);
 
   // page has loaded data
   const stats = await evalJs(`document.querySelector("#stats").textContent`);

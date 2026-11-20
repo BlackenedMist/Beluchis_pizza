@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs";
 import { canonicalPhone } from "./phone.mjs";
 import { buildOrderConfirmation, buildSpecialsEmail, fill, mailEnabled, sendMail } from "./mail.mjs";
 import { payfastCheckoutFields, validPayfastSignature } from "./payfast.mjs";
+import { getZones, getStreetStatus, refreshDeliveryStreets } from "./deliveryStreets.mjs";
 import {
   paygateInitiateFields,
   paygateNotifyChecksum,
@@ -204,6 +205,7 @@ const DEFAULT_SETTINGS = {
   "delivery.beyondFeeAmount": "95",
   "delivery.minOrderAmount": "200",
   "delivery.enabled": "true",
+  "delivery.noDeliveryRadiusKm": "",
   "shop.openTime": "10:00",
   "shop.closeTime": "21:00",
   "shop.onlineEnabled": "true",
@@ -234,6 +236,8 @@ const getDeliveryConfig = async () => {
   const beyondFeeAmount = await numSetting("delivery.beyondFeeAmount", 95);
   const minOrderAmount = await numSetting("delivery.minOrderAmount", 200);
   const enabled = (await getSetting("delivery.enabled", "true")).toLowerCase() === "true";
+  const cutoffRaw = String((await getSetting("delivery.noDeliveryRadiusKm", "")) ?? "").trim();
+  const noDeliveryRadiusKm = cutoffRaw === "" ? null : nOr(cutoffRaw, null);
   return {
     enabled,
     shop: { lat: shopLat, lng: shopLng },
@@ -242,6 +246,7 @@ const getDeliveryConfig = async () => {
     feeAmount: Math.max(0, feeAmount),
     beyondFeeAmount: Math.max(0, beyondFeeAmount),
     minOrderAmount: Math.max(0, minOrderAmount),
+    noDeliveryRadiusKm,
   };
 };
 
@@ -345,11 +350,13 @@ const classifyDelivery = async ({ deliveryAddress, lat, lng }) => {
     return { ok: true, status: "unverified", distanceKm: null, fee: standardFee, minOrderAmount, standardFee, reason: "delivery not configured" };
 
   const rounded = Math.round(dist * 100) / 100;
+  if (cfg.noDeliveryRadiusKm != null && dist > cfg.noDeliveryRadiusKm)
+    return { ok: false, inArea: false, status: "outside", distanceKm: rounded, fee: null, minOrderAmount, standardFee, reason: "outside delivery area" };
   if (dist <= cfg.freeRadiusKm)
-    return { ok: true, status: "free", distanceKm: rounded, fee: 0, minOrderAmount, standardFee, reason: null };
+    return { ok: true, inArea: true, status: "free", distanceKm: rounded, fee: 0, minOrderAmount, standardFee, reason: null };
   if (dist <= cfg.maxRadiusKm)
-    return { ok: true, status: "fee", distanceKm: rounded, fee: cfg.feeAmount, minOrderAmount, standardFee, reason: null };
-  return { ok: true, status: "beyond", distanceKm: rounded, fee: cfg.beyondFeeAmount, minOrderAmount, standardFee, reason: null };
+    return { ok: true, inArea: true, status: "fee", distanceKm: rounded, fee: cfg.feeAmount, minOrderAmount, standardFee, reason: null };
+  return { ok: true, inArea: true, status: "beyond", distanceKm: rounded, fee: cfg.beyondFeeAmount, minOrderAmount, standardFee, reason: null };
 };
 
 // Validate + normalize a settings payload, throwing an HTTP 400 on bad values.
@@ -373,10 +380,17 @@ const normalizeSettingsPayload = (raw) => {
     "delivery.feeAmount",
     "delivery.beyondFeeAmount",
     "delivery.minOrderAmount",
+    "delivery.noDeliveryRadiusKm",
   ];
   for (const key of [...numKeys, ...boolKeys, ...timeKeys, ...textKeys]) {
     if (!(key in s)) continue;
     const v = String(s[key]).trim();
+    if (key === "delivery.noDeliveryRadiusKm") {
+      if (v !== "" && !Number.isFinite(nOr(v, NaN))) throw badRequest(`${key} must be a number or empty`);
+      if (v !== "" && nOr(v, 0) < 0) throw badRequest(`${key} cannot be negative`);
+      out[key] = v;
+      continue;
+    }
     if (textKeys.includes(key)) {
       if (v.length > 5000) throw badRequest(`${key} is too long (max 5000 characters)`);
       out[key] = v;
@@ -1270,6 +1284,81 @@ const validatePickKind = async (kind, categoryId, sizeLabel, count, price) => {
   return { categoryId: cat.id, sizeLabel: label, count: n };
 };
 
+// An automatic "Any N for a set price" deal can optionally cover several
+// categories. Stored in bundleSpec as:
+//   { mode: "union" | "each", picks: [{ categoryId, sizeLabel }] }
+// `union` = any N items from the listed categories; `each` = one item per
+// listed category. Legacy deals have no bundleSpec and keep the single
+// categoryId/sizeLabel behaviour.
+function parseDealSpec(value) {
+  let spec = value;
+  try { spec = typeof spec === "string" ? JSON.parse(spec) : spec; } catch (_) { return null; }
+  if (!spec || typeof spec !== "object" || Array.isArray(spec)) return null;
+  return spec;
+}
+
+export function dealPicks(row) {
+  if (!row || row.kind !== "deal") return [];
+  const spec = parseDealSpec(row.bundleSpec);
+  if (spec && Array.isArray(spec.picks) && spec.picks.length) {
+    return spec.picks.map((p) => ({
+      categoryId: Number(p.categoryId),
+      sizeLabel: String(p.sizeLabel || "").trim() || null,
+    }));
+  }
+  if (row.categoryId != null) {
+    return [{ categoryId: Number(row.categoryId), sizeLabel: row.sizeLabel || null }];
+  }
+  return [];
+}
+
+function dealMode(row) {
+  const spec = parseDealSpec(row?.bundleSpec);
+  return spec?.mode === "each" ? "each" : "union";
+}
+
+async function validateDealSpec(value, count) {
+  if (value == null || value === "" || value === "null") return null;
+  const spec = parseDealSpec(value);
+  if (!spec) throw badRequest("deal category selection is invalid");
+  const mode = String(spec.mode || "union").toLowerCase();
+  if (mode !== "union" && mode !== "each") throw badRequest("deal rule must be union or each");
+  if (!Array.isArray(spec.picks) || !spec.picks.length) throw badRequest("a multi-category deal needs at least one category");
+  const picks = [];
+  for (const p of spec.picks) {
+    const categoryId = Number(p?.categoryId);
+    const cat = await prisma.category.findUnique({ where: { id: categoryId } });
+    if (!cat) throw badRequest("deal category does not exist");
+    const label = String(p.sizeLabel || "").trim() || null;
+    if (label) {
+      const sizes = await prisma.itemSize.findMany({
+        where: { item: { categoryId } }, select: { sizeLabel: true }, distinct: ["sizeLabel"],
+      });
+      if (!sizes.some((s) => s.sizeLabel === label))
+        throw badRequest(`"${label}" is not a size sold in ${cat.name}`);
+    }
+    picks.push({ categoryId, sizeLabel: label });
+  }
+  if (mode === "each" && Number(count) !== picks.length)
+    throw badRequest("for 'one from each', the number of items must match the number of categories");
+  return { mode, picks };
+}
+
+async function serializeSpecial(row, categories = null) {
+  if (!row || row.kind !== "deal") return row;
+  const cats = categories || await prisma.category.findMany({ select: { id: true, name: true } });
+  const picks = dealPicks(row).map((p) => ({
+    ...p,
+    name: cats.find((c) => c.id === p.categoryId)?.name || "",
+  }));
+  return {
+    ...row,
+    dealMode: dealMode(row),
+    dealPicks: picks,
+    categoryIds: [...new Set(picks.map((p) => p.categoryId).filter(Boolean))],
+  };
+}
+
 const postSpecialToFacebook = async (special) => {
   try {
     const cfg = await prisma.shopConfig.findUnique({ where: { id: 1 } });
@@ -1294,7 +1383,8 @@ app.get(
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       include: specialIncludes,
     });
-    res.json(rows);
+    const cats = await prisma.category.findMany({ select: { id: true, name: true } });
+    res.json(await Promise.all(rows.map((r) => serializeSpecial(r, cats))));
   })
 );
 
@@ -1333,10 +1423,12 @@ app.post(
 
     let pick = null;
     let pickMeta = null; // { selectionMode, buyCount, payCount }
+    let dealSpec = null;
     let bundleCount = 0;
     if (kindNorm === "bogo" || kindNorm === "deal") {
       try {
         pick = await validatePickKind(kindNorm, categoryId, sizeLabel, count, price);
+        if (kindNorm === "deal") dealSpec = await validateDealSpec(bundleSpec, count);
       } catch (e) {
         return res.status(e.status || 400).json({ error: e.message });
       }
@@ -1420,7 +1512,9 @@ app.post(
         weekdays: weekdays ? String(weekdays).trim() || null : null,
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
-        bundleSpec: kindNorm === "bundle" ? (typeof bundleSpec === "string" ? bundleSpec : JSON.stringify(bundleSpec)) : null,
+        bundleSpec: kindNorm === "bundle"
+          ? (typeof bundleSpec === "string" ? bundleSpec : JSON.stringify(bundleSpec))
+          : (kindNorm === "deal" && dealSpec ? JSON.stringify(dealSpec) : null),
         exemptFromDeals: Boolean(exemptFromDeals),
         items:
           (kindNorm === "flat" || (kindNorm === "pick" && pickMeta?.selectionMode === "items"))
@@ -1440,7 +1534,7 @@ app.post(
     const full = await prisma.special.findUnique({ where: { id: row.id }, include: specialIncludes });
     let fbResult = null;
     if (req.body?.postToFacebook) fbResult = await postSpecialToFacebook(full);
-    res.status(201).json({ ...full, fbResult });
+    res.status(201).json({ ...(await serializeSpecial(full)), fbResult });
   })
 );
 
@@ -1457,6 +1551,7 @@ app.put(
 
     let pick = null;
     let pickMeta = null;
+    let dealSpec = null;
     if (kindNorm === "bogo" || kindNorm === "deal") {
       try {
         pick = await validatePickKind(
@@ -1466,6 +1561,10 @@ app.put(
           count !== undefined ? count : existing.count,
           price !== undefined ? price : existing.price
         );
+        if (kindNorm === "deal") {
+          const rawSpec = bundleSpec !== undefined ? bundleSpec : existing.bundleSpec;
+          dealSpec = await validateDealSpec(rawSpec, count !== undefined ? count : existing.count);
+        }
       } catch (e) {
         return res.status(e.status || 400).json({ error: e.message });
       }
@@ -1548,7 +1647,11 @@ app.put(
           ...(homePriceText !== undefined ? { homePriceText: normalizeSpecialText(homePriceText, "homePriceText") } : {}),
           ...(collectionOnly !== undefined ? { collectionOnly: Boolean(collectionOnly) } : {}),
           ...(payMode !== undefined ? { payMode: payMode === "fixed" ? "fixed" : "expensive" } : {}),
-          ...(bundleSpec !== undefined ? { bundleSpec: kindNorm === "bundle" ? (typeof bundleSpec === "string" ? bundleSpec : JSON.stringify(bundleSpec)) : null } : {}),
+          ...(bundleSpec !== undefined ? {
+            bundleSpec: kindNorm === "bundle"
+              ? (typeof bundleSpec === "string" ? bundleSpec : JSON.stringify(bundleSpec))
+              : (kindNorm === "deal" && dealSpec ? JSON.stringify(dealSpec) : null),
+          } : {}),
           ...(exemptFromDeals !== undefined ? { exemptFromDeals: Boolean(exemptFromDeals) } : {}),
           ...(kindNorm === "bundle" && bundleSpec !== undefined ? { count: (typeof bundleSpec === "string" ? JSON.parse(bundleSpec) : bundleSpec).reduce((a,g)=>a+Number(g.count||0),0) } : {}),
         },
@@ -1579,7 +1682,7 @@ app.put(
     const full = await prisma.special.findUnique({ where: { id: row.id }, include: specialIncludes });
     let fbResult = null;
     if (req.body?.postToFacebook) fbResult = await postSpecialToFacebook(full);
-    res.json({ ...full, fbResult });
+    res.json({ ...(await serializeSpecial(full)), fbResult });
   })
 );
 
@@ -1872,6 +1975,61 @@ app.get(
     });
   })
 );
+
+// Zone bands derived from the same settings the order pricing uses.
+app.get("/api/delivery/zones", asyncHandler(async (_req, res) => {
+  res.json(await getZones());
+}));
+
+// Named streets inside the delivery bands (refreshed from OpenStreetMap).
+app.get("/api/delivery/streets", asyncHandler(async (req, res) => {
+  const zone = String(req.query?.zone || "").trim();
+  const rows = await prisma.deliveryStreet.findMany({
+    where: zone ? { zoneId: zone } : {},
+    orderBy: [{ zoneId: "asc" }, { name: "asc" }],
+  });
+  res.json(rows.map((r) => ({
+    name: r.name, lat: r.lat, lng: r.lng, zoneId: r.zoneId, wayCount: r.wayCount,
+  })));
+}));
+
+app.get("/api/delivery/streets/status", requireRole("admin"), asyncHandler(async (_req, res) => {
+  res.json(await getStreetStatus());
+}));
+
+app.post("/api/delivery/streets/refresh", requireRole("admin"), asyncHandler(async (_req, res) => {
+  try {
+    res.json(await refreshDeliveryStreets());
+  } catch (err) {
+    res.status(502).json({ ok: false, error: err.message });
+  }
+}));
+
+// Same pricing logic as a real order, in the shape the delivery wizard expects.
+app.post("/api/delivery/check", asyncHandler(async (req, res) => {
+  const { lat, lng, address } = req.body || {};
+  const result = await classifyDelivery({ deliveryAddress: address, lat, lng });
+  const cfg = await getZones();
+  const hasCoords = Number.isFinite(nOr(lat, NaN)) && Number.isFinite(nOr(lng, NaN));
+  const zone = hasCoords && result.distanceKm != null
+    ? cfg.zones.find((z) => result.distanceKm >= z.minKm && (z.maxKm == null || result.distanceKm < z.maxKm)) || null
+    : null;
+  const message = result.inArea === false
+    ? "Sorry, we don't deliver to this address."
+    : result.status === "free" ? "Free delivery"
+    : (result.status === "fee" || result.status === "beyond") ? `Delivery fee R${result.fee}`
+    : "Address to confirm";
+  res.json({
+    inArea: result.inArea !== false,
+    distanceKm: result.distanceKm,
+    fee: result.fee,
+    currency: "ZAR",
+    zoneId: result.status === "outside" ? "none" : (zone?.id || null),
+    label: result.status === "outside" ? "No delivery" : (zone?.label || "Address to confirm"),
+    message,
+    status: result.status,
+  });
+}));
 
 // Public shop-hours status for the storefront/home page. Callers can also pass
 // ?at=ISO to preview a given moment (used by the admin form).
@@ -2682,6 +2840,13 @@ app.post(
     // "unverified" - the standard fee applies and the restaurant confirms the
     // address and rate with the customer.
     const delivery = await classifyDelivery({ deliveryAddress: resolvedDeliveryAddress, lat, lng });
+    if (delivery.inArea === false) {
+      return res.status(400).json({
+        error: "Sorry, we don't deliver to this address.",
+        code: "delivery_out_of_area",
+        distanceKm: delivery.distanceKm,
+      });
+    }
 
     const wantsDelivery = wantsDeliveryInitial;
     if (!wantsDelivery) tipAmount = 0;
@@ -2949,7 +3114,6 @@ app.post(
         where: {
           kind: "deal",
           isActive: true,
-          categoryId: { not: null },
           // Collection-only deals never discount a delivery order.
           ...(wantsDelivery ? { collectionOnly: false } : {}),
         },
@@ -2957,49 +3121,59 @@ app.post(
       // A unit is one individual pizza, so a qty-3 line contributes three.
       // `claimed` stops two overlapping deals from discounting the same pizza.
       const claimed = new Set();
+      const reward = (s, chunk) => {
+        const normal = chunk.reduce((sum, u) => sum + u.base, 0);
+        const saving = Math.max(0, normal - s.price);
+        if (saving <= 0) return false;
+        chunk.forEach((u) => claimed.add(u.key));
+        dealSaving += saving;
+        dealLabels.add(s.name);
+        dealApplications.push({ name: s.name, count: chunk.length, price: s.price, normal, saving });
+        return true;
+      };
 
       for (const s of dealSpecials) {
         if (!(s.count >= 1) || !(s.price > 0)) continue;
+        const picks = dealPicks(s);
+        if (!picks.length) continue;
+        const mode = dealMode(s);
 
+        // A unit can qualify under more than one selected category (overlap),
+        // so it carries the index of the pick it matched.
         const units = [];
         for (const r of itemRows) {
-          if (r.item.categoryId !== s.categoryId) continue;
-          if (s.sizeLabel && r.sizeLabel !== s.sizeLabel) continue;
-          for (let n = 0; n < r.qty; n++) {
-            const key = r.key + ":" + n;
-            if (claimed.has(key)) continue;
-            units.push({ key, base: r.base, sizeLabel: r.sizeLabel });
-          }
-        }
-        if (units.length < s.count) continue;
-
-        const sorted = units.slice().sort((a, b) => a.base - b.base);
-        if (s.count === 2) {
-          let lo = 0, hi = sorted.length - 1;
-          while (lo < hi) {
-            const chunk = [sorted[lo], sorted[hi]];
-            const normal = chunk.reduce((sum, u) => sum + u.base, 0);
-            const saving = Math.max(0, normal - s.price);
-            if (saving > 0) {
-              chunk.forEach((u) => claimed.add(u.key));
-              dealSaving += saving;
-              dealLabels.add(s.name);
-              dealApplications.push({ name: s.name, count: s.count, price: s.price, normal, saving });
-              lo++; hi--;
-            } else {
-              lo++;
+          picks.forEach((p, idx) => {
+            if (r.item.categoryId !== p.categoryId) return;
+            if (p.sizeLabel && r.sizeLabel !== p.sizeLabel) return;
+            for (let n = 0; n < r.qty; n++) {
+              const key = r.key + ":" + n;
+              if (claimed.has(key)) continue;
+              units.push({ key, base: r.base, sizeLabel: r.sizeLabel, pickIdx: idx });
             }
+          });
+        }
+
+        if (mode === "each") {
+          // One qualifying item from every selected category = one deal.
+          while (true) {
+            const chunk = picks.map((_, idx) => units
+              .filter((u) => u.pickIdx === idx && !claimed.has(u.key))
+              .sort((a, b) => a.base - b.base)[0]);
+            if (chunk.some((u) => !u)) break;
+            if (!reward(s, chunk)) chunk.forEach((u) => claimed.add(u.key));
           }
         } else {
-          for (let i = 0; i + s.count <= sorted.length; i += s.count) {
-            const chunk = sorted.slice(i, i + s.count);
-            const normal = chunk.reduce((sum, u) => sum + u.base, 0);
-            const saving = Math.max(0, normal - s.price);
-            if (!saving) continue;
-            chunk.forEach((u) => claimed.add(u.key));
-            dealSaving += saving;
-            dealLabels.add(s.name);
-            dealApplications.push({ name: s.name, count: s.count, price: s.price, normal, saving });
+          const sorted = units.slice().sort((a, b) => a.base - b.base);
+          if (sorted.length < s.count) continue;
+          if (s.count === 2) {
+            let lo = 0, hi = sorted.length - 1;
+            while (lo < hi) {
+              if (!reward(s, [sorted[lo], sorted[hi]])) { lo++; continue; }
+              lo++; hi--;
+            }
+          } else {
+            for (let i = 0; i + s.count <= sorted.length; i += s.count)
+              reward(s, sorted.slice(i, i + s.count));
           }
         }
       }

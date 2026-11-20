@@ -26,6 +26,15 @@
     return { buy, pay, free: Math.max(0, buy - pay) };
   }
 
+  /* Multi-category automatic deal: the server sends dealPicks with names. */
+  function dealCategories(s) {
+    if (Array.isArray(s && s.dealPicks) && s.dealPicks.length)
+      return s.dealPicks.map((p) => clean(p && p.name)).filter(Boolean);
+    const cat = categoryName(s);
+    return cat ? [cat] : [];
+  }
+  function dealMode(s) { return s && s.dealMode === "each" ? "each" : "union"; }
+
   function bundleGroups(s) {
     let spec = s && s.bundleSpec;
     if (typeof spec === "string") {
@@ -69,7 +78,10 @@
       return "Buy " + c.buy + ", save more";
     }
     if (s.kind === "deal") {
-      const who = [size, cat].filter(Boolean).join(" ");
+      const names = dealCategories(s);
+      if (dealMode(s) === "each" && names.length)
+        return "One from each: " + names.join(" + ") + " for " + money(s.price);
+      const who = [size, ...names].filter(Boolean).join(" ");
       return "Any " + (Number(s.count) || 2) + (who ? " " + who : "") + " for " + money(s.price);
     }
     if (s.kind === "bundle") {
@@ -94,7 +106,9 @@
       return choose + " and pay for " + c.pay + ".";
     }
     if (s.kind === "deal") {
-      return "Add " + (Number(s.count) || 2) + (size ? " " + size : "") + (cat ? " " + cat : "") + " \u2014 the saving lands in your cart automatically.";
+      const names = dealCategories(s);
+      const who = names.length ? (dealMode(s) === "each" ? "one from " + names.join(" + ") : "any " + (Number(s.count) || 2) + (size ? " " + size : "") + " from " + names.join(" or ")) : ((Number(s.count) || 2) + (size ? " " + size : "") + (cat ? " " + cat : ""));
+      return "Add " + who + " \u2014 the saving lands in your cart automatically.";
     }
     if (s.kind === "bundle") {
       const groups = bundleGroups(s);

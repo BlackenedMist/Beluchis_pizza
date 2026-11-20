@@ -146,77 +146,84 @@
      by size, take floor(n / count) groups cheapest-first, and only reward a
      group when the deal actually beats the normal price (two R90 Margheritas
      stay at R180 rather than being pushed UP to R200). Extras never qualify. */
+  // Eligible categories for an automatic deal. The server sends `dealPicks`
+  // directly; older payloads only carry one categoryId.
+  function dealPicksOf(s) {
+    if (Array.isArray(s.dealPicks) && s.dealPicks.length) return s.dealPicks;
+    if (s.categoryId != null) return [{ categoryId: s.categoryId, sizeLabel: s.sizeLabel || null }];
+    return [];
+  }
+  function dealModeOf(s) { return s.dealMode === "each" ? "each" : "union"; }
+
   function applyDeals(cart) {
     const src = cart || CART;
     const out = { saving: 0, rows: [] };
-    const deals = activeSpecials().filter((s) => s.kind === "deal" && s.categoryId != null && s.count >= 1 && s.price > 0 && !(FULFILMENT === "delivery" && s.collectionOnly));
+    const deals = activeSpecials().filter((s) => s.kind === "deal" && s.count >= 1 && s.price > 0 && !(FULFILMENT === "delivery" && s.collectionOnly));
     if (!deals.length || !src.length) return out;
 
     // A unit is one individual pizza, so a qty-3 line contributes three.
     // `claimed` stops two overlapping deals from discounting the same pizza.
     const claimed = new Set();
+    const reward = (s, chunk) => {
+      const normal = chunk.reduce((sum, u) => sum + u.base, 0);
+      const saving = Math.max(0, normal - s.price);
+      if (saving <= 0) return false;
+      chunk.forEach((u) => claimed.add(u.key));
+      out.saving += saving;
+      out.rows.push({
+        id: s.id,
+        name: s.name,
+        sizeLabel: s.sizeLabel || chunk[0].sizeLabel || "",
+        count: chunk.length,
+        price: s.price,
+        normal,
+        saving,
+      });
+      return true;
+    };
 
     for (const s of deals) {
+      const picks = dealPicksOf(s);
+      if (!picks.length) continue;
+      const mode = dealModeOf(s);
       const units = [];
       src.forEach((l, idx) => {
         if (l.kind === "special" || l.itemId == null) return;
         const item = DATA.byId.get(l.itemId);
-        if (!item || item.categoryId !== s.categoryId) return;
+        if (!item) return;
         const sz = sizeRowOf(item, l.sizeLabel);
         if (!sz) return;
-        if (s.sizeLabel && l.sizeLabel !== s.sizeLabel) return;
-        for (let n = 0; n < (l.qty || 1); n++) {
-          const key = idx + ":" + n;
-          if (claimed.has(key)) continue;
-          units.push({ key, base: sz.price, sizeLabel: l.sizeLabel });
-        }
-      });
-      if (units.length < s.count) continue;
-
-      const sorted = units.slice().sort((a, b) => a.base - b.base);
-      if (s.count === 2) {
-        // Pair cheapest with most expensive so mixed-price carts still
-        // qualify for as many deals as possible (consecutive chunking
-        // strands cheap units and under-counts).
-        let lo = 0, hi = sorted.length - 1;
-        while (lo < hi) {
-          const chunk = [sorted[lo], sorted[hi]];
-          const normal = chunk.reduce((sum, u) => sum + u.base, 0);
-          const saving = Math.max(0, normal - s.price);
-          if (saving > 0) {
-            chunk.forEach((u) => claimed.add(u.key));
-            out.saving += saving;
-            out.rows.push({
-              id: s.id,
-              name: s.name,
-              sizeLabel: s.sizeLabel || chunk[0].sizeLabel || "",
-              count: s.count,
-              price: s.price,
-              normal,
-              saving,
-            });
-            lo++; hi--;
-          } else {
-            lo++;
+        picks.forEach((p, pickIdx) => {
+          if (item.categoryId !== p.categoryId) return;
+          if (p.sizeLabel && l.sizeLabel !== p.sizeLabel) return;
+          for (let n = 0; n < (l.qty || 1); n++) {
+            const key = idx + ":" + n;
+            if (claimed.has(key)) continue;
+            units.push({ key, base: sz.price, sizeLabel: l.sizeLabel, pickIdx });
           }
+        });
+      });
+
+      if (mode === "each") {
+        while (true) {
+          const chunk = picks.map((_, idx) => units
+            .filter((u) => u.pickIdx === idx && !claimed.has(u.key))
+            .sort((a, b) => a.base - b.base)[0]);
+          if (chunk.some((u) => !u)) break;
+          if (!reward(s, chunk)) chunk.forEach((u) => claimed.add(u.key));
         }
       } else {
-        for (let i = 0; i + s.count <= sorted.length; i += s.count) {
-          const chunk = sorted.slice(i, i + s.count);
-          const normal = chunk.reduce((sum, u) => sum + u.base, 0);
-          const saving = Math.max(0, normal - s.price);
-          if (!saving) continue;
-          chunk.forEach((u) => claimed.add(u.key));
-          out.saving += saving;
-          out.rows.push({
-            id: s.id,
-            name: s.name,
-            sizeLabel: s.sizeLabel || chunk[0].sizeLabel || "",
-            count: s.count,
-            price: s.price,
-            normal,
-            saving,
-          });
+        const sorted = units.slice().sort((a, b) => a.base - b.base);
+        if (sorted.length < s.count) continue;
+        if (s.count === 2) {
+          let lo = 0, hi = sorted.length - 1;
+          while (lo < hi) {
+            if (!reward(s, [sorted[lo], sorted[hi]])) { lo++; continue; }
+            lo++; hi--;
+          }
+        } else {
+          for (let i = 0; i + s.count <= sorted.length; i += s.count)
+            reward(s, sorted.slice(i, i + s.count));
         }
       }
     }

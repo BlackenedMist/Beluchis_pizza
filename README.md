@@ -298,6 +298,15 @@ in the same basket on `/order`:
   get 1 free" is `buyCount 4 / payCount 3`. The server charges the most expensive
   `payCount` bases and frees the cheapest `Y`; extras stay payable. One
   `OrderItem` is written per pizza and the saving lands in `discountAmount`.
+- **Any N for a set price** can cover more than one category. Use *Also allow
+  other categories in this deal* to add categories (each with its own optional
+  size), then choose **Any N from these categories** or **One item from each
+  category**. The selection is stored in `bundleSpec` as
+  `{ mode, picks: [{ categoryId, sizeLabel }] }`; the cart preview and the
+  server's pricing pass use the same rules, so the shown saving is what is
+  charged. Single-category deals remain unchanged.
+- The Specials tab has a summary/filter strip by offer type and clear columns
+  for the customer-facing rule, categories, price/saving and schedule.
 - **Collection only** (`collectionOnly`) keeps an offer off delivery orders.
   It still advertises on the home/order pages with a badge, but delivery
   customers cannot add it and automatic collection-only deals are skipped on

@@ -279,7 +279,10 @@ button:disabled{opacity:.5;cursor:not-allowed}
 
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="/assets/Control.Geocoder.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/assets/Control.Geocoder.js"></script>
+<script src="/assets/beluchis-delivery.js"></script>
 <script src="/special-display.js"></script>
 </head>
 <body>
@@ -1493,13 +1496,16 @@ window.delCategory = async (id) => {
 function renderSpecials() {
   const el = $("#tab-specials");
   const q = state.search.trim().toLowerCase();
-  // Automatic deals are included here too so a special created from this tab
-  // is immediately visible (the Deals tab remains the bulk per-size editor).
-  const list = state.specials.filter((s) => {
-    if (!q) return true;
-    const parts = s.items.map((x) => x.item.name).join(" ");
-    return s.name.toLowerCase().includes(q) || (s.description || "").toLowerCase().includes(q) || parts.toLowerCase().includes(q) || (s.category?.name || "").toLowerCase().includes(q);
-  });
+
+  const offerType = (s) => {
+    if (s.kind === "pick" || s.kind === "bogo") return "Multi-buy";
+    if (s.kind === "deal") return "Automatic deal";
+    if (s.kind === "bundle") return s.payMode === "fixed" ? "Build-your-own" : "Category selection";
+    return "Combo / reduced";
+  };
+  const TYPES = ["All offers", "Multi-buy", "Automatic deal", "Build-your-own", "Category selection", "Combo / reduced"];
+  const activeType = state.specialFilter || "All offers";
+
   const partsSum = (s, paidOnly = false) =>
     s.items.reduce((sum, x) => {
       if (paidOnly && x.paid === false) return sum;
@@ -1509,6 +1515,42 @@ function renderSpecials() {
       const unit = chosen ? chosen.price : Math.min(...sizes.map((sz) => sz.price));
       return sum + unit * x.quantity;
     }, 0);
+
+  const statusOf = (s) => {
+    if (s.isActive === false) return '<span class="muted">Inactive</span>';
+    const now = new Date();
+    if (s.startDate && new Date(s.startDate) > now) return '<span style="color:#b26a00">Scheduled</span>';
+    if (s.endDate && new Date(s.endDate) < now) return '<span class="muted">Expired</span>';
+    return '<span style="color:#2e7d32">Active</span>';
+  };
+
+  const coversOf = (s) => {
+    if (s.kind === "deal") {
+      const picks = s.dealPicks || (s.category ? [{ name: s.category.name }] : []);
+      const joiner = s.dealMode === "each" ? " + " : " or ";
+      return picks.map((p) => `<span class="parts-tag">${esc(p.name || "—")}</span>`).join(joiner);
+    }
+    if ((s.kind === "pick" || s.kind === "bogo") && s.selectionMode !== "items" && s.category)
+      return `<span class="parts-tag">${esc(s.category.name)}</span>`;
+    if (s.kind === "bundle") {
+      let spec = s.bundleSpec;
+      try { spec = typeof spec === "string" ? JSON.parse(spec) : spec; } catch (e) { spec = []; }
+      return (spec || []).map((g) => `<span class="parts-tag">${Number(g.count || 1)}× ${esc(g.name || "group")}</span>`).join(" ");
+    }
+    return s.items.map((x) => `<span class="parts-tag">${esc(x.item.name)}${x.sizeLabel ? ` (${esc(x.sizeLabel)})` : ""}${x.quantity > 1 ? ` ×${x.quantity}` : ""}</span>`).join("");
+  };
+
+  const list = state.specials.filter((s) => {
+    if (activeType !== "All offers" && offerType(s) !== activeType) return false;
+    if (!q) return true;
+    const parts = s.items.map((x) => x.item.name).join(" ");
+    const cats = (s.dealPicks || []).map((p) => p.name || "").join(" ");
+    return s.name.toLowerCase().includes(q) || (s.description || "").toLowerCase().includes(q) || parts.toLowerCase().includes(q) || (s.category?.name || "").toLowerCase().includes(q) || cats.toLowerCase().includes(q);
+  });
+
+  const counts = {};
+  for (const t of TYPES) counts[t] = t === "All offers" ? state.specials.length : state.specials.filter((s) => offerType(s) === t).length;
+  const onHome = state.specials.filter((s) => s.showOnHome).length;
 
   el.innerHTML = `
     <div class="toolbar">
@@ -1523,32 +1565,28 @@ function renderSpecials() {
         <button class="ghost" onclick="quickFixedRangeBundle()">Fixed Range Bundle</button>
       </div>
     </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      ${TYPES.map((t) => `<button class="${t === activeType ? "primary" : "ghost"}" style="padding:6px 12px" onclick="state.specialFilter='${t}';render()">${t} (${counts[t]})</button>`).join("")}
+      <span class="muted" style="align-self:center;font-size:13px">${onHome} shown on the home page</span>
+    </div>
     ${list.length ? `
     <table>
-      <thead><tr><th>Name</th><th>Price</th><th>Parts</th><th>Home</th><th>Active</th><th></th></tr></thead>
+      <thead><tr><th>Offer</th><th>What the customer does</th><th>Covers</th><th>Price &amp; saving</th><th>Schedule</th><th>Home</th><th></th></tr></thead>
       <tbody>
         ${list.map((s) => {
           const sum = partsSum(s, s.kind === "pick");
           const deal = sum > 0 && s.price < sum ? Math.round((1 - s.price / sum) * 100) : null;
+          const priceCell = (s.kind === "pick" || s.kind === "bogo" || s.kind === "deal")
+            ? `${esc(SpecialDisplay.headline(s))}${SpecialDisplay.badge(s) ? `<br><span class="parts-tag">${esc(SpecialDisplay.badge(s))}</span>` : ""}`
+            : `R${s.price}${sum > 0 ? `<br><span class="muted">parts R${sum}</span>` : ""}${deal ? `<br><span class="parts-tag" style="background:#e8f5e9;color:#2e7d32">${deal}% off</span>` : ""}`;
           return `
           <tr>
-            <td><b>${esc(s.name)}</b>${s.kind === "bogo" ? ' <span class="tag">bogo</span>' : ""}${s.kind === "bundle" ? ' <span class="tag">bundle</span>' : ""}${s.kind === "pick" ? ' <span class="tag">pick</span>' : ""}${s.kind === "deal" ? ' <span class="tag">automatic deal</span>' : ""}${s.collectionOnly ? ' <span class="tag">collection only</span>' : ""}${s.imageUrl ? `<br><img src="${esc(s.imageUrl)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:7px;border:1px solid #e8e0d5;margin-top:4px" />` : ""}${s.description ? `<br><span class="muted">${esc(s.description)}</span>` : ""}</td>
-            <td>${(s.kind === "bogo" || s.kind === "pick" || s.kind === "deal")
-              ? `${esc(SpecialDisplay.headline(s))}${SpecialDisplay.badge(s) ? ` <span class="parts-tag">${esc(SpecialDisplay.badge(s))}</span>` : ""}${s.kind === "deal" && s.sizeLabel ? `<br><span class="muted">${esc(s.sizeLabel)}</span>` : ""}`
-              : `R${s.price}${sum > 0 ? `<br><span class="muted">parts R${sum}</span>` : ""}${deal ? `<br><span class="parts-tag" style="background:#e8f5e9;color:#2e7d32">${deal}% off</span>` : ""}`}</td>
-            <td>${(s.kind === "bogo" || s.kind === "pick" && s.selectionMode !== "items")
-              ? `<span class="parts-tag">${esc(s.category?.name || "—")}${s.sizeLabel ? ` · ${esc(s.sizeLabel)}` : ""}</span>`
-              : s.kind === "deal"
-                ? `<span class="parts-tag">${esc(s.category?.name || "—")}${s.sizeLabel ? ` · ${esc(s.sizeLabel)}` : ""}</span><span class="muted"> auto</span>`
-                : s.items.map((x) => `<span class="parts-tag">${esc(x.item.name)}${x.sizeLabel ? ` (${esc(x.sizeLabel)})` : ""}${x.quantity > 1 ? ` ×${x.quantity}` : ""}</span>`).join("")}</td>
-            <td>${s.showOnHome ? "Yes" : '<span class="muted">—</span>'}</td>
-            <td>${(() => {
-              if (s.isActive === false) return '<span class="muted">Inactive</span>';
-              const now = new Date();
-              if (s.startDate && new Date(s.startDate) > now) return '<span style="color:#b26a00">Scheduled</span>';
-              if (s.endDate && new Date(s.endDate) < now) return '<span class="muted">Expired</span>';
-              return "Active";
-            })()}</td>
+            <td><b>${esc(s.name)}</b><br><span class="parts-tag">${offerType(s)}</span>${s.collectionOnly ? ' <span class="tag">collection only</span>' : ""}${s.imageUrl ? `<br><img src="${esc(s.imageUrl)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:7px;border:1px solid #e8e0d5;margin-top:4px" />` : ""}</td>
+            <td style="max-width:280px">${esc(SpecialDisplay.headline(s))}${SpecialDisplay.subtext(s) ? `<br><span class="muted" style="font-size:12.5px">${esc(SpecialDisplay.subtext(s))}</span>` : ""}</td>
+            <td>${coversOf(s)}${s.sizeLabel ? `<br><span class="muted">${esc(s.sizeLabel)}</span>` : ""}</td>
+            <td>${priceCell}</td>
+            <td>${statusOf(s)}${s.weekdays ? `<br><span class="muted">${esc(s.weekdays)}</span>` : ""}${s.startDate || s.endDate ? `<br><span class="muted" style="font-size:12px">${s.startDate ? String(s.startDate).slice(0, 10) : "…"} – ${s.endDate ? String(s.endDate).slice(0, 10) : "…"}</span>` : ""}</td>
+            <td>${s.showOnHome ? `<span class="muted">${esc(s.homeDisplay || "tile")}</span>` : '<span class="muted">—</span>'}</td>
             <td class="row-actions">
               <button onclick="openSpecial(${s.id})">Edit</button>
               <button onclick="scheduleSpecial(${s.id})">Schedule</button>
@@ -2022,6 +2060,67 @@ window.openSpecial = (id) => {
   } else if (s?.categoryId) {
     initialCatRows = [{ categoryId: s.categoryId, type: "paid", priceMode: "value", price: 0, sizeLabel: s.sizeLabel || "", count: 1, freeCount: 1, itemIds: [] }];
   }
+  // Extra categories for an automatic deal (the first category stays in the
+  // simple dropdown above). Multi-category deals store their picks in
+  // dealPicks; legacy deals only have the one categoryId.
+  const savedPicks = Array.isArray(s?.dealPicks) && s.dealPicks.length ? s.dealPicks : [];
+  window.dealExtras = savedPicks.slice(1).map((p) => ({ categoryId: p.categoryId, sizeLabel: p.sizeLabel || "" }));
+  window.dealRenderExtras = () => {
+    const host = $("#sp-deal-extras");
+    if (!host) return;
+    if (!window.dealExtras.length) {
+      host.innerHTML = '<div class="muted" style="font-size:12px">Only the category above qualifies.</div>';
+      return;
+    }
+    host.innerHTML = window.dealExtras.map((p, idx) => {
+      const sizes = window.cbSizesFor(p.categoryId);
+      if (p.sizeLabel && !sizes.includes(p.sizeLabel)) sizes.push(p.sizeLabel);
+      const catOpts = state.categories.filter((c) => c.isActive !== false || c.id === p.categoryId)
+        .map((c) => `<option value="${c.id}"${c.id === p.categoryId ? " selected" : ""}>${esc(c.name)}</option>`).join("");
+      return `<div class="row" style="align-items:end;margin-bottom:6px">
+        <div class="field" style="margin-bottom:0;flex:2"><label>Category</label><select onchange="dealSetExtra(${idx},'categoryId',this.value)">${catOpts}</select></div>
+        <div class="field" style="margin-bottom:0;flex:1"><label>Size</label><select onchange="dealSetExtra(${idx},'sizeLabel',this.value)"><option value="">Any size</option>${sizes.map((z) => `<option value="${esc(z)}"${z === p.sizeLabel ? " selected" : ""}>${esc(z)}</option>`).join("")}</select></div>
+        <button class="danger" type="button" style="padding:6px 8px" onclick="dealRemoveExtra(${idx})">Remove</button>
+      </div>`;
+    }).join("");
+  };
+  window.dealAddExtra = () => {
+    const first = state.categories.find((c) => c.isActive !== false)?.id || null;
+    window.dealExtras.push({ categoryId: first, sizeLabel: "" });
+    window.dealRenderExtras();
+    window.dealModeChanged();
+  };
+  window.dealSetExtra = (idx, key, value) => {
+    const row = window.dealExtras[idx];
+    if (!row) return;
+    row[key] = key === "categoryId" ? Number(value) : value;
+    if (key === "categoryId") row.sizeLabel = "";
+    window.dealRenderExtras();
+    window.dealModeChanged();
+  };
+  window.dealRemoveExtra = (idx) => {
+    window.dealExtras.splice(idx, 1);
+    window.dealRenderExtras();
+    window.dealModeChanged();
+  };
+  window.dealModeChanged = () => {
+    const mode = $("#sp-deal-mode")?.value || "union";
+    const total = 1 + window.dealExtras.length;
+    if (mode === "each") {
+      const countEl = $("#sp-count");
+      if (countEl) countEl.value = total;
+    }
+    const hint = $("#sp-deal-hint");
+    if (hint) {
+      hint.textContent = mode === "each"
+        ? `One item from each of the ${total} selected categor${total === 1 ? "y" : "ies"} for the set price.`
+        : (window.dealExtras.length
+          ? `Any ${$("#sp-count")?.value || total} items from the ${total} selected categories for the set price.`
+          : "Any N items from the chosen category for the set price.");
+    }
+    renderSpecialPreview();
+  };
+
   const legacyBuy = s ? Number(s.kind === "bogo" ? s.count : (s.buyCount || s.count) || 2) : 3;
   const legacyPay = s ? Number(s.kind === "bogo" ? Math.ceil(legacyBuy / 2) : (s.payCount || Math.max(1, legacyBuy - 1))) : 2;
   const payFor = Math.max(1, legacyPay);
@@ -2079,6 +2178,19 @@ window.openSpecial = (id) => {
           ${field("How many items", `<input id="sp-count" type="number" min="1" value="${s ? (s.count || 2) : 2}" oninput="renderSpecialPreview()" />`)}
           ${field("Set price (R)", `<input id="sp-price" type="number" min="1" value="${s && s.kind === "deal" ? s.price : ""}" oninput="renderSpecialPreview()" />`)}
         </div>
+        <div class="row">
+          ${field("Deal rule", `<select id="sp-deal-mode" onchange="dealModeChanged()">
+            <option value="union"${(s?.dealMode || "union") !== "each" ? " selected" : ""}>Any N from these categories</option>
+            <option value="each"${s?.dealMode === "each" ? " selected" : ""}>One item from each category</option>
+          </select>`)}
+        </div>
+        <details class="acc" id="sp-deal-extra-wrap" style="margin-top:6px">
+          <summary>Also allow other categories in this deal</summary>
+          <p class="hint" style="margin:6px 0">Items from the categories below also qualify. Each row can have its own size; leave size blank for any size.</p>
+          <div id="sp-deal-extras"></div>
+          <button class="ghost" type="button" onclick="dealAddExtra()" style="margin-top:6px">+ Add another category</button>
+        </details>
+        <p class="hint" id="sp-deal-hint" style="margin:4px 0 8px"></p>
       </div>
 
       <div id="sp-flat-fields">
@@ -2170,6 +2282,7 @@ window.openSpecial = (id) => {
     $("#sp-catbuilder-wrap").hidden = !isBundle;
     $("#sp-bundle-wrap").hidden = preset !== "bundle";
     if (!$("#sp-cat-wrap").hidden) { try { renderBogoSizes(); } catch (e) {} }
+    if (isDeal) { try { dealRenderExtras(); dealModeChanged(); } catch (e) {} }
     try { renderSpecialPicks(); } catch (e) {}
     try { renderSpecialSum(); } catch (e) {}
     const help = {
@@ -2354,6 +2467,14 @@ window.openSpecial = (id) => {
       buyCount: pay + free, payCount: pay, count: pay + free,
       price: 0,
       collectionOnly: Boolean($("#sp-collection")?.checked),
+      dealMode: ($("#sp-deal-mode")?.value || "union"),
+      dealPicks: [
+        ...(category ? [{ categoryId: category.id, sizeLabel: sizeLabel || "", name: category.name }] : []),
+        ...(window.dealExtras || []).map((p) => ({
+          ...p,
+          name: state.categories.find((c) => c.id === p.categoryId)?.name || "",
+        })),
+      ],
       homeHeadline: ($("#sp-headline")?.value || "").trim(),
       homeSubtext: ($("#sp-subtext")?.value || "").trim(),
       homeBadge: ($("#sp-badge")?.value || "").trim(),
@@ -2472,7 +2593,19 @@ window.saveSpecial = async (id) => {
     if (!categoryId) return toast("Pick a category for the deal", true);
     if (count < 1) return toast("Enter how many items the deal covers", true);
     if (!(price > 0)) return toast("Enter the set price", true);
-    payload = { ...base, kind: "deal", categoryId, sizeLabel, count, price };
+    const mode = $("#sp-deal-mode")?.value || "union";
+    const picks = [{ categoryId, sizeLabel: sizeLabel || "" }, ...(window.dealExtras || []).map((p) => ({ categoryId: p.categoryId, sizeLabel: p.sizeLabel || "" }))];
+    if (mode === "each" && picks.length !== count)
+      return toast("For 'one from each', the number of items must match the number of categories", true);
+    payload = {
+      ...base,
+      kind: "deal",
+      categoryId,
+      sizeLabel,
+      count,
+      price,
+      bundleSpec: (picks.length > 1 || mode === "each") ? { mode, picks } : null,
+    };
   } else if (kind === "bundle") {
     const spec = window.cbSpec("sp-catbuilder");
     if (!spec.length) return toast("Add at least one category", true);
@@ -3612,6 +3745,7 @@ function renderDeliveries() {
   const fee = Number(get("delivery.feeAmount", 85)) || 0;
   const beyondFee = Number(get("delivery.beyondFeeAmount", 95)) || 0;
   const minOrder = Number(get("delivery.minOrderAmount", 200)) || 0;
+  const cutoff = String(get("delivery.noDeliveryRadiusKm", "") ?? "");
   const enabled = state.delivery ? Boolean(state.delivery.enabled) : true;
   const batch = enabled && Number(get("shop.lat", 0)) && Number(get("shop.lng", 0));
   el.innerHTML = `
@@ -3619,12 +3753,10 @@ function renderDeliveries() {
       <h2>Deliveries</h2>
       <button class="ghost" onclick="loadSettings()">Refresh</button>
     </div>
-    <div class="row" style="align-items:flex-start;gap:20px;flex-wrap:wrap">
-      <div class="card" style="padding:14px;text-align:center;align-self:flex-start">
-        <h3 style="margin:0 0 6px;font-size:14px">Radius preview</h3>
-        ${ringSVG(freeKm, maxKm, fee)}
-        <div class="muted" style="font-size:12px">Free ${freeKm}km on orders R${minOrder}+ &middot; R${fee} to ${maxKm}km &middot; R${beyondFee} beyond</div>
-      </div>
+    <div class="card" style="padding:14px;margin-bottom:14px">
+      <h3 style="margin:0 0 8px;font-size:14px">Delivery zones &amp; street names</h3>
+      <div id="master-map"></div>
+      <div class="hint" style="margin-top:8px">The circles are drawn from the radius fields below. Street names come from OpenStreetMap — use the refresh button to update them.</div>
     </div>
     <p class="hint" style="margin:14px 0 12px">Delivery is available at the rates below around the shop. ${batch ? "Delivery is currently <b>on</b> for the storefront." : "Delivery is currently <b>paused</b>/unset &mdash; orders without an address fall back to collection."}</p>
     <div class="row" style="align-items:flex-start;gap:20px">
@@ -3645,6 +3777,7 @@ function renderDeliveries() {
           <div class="field"><label>Fee (R) beyond standard radius</label><input id="f-beyond-fee" type="number" step="1" min="0" value="${beyondFee}" /></div>
         </div>
         <div class="field"><label>Free-delivery food threshold (R)</label><input id="f-min-order" type="number" step="1" min="0" value="${minOrder}" /></div>
+        <div class="field"><label>No-delivery radius (km) — leave blank to deliver everywhere</label><input id="f-no-delivery-km" type="number" step="0.1" min="0" value="${esc(cutoff)}" placeholder="blank = no cutoff" /></div>
         <div class="hint" style="margin-bottom:10px">Free delivery needs <b>both</b>: food subtotal at least the threshold and an address inside the free radius. Below the threshold the standard fee applies, even inside the free radius. Free&ndash;standard radius &rarr; standard fee. Beyond the standard radius &rarr; the "beyond" fee (delivery still available). There is no minimum-order block; collection is exempt. No GPS captured &rarr; the standard fee applies and the shop confirms the address/rate with the customer.</div>
         <button class="primary" onclick="saveSettings()">Save settings</button>
       </div>
@@ -3701,9 +3834,22 @@ function drawShopCircles() {
   }
 }
 
+let masterMap = null;
+async function initMasterMap() {
+  const el = document.getElementById("master-map");
+  if (!el || typeof L === "undefined" || !window.BeluchisDelivery?.createMasterMap) return;
+  try {
+    if (masterMap) masterMap.destroy();
+    masterMap = await window.BeluchisDelivery.createMasterMap({ container: el, L });
+  } catch (e) {
+    console.warn("[master-map]", e);
+    el.textContent = "Delivery map unavailable: " + e.message;
+  }
+}
+
 // hook into renderDeliveries by wrapping
 const _origRenderDeliveries = renderDeliveries;
-renderDeliveries = function() { _origRenderDeliveries(); initShopMap(); };
+renderDeliveries = function() { _origRenderDeliveries(); initShopMap(); initMasterMap(); };
 
 window.sendTestInvite = async () => {
   const to = prompt("Send the invite email to this address (leave blank to skip):");
@@ -3770,6 +3916,7 @@ window.saveSettings = async () => {
   settings["delivery.feeAmount"] = $("#f-fee").value.trim();
   settings["delivery.beyondFeeAmount"] = $("#f-beyond-fee").value.trim();
   settings["delivery.minOrderAmount"] = $("#f-min-order").value.trim();
+  settings["delivery.noDeliveryRadiusKm"] = $("#f-no-delivery-km")?.value.trim() ?? (state.settings?.["delivery.noDeliveryRadiusKm"] || "");
   settings["mail.inviteSubject"] = $("#f-invite-subject").value.trim();
   settings["mail.inviteBody"] = $("#f-invite-body").value;
   const btn = event?.target;
@@ -3779,6 +3926,7 @@ window.saveSettings = async () => {
     state.settings = res.settings;
     state.delivery = res.delivery;
     state.shop = res.shop;
+    if (masterMap && typeof masterMap.setZones === 'function') masterMap.setZones().catch(() => {});
     toast("Shop settings saved");
     renderDelivery();
   } catch (e) {

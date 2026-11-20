@@ -172,9 +172,15 @@
   .note.err { background: #fdecea; color: var(--bad); border: 1px solid #f5c6c6; }
   .reorder-btn { background: #fff; border: 1px solid var(--accent); color: var(--accent); padding: 6px 11px; font-size: 12.5px; border-radius: 7px; }
   .reorder-btn:hover { background: rgba(179,53,31,.06); }
+  .aw-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:3000; display:flex; align-items:center; justify-content:center; padding:16px; }
+  .aw-overlay[hidden] { display:none; }
+  .aw-modal { background:#fff; border-radius:14px; padding:18px; max-width:820px; width:100%; max-height:92vh; overflow:auto; }
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="/assets/Control.Geocoder.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/assets/Control.Geocoder.js"></script>
+<script src="/assets/beluchis-delivery.js"></script>
 </head>
 <body>
 <header>
@@ -306,12 +312,13 @@
           <label for="addr-label">Location name</label>
           <input type="text" id="addr-label" placeholder="Home / Work / Other" maxlength="30" />
         </div>
+        <button class="primary mini" type="button" data-action="open-address-wizard" style="margin:2px 0 8px;">Find my address (easiest)</button>
         <div class="field">
           <label for="addr-text">Address</label>
           <input type="text" id="addr-text" placeholder="House no & street, suburb, Worcester" />
         </div>
         <div id="addr-map" style="height:200px;border-radius:10px;border:1px solid var(--line);margin:8px 0;"></div>
-        <div class="hint" id="addr-geo-hint">Tap/click the map to drop a pin at this spot. We use the pin to calculate your delivery fee.</div>
+        <div class="hint" id="addr-geo-hint">Prefer to do it yourself? Tap the map to drop a pin at this spot. We use the pin to calculate your delivery fee.</div>
         <div style="display:flex;gap:8px;margin-top:8px;">
           <button class="primary" type="button" id="addr-save">Save location</button>
           <button class="ghost" type="button" id="addr-cancel" hidden>Cancel</button>
@@ -1099,6 +1106,69 @@ async function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+// Friendly address finder for saved delivery locations.
+let portalAddressWizard = null;
+async function openPortalAddressWizard() {
+  const overlay = document.getElementById("addr-wizard-overlay");
+  const mount = document.getElementById("addr-wizard");
+  if (!overlay || !mount) return;
+  overlay.hidden = false;
+  if (portalAddressWizard) { try { portalAddressWizard.destroy(); } catch (_) {} portalAddressWizard = null; }
+  mount.innerHTML = '<p class="hint">Loading the address finder…</p>';
+  let streets = [];
+  try { streets = await fetch("/api/delivery/streets").then((r) => r.json()); if (!Array.isArray(streets)) streets = []; } catch (_) {}
+  try {
+    portalAddressWizard = await window.BeluchisDelivery.createAddressWizard({
+      container: mount,
+      L,
+      zonesUrl: "/api/delivery/zones",
+      streetEntries: streets,
+      api: {
+        checkDelivery: async (lat, lng) => {
+          const res = await fetch("/api/delivery/check", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ lat, lng, address: document.getElementById("addr-text")?.value || "" }),
+          });
+          if (!res.ok) throw new Error("Delivery check failed");
+          return res.json();
+        },
+      },
+      onComplete: ({ state }) => {
+        const a = state.address || {};
+        const text = [a.number, a.street, a.area].filter(Boolean).join(" ") || a.label || "Delivery address";
+        const input = document.getElementById("addr-text");
+        if (input) input.value = text;
+        const label = document.getElementById("addr-label");
+        if (label && !label.value) label.value = "Home";
+        if (state.pin) setAddrPin(state.pin.lat, state.pin.lng);
+        const h = document.getElementById("addr-geo-hint");
+        if (h) h.textContent = "Address found — check the pin, then save this location.";
+        overlay.hidden = true;
+        try { portalAddressWizard.destroy(); } catch (_) {}
+        portalAddressWizard = null;
+        mount.innerHTML = "";
+      },
+    });
+  } catch (e) {
+    mount.textContent = "Address finder unavailable: " + e.message;
+  }
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-action='open-address-wizard']")) openPortalAddressWizard();
+  if (e.target.closest("[data-action='close-address-wizard']")) {
+    const o = document.getElementById("addr-wizard-overlay"); if (o) o.hidden = true;
+  }
+});
 </script>
+<div class="aw-overlay" id="addr-wizard-overlay" hidden>
+  <div class="aw-modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <h3 style="margin:0">Find your delivery address</h3>
+      <button type="button" class="ghost mini" data-action="close-address-wizard" aria-label="Close">&times;</button>
+    </div>
+    <div id="addr-wizard"></div>
+  </div>
+</div>
 </body>
 </html>

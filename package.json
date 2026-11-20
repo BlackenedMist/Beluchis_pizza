@@ -9,10 +9,12 @@
     "extract": "node scripts/extract-catalog.mjs",
     "generate": "prisma generate",
     "migrate": "prisma migrate dev --name init",
-    "seed": "tsx prisma/seed.ts",
+    "seed": "prisma db seed",
     "postinstall": "prisma generate",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
+    "streets:refresh": "node --env-file-if-exists=.env scripts/refresh-delivery-streets.mjs",
+    "build:delivery-map": "node delivery-map/build.mjs",
     "paygate:test": "node scripts/paygate-selftest.mjs",
     "paygate:test:live": "node scripts/paygate-selftest.mjs --live",
     "payfast:test": "node scripts/payfast-selftest.mjs",
@@ -33,6 +35,7 @@
     "nodemailer": "^10.0.10"
   },
   "devDependencies": {
+    "leaflet-control-geocoder": "^42.0.0",
     "prisma": "^6.2.0",
     "tsx": "^4.19.2"
   },
