@@ -1,4 +1,7 @@
 node_modules/
+# The full upstream Leaflet/LeafMaps vendor tree is not part of this app.
+# Only the small, purpose-built delivery-map/ source and built assets are kept.
+leafMaps/
 beluchis-preview-2026-09-08.zip
 pluginData.txt
 dev.db
