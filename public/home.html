@@ -8,7 +8,9 @@
 <link rel="icon" href="/home/favicon.jpg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Slab:wght@500;700;800&family=Satisfy&display=swap" rel="stylesheet" />
+<!-- Fonts load without blocking the page when the network is slow/offline. -->
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Slab:wght@500;700;800&family=Satisfy&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+<noscript><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Slab:wght@500;700;800&family=Satisfy&display=swap" rel="stylesheet" /></noscript>
 <style>
   :root {
     --brand: #dd3333;

@@ -175,10 +175,28 @@
   .aw-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:3000; display:flex; align-items:center; justify-content:center; padding:16px; }
   .aw-overlay[hidden] { display:none; }
   .aw-modal { background:#fff; border-radius:14px; padding:18px; max-width:820px; width:100%; max-height:92vh; overflow:auto; }
+  /* Compact wizard styling so it matches the portal instead of the standalone big type */
+  .aw-compact.aw-wizard { max-width:none; font-size:14px; line-height:1.4; }
+  .aw-compact .aw-question { font-size:19px; margin-bottom:6px; }
+  .aw-compact .aw-hint { font-size:13px; margin-bottom:10px; }
+  .aw-compact .aw-status { font-size:13px; padding:9px 11px; min-height:22px; margin:8px 0; border-radius:8px; }
+  .aw-compact .aw-btn { min-height:40px; padding:8px 14px; margin:5px 6px 5px 0; font-size:13px; border-radius:8px; }
+  .aw-compact .aw-btn.primary { min-width:190px; font-size:14px; }
+  .aw-compact .aw-address-card { font-size:16px; padding:11px 13px; margin-bottom:8px; border-radius:9px; }
+  .aw-compact .aw-delivery { font-size:15px; padding:6px 0; }
+  .aw-compact .aw-map { border-radius:9px; margin:8px 0; }
+  .aw-compact .aw-summary { font-size:14px; padding:12px 14px; margin-bottom:10px; border-radius:9px; }
+  .aw-compact .aw-summary div { margin:5px 0; }
+  .aw-compact .aw-search .leaflet-control-geocoder-form input { font-size:14px; padding:9px 11px; height:42px; border-radius:8px; border:1.5px solid #b7a58f; }
+  .aw-compact .aw-search .leaflet-control-geocoder-alternatives li { font-size:13px; padding:9px 11px; }
+  .aw-compact .aw-result-main { font-size:14px; }
+  .aw-compact .aw-result-sub { font-size:12px; }
+  .aw-compact .aw-note summary { font-size:13px; }
+  .aw-compact .aw-note input { font-size:13px; padding:8px; }
 </style>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="/assets/leaflet.css" />
 <link rel="stylesheet" href="/assets/Control.Geocoder.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/assets/leaflet.js"></script>
 <script src="/assets/Control.Geocoder.js"></script>
 <script src="/assets/beluchis-delivery.js"></script>
 </head>
@@ -306,7 +324,7 @@
 
     <div class="panel" id="addresses-panel">
       <h3>Delivery locations</h3>
-      <p class="muted" style="margin-top:-6px;">Save up to 3 spots. Each needs a unique name and a pin on the map — we use the pin to calculate your delivery fee. Select the location you want for delivery, or delete one you no longer use.</p>
+      <p class="muted" style="margin-top:-6px;">Save up to 3 spots. Each needs a unique name and an address with a pin — we use the pin to calculate your delivery fee. Select the location you want for delivery, or delete one you no longer use.</p>
       <div class="row" style="align-items:center;justify-content:space-between;margin-bottom:6px;">
         <span class="muted" id="addr-count">0 of 3 saved</span>
       </div>
@@ -317,18 +335,13 @@
           <label for="addr-label">Location name</label>
           <input type="text" id="addr-label" placeholder="Home / Work / Other" maxlength="30" />
         </div>
-        <button class="primary mini" type="button" data-action="open-address-wizard" style="margin:2px 0 8px;">Find my address (easiest)</button>
-        <div class="field">
-          <label for="addr-text">Address</label>
-          <input type="text" id="addr-text" placeholder="House no & street, suburb, Worcester" />
-        </div>
-        <div id="addr-map" style="height:200px;border-radius:10px;border:1px solid var(--line);margin:8px 0;"></div>
-        <div class="hint" id="addr-geo-hint">Prefer to do it yourself? Tap the map to drop a pin at this spot. We use the pin to calculate your delivery fee.</div>
+        <div id="addr-wizard"></div>
+        <div id="addr-found" hidden style="background:#eef5ff;border:1px solid #cfe0f7;border-radius:10px;padding:12px 14px;font-size:15px;margin-top:8px;"></div>
+        <div class="hint" id="addr-geo-hint">Type your street and house number, then pick the address from the list.</div>
         <div style="display:flex;gap:8px;margin-top:8px;">
           <button class="primary" type="button" id="addr-save">Save location</button>
           <button class="ghost" type="button" id="addr-cancel" hidden>Cancel</button>
         </div>
-        <button class="ghost mini" type="button" id="addr-locate" style="margin-top:8px;">&#128205; Use my current location</button>
         <div class="err" id="addr-err" hidden></div>
       </div>
     </div>
@@ -700,52 +713,103 @@ function populateDetails(me) {
   const err = document.getElementById("details-err");
   if (err) err.hidden = true;
 }
-let addrMap = null, addrMarker = null, addrGeo = { lat: null, lng: null };
+// The address wizard is the only way to enter a location here too: one address
+// (street names) plus one pin, sent straight to /api/customer/addresses.
 let editingAddressId = null;
-function initAddrMap() {
-  const el = document.getElementById("addr-map");
-  if (!el || typeof L === "undefined") return;
+let pendingAddr = null;
+let portalAddressWizard = null;
+
+function destroyPortalAddressWizard() {
+  if (portalAddressWizard) { try { portalAddressWizard.destroy(); } catch (_) {} portalAddressWizard = null; }
+  const mount = document.getElementById("addr-wizard");
+  if (mount) mount.innerHTML = "";
+}
+
+function showPendingAddr(p) {
+  const box = document.getElementById("addr-found");
+  if (!box) return;
+  const fee = p.check
+    ? (p.check.inArea ? (p.check.fee === 0 ? "Free delivery" : "Delivery R" + p.check.fee) : "Outside our delivery area")
+    : "";
+  box.innerHTML = "<b>" + String(p.address || "").replace(/[<>&]/g, "") + "</b>" +
+    (fee ? '<br><span class="muted">' + fee + "</span>" : "") +
+    '<br><button type="button" class="ghost mini" id="addr-change-addr" style="margin-top:6px">Change address</button>';
+  box.hidden = false;
+  const btn = document.getElementById("addr-change-addr");
+  if (btn) btn.addEventListener("click", () => {
+    pendingAddr = null;
+    box.hidden = true;
+    mountPortalAddressWizard();
+  });
+}
+
+async function mountPortalAddressWizard() {
+  const mount = document.getElementById("addr-wizard");
+  if (!mount || !window.BeluchisDelivery) return;
+  destroyPortalAddressWizard();
+  mount.innerHTML = '<p class="hint">Loading the address finder…</p>';
+  let streets = [];
   try {
-    if (addrMap && addrMap.getContainer && addrMap.getContainer() !== el) {
-      try { addrMap.remove(); } catch (e) {}
-      addrMap = null; addrMarker = null;
-    }
+    streets = await fetch("/api/delivery/streets").then((r) => r.json());
+    if (!Array.isArray(streets)) streets = [];
+  } catch (_) {}
+  try {
+    portalAddressWizard = await window.BeluchisDelivery.createAddressWizard({
+      container: mount,
+      L,
+      zonesUrl: "/api/delivery/zones",
+      streetEntries: streets,
+      compact: true,
+      mapHeight: 240,
+      api: {
+        checkDelivery: async (lat, lng) => {
+          const res = await fetch("/api/delivery/check", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ lat, lng, address: pendingAddr?.address || "" }),
+          });
+          if (!res.ok) throw new Error("Delivery check failed");
+          return res.json();
+        },
+      },
+      onComplete: ({ state, check }) => {
+        const a = state.address || {};
+        const address = [a.number, a.street, a.area].filter(Boolean).join(" ") || a.label || "Delivery address";
+        pendingAddr = {
+          address,
+          lat: state.pin ? state.pin.lat : null,
+          lng: state.pin ? state.pin.lng : null,
+          instructions: state.instructions || "",
+          check,
+        };
+        destroyPortalAddressWizard();
+        showPendingAddr(pendingAddr);
+        const h = $("#addr-geo-hint");
+        if (h) h.textContent = "Address found — check it, then save this location.";
+      },
+    });
   } catch (e) {
-    addrMap = null; addrMarker = null;
+    mount.textContent = "Address finder unavailable: " + e.message;
   }
-  const center = [-33.644, 19.450];
-  if (!addrMap) {
-    addrMap = L.map(el).setView(center, 13);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "&copy; OpenStreetMap", maxZoom: 19 }).addTo(addrMap);
-    if (!window.HAS_ACTIVE_ORDER) {
-      addrMap.on("click", (e) => {
-        addrGeo = { lat: e.latlng.lat, lng: e.latlng.lng };
-        if (addrMarker) addrMarker.setLatLng(e.latlng); else addrMarker = L.marker(e.latlng).addTo(addrMap);
-      });
-    }
-  }
-  setTimeout(() => { try { addrMap.invalidateSize(); } catch (e) {} }, 200);
 }
-function setAddrPin(lat, lng) {
-  addrGeo = { lat: Number(lat), lng: Number(lng) };
-  if (addrMap) {
-    if (!addrMarker) addrMarker = L.marker([addrGeo.lat, addrGeo.lng]).addTo(addrMap);
-    else addrMarker.setLatLng([addrGeo.lat, addrGeo.lng]);
-    addrMap.setView([addrGeo.lat, addrGeo.lng], 15);
-  }
+
+function startAddrWizard() {
+  pendingAddr = null;
+  const box = document.getElementById("addr-found");
+  if (box) { box.hidden = true; box.innerHTML = ""; }
   const h = $("#addr-geo-hint");
-  if (h) h.textContent = "Pin set (" + addrGeo.lat.toFixed(4) + ", " + addrGeo.lng.toFixed(4) + ").";
+  if (h) h.textContent = "Type your street and house number, then pick the address from the list.";
+  mountPortalAddressWizard();
 }
+
 function resetAddrForm() {
   editingAddressId = null;
-  $("#addr-label").value = "";
-  $("#addr-text").value = "";
-  addrGeo = { lat: null, lng: null };
-  if (addrMarker && addrMap) { try { addrMap.removeLayer(addrMarker); } catch (e) {} addrMarker = null; }
+  const label = document.getElementById("addr-label");
+  if (label) label.value = "";
+  destroyPortalAddressWizard();
+  startAddrWizard();
   $("#addr-save").textContent = "Save location";
   $("#addr-cancel").hidden = true;
-  const h = $("#addr-geo-hint");
-  if (h) h.textContent = "Tap/click the map to drop a pin at this spot. We use the pin to calculate your delivery fee.";
   const e = $("#addr-err"); if (e) e.hidden = true;
 }
 async function loadAddresses() {
@@ -822,9 +886,11 @@ async function loadAddresses() {
       if (!row) return;
       editingAddressId = id;
       $("#addr-label").value = row.label || "";
-      $("#addr-text").value = row.address || "";
-      addrGeo = { lat: row.lat, lng: row.lng };
-      if (row.lat != null && row.lng != null) setAddrPin(row.lat, row.lng);
+      destroyPortalAddressWizard();
+      pendingAddr = { address: row.address || "", lat: row.lat, lng: row.lng, instructions: "" };
+      showPendingAddr(pendingAddr);
+      const h = $("#addr-geo-hint");
+      if (h) h.textContent = "Saved address shown below — use “Change address” to pick a different one.";
       $("#addr-save").textContent = "Update location";
       $("#addr-cancel").hidden = false;
       if (form) { form.style.opacity = ""; form.style.pointerEvents = ""; form.setAttribute("aria-disabled", "false"); }
@@ -840,18 +906,21 @@ async function loadAddresses() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  initAddrMap();
+  startAddrWizard();
   const saveBtn = document.getElementById("addr-save");
   if (saveBtn) saveBtn.addEventListener("click", async () => {
     const label = document.getElementById("addr-label")?.value.trim() || "";
-    const address = document.getElementById("addr-text")?.value.trim() || "";
     const err = document.getElementById("addr-err");
     if (!label) { if (err) { err.textContent = "Give this location a name (e.g. Home, Work)."; err.hidden = false; } return; }
-    if (!address) { if (err) { err.textContent = "Address is required."; err.hidden = false; } return; }
-    if (addrGeo.lat == null || addrGeo.lng == null) { if (err) { err.textContent = "Drop a pin on the map so we can calculate your delivery fee."; err.hidden = false; } return; }
+    if (!pendingAddr?.address) { if (err) { err.textContent = "Find your address first."; err.hidden = false; } return; }
+    if (pendingAddr.lat == null || pendingAddr.lng == null) {
+      if (err) { err.textContent = "Find your address on the map first."; err.hidden = false; }
+      return;
+    }
     if (err) err.hidden = true;
+    saveBtn.disabled = true;
     try {
-      const body = { label, address, lat: addrGeo.lat, lng: addrGeo.lng };
+      const body = { label, address: pendingAddr.address, lat: pendingAddr.lat, lng: pendingAddr.lng };
       let saved = null;
       if (editingAddressId) {
         saved = await api("/api/customer/addresses/" + editingAddressId, { method: "PUT", body: JSON.stringify(body) });
@@ -863,31 +932,11 @@ document.addEventListener("DOMContentLoaded", () => {
       if (saved && Array.isArray(rows) && !rows.some((r) => r.id === saved.id)) {
         if (err) { err.textContent = "Saved, but the list did not refresh. Please refresh the page."; err.hidden = false; }
       }
-      initAddrMap();
     } catch (e) { if (err) { err.textContent = e.message; err.hidden = false; } }
+    finally { saveBtn.disabled = false; }
   });
   const cancelBtn = document.getElementById("addr-cancel");
-  if (cancelBtn) cancelBtn.addEventListener("click", () => { resetAddrForm(); loadAddresses(); initAddrMap(); });
-  const locateBtn = document.getElementById("addr-locate");
-  if (locateBtn) locateBtn.addEventListener("click", () => {
-    if (!navigator.geolocation) { $("#addr-geo-hint").textContent = "Geolocation is not available on this device."; return; }
-    const old = locateBtn.textContent;
-    locateBtn.disabled = true;
-    locateBtn.textContent = "⏳ Getting location…";
-    navigator.geolocation.getCurrentPosition(
-      (pos) => { setAddrPin(pos.coords.latitude, pos.coords.longitude); locateBtn.disabled = false; locateBtn.textContent = old; },
-      () => { locateBtn.disabled = false; locateBtn.textContent = old; $("#addr-geo-hint").textContent = "Couldn't get your location — tap the map instead."; },
-      { timeout: 8000 }
-    );
-  });
-  // map click -> pin (rebind since init may have run before HAS_ACTIVE_ORDER known)
-  if (addrMap) {
-    addrMap.off("click");
-    addrMap.on("click", (e) => {
-      addrGeo = { lat: e.latlng.lat, lng: e.latlng.lng };
-      if (addrMarker) addrMarker.setLatLng(e.latlng); else addrMarker = L.marker(e.latlng).addTo(addrMap);
-    });
-  }
+  if (cancelBtn) cancelBtn.addEventListener("click", () => { resetAddrForm(); loadAddresses(); });
 });
 
 let _orderPollTimer = null;
@@ -1121,68 +1170,6 @@ async function init() {
 
 document.addEventListener("DOMContentLoaded", init);
 
-// Friendly address finder for saved delivery locations.
-let portalAddressWizard = null;
-async function openPortalAddressWizard() {
-  const overlay = document.getElementById("addr-wizard-overlay");
-  const mount = document.getElementById("addr-wizard");
-  if (!overlay || !mount) return;
-  overlay.hidden = false;
-  if (portalAddressWizard) { try { portalAddressWizard.destroy(); } catch (_) {} portalAddressWizard = null; }
-  mount.innerHTML = '<p class="hint">Loading the address finder…</p>';
-  let streets = [];
-  try { streets = await fetch("/api/delivery/streets").then((r) => r.json()); if (!Array.isArray(streets)) streets = []; } catch (_) {}
-  try {
-    portalAddressWizard = await window.BeluchisDelivery.createAddressWizard({
-      container: mount,
-      L,
-      zonesUrl: "/api/delivery/zones",
-      streetEntries: streets,
-      api: {
-        checkDelivery: async (lat, lng) => {
-          const res = await fetch("/api/delivery/check", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ lat, lng, address: document.getElementById("addr-text")?.value || "" }),
-          });
-          if (!res.ok) throw new Error("Delivery check failed");
-          return res.json();
-        },
-      },
-      onComplete: ({ state }) => {
-        const a = state.address || {};
-        const text = [a.number, a.street, a.area].filter(Boolean).join(" ") || a.label || "Delivery address";
-        const input = document.getElementById("addr-text");
-        if (input) input.value = text;
-        const label = document.getElementById("addr-label");
-        if (label && !label.value) label.value = "Home";
-        if (state.pin) setAddrPin(state.pin.lat, state.pin.lng);
-        const h = document.getElementById("addr-geo-hint");
-        if (h) h.textContent = "Address found — check the pin, then save this location.";
-        overlay.hidden = true;
-        try { portalAddressWizard.destroy(); } catch (_) {}
-        portalAddressWizard = null;
-        mount.innerHTML = "";
-      },
-    });
-  } catch (e) {
-    mount.textContent = "Address finder unavailable: " + e.message;
-  }
-}
-document.addEventListener("click", (e) => {
-  if (e.target.closest("[data-action='open-address-wizard']")) openPortalAddressWizard();
-  if (e.target.closest("[data-action='close-address-wizard']")) {
-    const o = document.getElementById("addr-wizard-overlay"); if (o) o.hidden = true;
-  }
-});
 </script>
-<div class="aw-overlay" id="addr-wizard-overlay" hidden>
-  <div class="aw-modal">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-      <h3 style="margin:0">Find your delivery address</h3>
-      <button type="button" class="ghost mini" data-action="close-address-wizard" aria-label="Close">&times;</button>
-    </div>
-    <div id="addr-wizard"></div>
-  </div>
-</div>
 </body>
 </html>

@@ -102,6 +102,10 @@ export async function createAddressWizard(options = {}) {
   container.innerHTML = '';
   const root = document.createElement('div');
   root.className = 'aw-wizard';
+  // Compact mode uses the host app's typography (see .aw-compact CSS) so the
+  // wizard matches the checkout/portal styling instead of the big standalone
+  // friendly-wizard type.
+  if (options.compact) root.classList.add('aw-compact');
   root.innerHTML = `
     <section class="aw-step is-active" data-step="1">
       <h2 class="aw-question">Where do you live?</h2>

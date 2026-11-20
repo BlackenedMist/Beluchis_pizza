@@ -323,6 +323,7 @@
     container.innerHTML = "";
     const root = document.createElement("div");
     root.className = "aw-wizard";
+    if (options.compact) root.classList.add("aw-compact");
     root.innerHTML = `
     <section class="aw-step is-active" data-step="1">
       <h2 class="aw-question">Where do you live?</h2>

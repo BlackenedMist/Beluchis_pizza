@@ -2857,9 +2857,10 @@ app.post(
       if (!customer) return res.status(400).json({ error: "customer not found" });
     }
 
-    // Saved-locations-only delivery: a signed-in customer may only deliver to a
-    // location they have already saved. A deliveryAddressId is required and must
-    // belong to the customer; free-text / unsaved pins are rejected.
+    // Saved locations are the normal path. A signed-in customer may also use a
+    // once-off address (from the map wizard) for this order only — it is never
+    // written to their saved-location list. A once-off address must carry a pin
+    // so the delivery fee is based on real coordinates, not free text.
     if (deliveryAddressId != null) {
       if (!customer) {
         return res.status(400).json({ error: "Unregistered customers can only place collection orders. Please sign in for delivery.", code: "guest_collection_only" });
@@ -2879,17 +2880,24 @@ app.post(
       resolvedAddressLabel = addrRow.label;
     } else {
       const wantsDelivery = wantsDeliveryInitial;
-      if (wantsDelivery && customer) {
-        return res.status(400).json({
-          error: "Choose one of your saved delivery locations.",
-          code: "saved_location_required",
-        });
-      }
       if (wantsDelivery && !customer) {
         return res.status(400).json({
           error: "Unregistered customers can only place collection orders. Please sign in for delivery.",
           code: "guest_collection_only",
         });
+      }
+      if (wantsDelivery && customer) {
+        const addr = String(resolvedDeliveryAddress || "").trim();
+        const hasPin = lat != null && lng != null && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+        if (!addr || !hasPin) {
+          return res.status(400).json({
+            error: "Choose one of your saved delivery locations, or use the address finder for a once-off address.",
+            code: "saved_location_required",
+          });
+        }
+        if (addr.length > 200) return res.status(400).json({ error: "Delivery address is too long.", code: "address_too_long" });
+        resolvedDeliveryAddress = addr;
+        resolvedAddressLabel = "Once-off address";
       }
     }
 
