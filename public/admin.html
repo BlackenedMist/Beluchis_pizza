@@ -1846,6 +1846,160 @@ window.saveDeals = async (catId) => {
   } catch (e) { toast(e.message, true); }
 };
 
+// ---------------------------------------------- Free/Paid category builder
+// Shared by "Add special" and the quick-bundle modals. Each host element keeps
+// its own rows, so several open modals never share state. A row is stored as
+// { categoryId, type:'free'|'paid', priceMode, price, sizeLabel, count, freeCount }
+// and is converted to a bundleSpec group on save.
+const CB_PRICE_MODES = [
+  ["value", "Pay the item's menu price"],
+  ["each", "Fixed price per item"],
+  ["cheapest", "Buy N, cheapest free"],
+];
+window.cbRows = (hostId) => {
+  const host = document.getElementById(hostId);
+  return host && Array.isArray(host._cbRows) ? host._cbRows : [];
+};
+window.cbInit = (hostId, rows) => {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  host._cbRows = Array.isArray(rows) ? rows.map((r) => ({ ...r })) : [];
+  window.cbRender(hostId);
+};
+window.cbAddRow = (hostId, paid) => {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  host._cbRows = window.cbRows(hostId);
+  const used = new Set(host._cbRows.map((r) => Number(r.categoryId)));
+  const first = state.categories.find((c) => c.isActive !== false && !used.has(c.id))
+    || state.categories.find((c) => c.isActive !== false)
+    || state.categories[0];
+  host._cbRows.push({
+    categoryId: first ? first.id : null,
+    type: paid ? "paid" : "free",
+    priceMode: paid ? "each" : "free",
+    price: 0,
+    sizeLabel: "",
+    count: paid ? 3 : 1,
+    freeCount: 1,
+    itemIds: [],
+    extraCategoryIds: [],
+  });
+  window.cbRender(hostId);
+};
+window.cbSet = (hostId, idx, key, value) => {
+  const rows = window.cbRows(hostId);
+  if (!rows[idx]) return;
+  rows[idx][key] = value;
+  window.cbRender(hostId);
+};
+window.cbSetQuiet = (hostId, idx, key, value) => {
+  const rows = window.cbRows(hostId);
+  if (rows[idx]) rows[idx][key] = value;
+};
+window.cbChangeCategory = (hostId, idx, value) => {
+  const rows = window.cbRows(hostId);
+  if (!rows[idx]) return;
+  rows[idx].categoryId = Number(value);
+  rows[idx].sizeLabel = "";
+  rows[idx].extraCategoryIds = (rows[idx].extraCategoryIds || []).filter((id) => Number(id) !== Number(value));
+  window.cbRender(hostId);
+};
+window.cbToggleExtraCategory = (hostId, idx, catId, on) => {
+  const rows = window.cbRows(hostId);
+  if (!rows[idx]) return;
+  const set = new Set((rows[idx].extraCategoryIds || []).map(Number));
+  if (on) set.add(Number(catId)); else set.delete(Number(catId));
+  rows[idx].extraCategoryIds = [...set];
+};
+window.cbRemoveRow = (hostId, idx) => {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  host._cbRows = window.cbRows(hostId);
+  host._cbRows.splice(idx, 1);
+  window.cbRender(hostId);
+};
+window.cbSizesFor = (catId) => {
+  const set = new Set();
+  for (const it of state.items.filter((i) => i.categoryId === Number(catId) && i.isActive !== false))
+    for (const sz of it.sizes || []) if (sz.isActive !== false) set.add(sz.sizeLabel);
+  return [...set];
+};
+window.cbRender = (hostId) => {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  const rows = window.cbRows(hostId);
+  if (!rows.length) {
+    host.innerHTML = '<div class="muted" style="font-size:12px;padding:6px 0">No categories yet. Use the buttons above to add a free or paid category.</div>';
+    return;
+  }
+  host.innerHTML = rows.map((r, idx) => {
+    const isPaid = r.type === "paid";
+    const colour = isPaid ? "#2e7d32" : "#e65100";
+    const catOpts = state.categories
+      .filter((c) => c.isActive !== false || c.id === r.categoryId)
+      .map((c) => `<option value="${c.id}"${c.id === r.categoryId ? " selected" : ""}>${esc(c.name)}</option>`).join("");
+    const sizes = window.cbSizesFor(r.categoryId);
+    if (r.sizeLabel && !sizes.includes(r.sizeLabel)) sizes.push(r.sizeLabel);
+    const sizeOpts = `<option value="">Any size</option>` + sizes.map((z) => `<option value="${esc(z)}"${z === r.sizeLabel ? " selected" : ""}>${esc(z)}</option>`).join("");
+    const modes = CB_PRICE_MODES.map(([v, label]) => `<option value="${v}"${v === r.priceMode ? " selected" : ""}>${label}</option>`).join("");
+    const extras = new Set((r.extraCategoryIds || []).map(Number));
+    const extraHtml = `<details style="margin-top:4px"><summary style="font-size:12px;cursor:pointer">Also allow other categories in this rule</summary>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">
+          ${state.categories.filter((c) => c.isActive !== false && c.id !== r.categoryId).map((c) => `<label style="font-size:12px"><input type="checkbox" ${extras.has(c.id) ? "checked" : ""} onchange="cbToggleExtraCategory('${hostId}',${idx},${c.id},this.checked)" /> ${esc(c.name)}</label>`).join("")}
+        </div></details>`;
+    return `<div style="border:2px solid ${colour};border-radius:8px;padding:10px;margin-bottom:10px;background:${isPaid ? "#e8f5e9" : "#fff3e0"}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <b style="font-size:13px;color:${colour}">${isPaid ? "Paid category" : "Free category"}</b>
+        <button class="danger" type="button" style="padding:2px 6px;font-size:11px" onclick="cbRemoveRow('${hostId}',${idx})">Remove</button>
+      </div>
+      <div class="row">
+        <div class="field" style="margin-bottom:6px"><label>Category</label><select onchange="cbChangeCategory('${hostId}',${idx},this.value)">${catOpts}</select></div>
+        <div class="field" style="margin-bottom:6px"><label>Size</label><select onchange="cbSet('${hostId}',${idx},'sizeLabel',this.value)">${sizeOpts}</select></div>
+        <div class="field" style="margin-bottom:6px"><label>Type</label><select onchange="cbSet('${hostId}',${idx},'type',this.value)"><option value="paid"${isPaid ? " selected" : ""}>Paid</option><option value="free"${!isPaid ? " selected" : ""}>Free</option></select></div>
+        <div class="field" style="margin-bottom:6px"><label>How many picks</label><input class="num" type="number" min="1" value="${esc(r.count || 1)}" oninput="cbSetQuiet('${hostId}',${idx},'count',this.value)" /></div>
+      </div>
+      ${isPaid ? `<div class="row">
+        <div class="field" style="margin-bottom:2px"><label>Price rule</label><select onchange="cbSet('${hostId}',${idx},'priceMode',this.value)">${modes}</select></div>
+        ${r.priceMode === "each" ? `<div class="field" style="margin-bottom:2px"><label>Price per item (R)</label><input class="num" type="number" min="0" value="${esc(r.price || 0)}" oninput="cbSetQuiet('${hostId}',${idx},'price',this.value)" /></div>` : ""}
+        ${r.priceMode === "cheapest" ? `<div class="field" style="margin-bottom:2px"><label>Free items</label><input class="num" type="number" min="1" value="${esc(r.freeCount || 1)}" oninput="cbSetQuiet('${hostId}',${idx},'freeCount',this.value)" /></div>` : ""}
+      </div>` : `<div class="muted" style="font-size:12px">Items picked from this category are free.</div>`}
+      ${extraHtml}
+    </div>`;
+  }).join("");
+};
+window.cbSpec = (hostId) => window.cbRows(hostId).map((r) => {
+  const cat = state.categories.find((c) => c.id === Number(r.categoryId));
+  const paid = r.type === "paid";
+  const mode = paid ? (r.priceMode || "value") : "free";
+  const cats = [...new Set([Number(r.categoryId), ...(r.extraCategoryIds || []).map(Number)].filter(Boolean))];
+  return {
+    name: (paid ? "Paid" : "Free") + (cat ? " \u2014 " + cat.name : "") + (cats.length > 1 ? " +" + (cats.length - 1) : ""),
+    categories: cats,
+    sizeLabel: r.sizeLabel || "",
+    count: Math.max(1, Number(r.count) || 1),
+    paid,
+    priceMode: mode,
+    ...(paid && mode === "each" ? { price: Math.max(0, Number(r.price) || 0) } : {}),
+    ...(paid && mode === "cheapest" ? { freeCount: Math.max(1, Number(r.freeCount) || 1) } : {}),
+    ...(Array.isArray(r.itemIds) && r.itemIds.length ? { itemIds: r.itemIds } : {}),
+  };
+});
+window.cbRowsFromSpec = (spec) => (Array.isArray(spec) ? spec : []).map((g) => {
+  const paid = g.paid !== false;
+  return {
+    categoryId: (g.categories || [])[0] ?? null,
+    type: paid ? "paid" : "free",
+    priceMode: paid ? (g.priceMode || "value") : "free",
+    price: Number(g.price) || 0,
+    sizeLabel: g.sizeLabel || "",
+    count: Math.max(1, Number(g.count) || 1),
+    freeCount: Math.max(1, Number(g.freeCount) || 1),
+    itemIds: Array.isArray(g.itemIds) ? g.itemIds.slice() : [],
+    extraCategoryIds: (g.categories || []).slice(1),
+  };
+});
+
 window.openSpecial = (id) => {
   const s = id ? state.specials.find((x) => x.id === id) : null;
 
@@ -1853,12 +2007,20 @@ window.openSpecial = (id) => {
   // "bogo" rows (always pay half) are edited as buy-X-get-Y and saved as the
   // more flexible "pick" kind.
   let preset = "pick_cat";
+  let initialCatRows = [];
   if (s) {
     if (s.kind === "pick") preset = s.selectionMode === "items" ? "pick_items" : "pick_cat";
     else if (s.kind === "bogo") preset = "pick_cat";
     else if (s.kind === "deal") preset = "deal";
-    else if (s.kind === "bundle") preset = "bundle";
+    else if (s.kind === "bundle") preset = String(s.payMode || "").toLowerCase() === "fixed" ? "bundle" : "catcombo";
     else preset = "flat";
+  }
+  if (s?.kind === "bundle") {
+    let spec = s.bundleSpec;
+    try { spec = typeof spec === "string" ? JSON.parse(spec) : spec; } catch (e) { spec = []; }
+    initialCatRows = window.cbRowsFromSpec(spec);
+  } else if (s?.categoryId) {
+    initialCatRows = [{ categoryId: s.categoryId, type: "paid", priceMode: "value", price: 0, sizeLabel: s.sizeLabel || "", count: 1, freeCount: 1, itemIds: [] }];
   }
   const legacyBuy = s ? Number(s.kind === "bogo" ? s.count : (s.buyCount || s.count) || 2) : 3;
   const legacyPay = s ? Number(s.kind === "bogo" ? Math.ceil(legacyBuy / 2) : (s.payCount || Math.max(1, legacyBuy - 1))) : 2;
@@ -1870,7 +2032,8 @@ window.openSpecial = (id) => {
     ["deal", "Any N for a set price — applied automatically in the cart"],
     ["flat", "Combo of items at a set price"],
     ["reduced", "One item at a reduced price"],
-    ["bundle", "Build-your-own bundle"],
+    ["bundle", "Build-your-own bundle (one fixed price)"],
+    ["catcombo", "Category selection — free & paid categories with prices"],
   ];
   openModal(`
     <h3>${s ? "Edit" : "Add"} special</h3>
@@ -1934,12 +2097,20 @@ window.openSpecial = (id) => {
         </select>`)}
       </div>
 
+      <div id="sp-catbuilder-wrap">
+        <p class="hint" style="margin:0 0 8px">Add as many categories as you like. Items from <b>free</b> categories cost nothing; <b>paid</b> categories use the price rule you choose — the item's menu price, a fixed price per item, or buy N and get the cheapest free.</p>
+        <div style="display:flex;gap:8px;margin:6px 0">
+          <button class="ghost" type="button" onclick="cbAddRow('sp-catbuilder', true)">+ Add paid category</button>
+          <button class="ghost" type="button" onclick="cbAddRow('sp-catbuilder', false)">+ Add free category</button>
+        </div>
+        <div id="sp-catbuilder"></div>
+      </div>
+
       <div id="sp-bundle-wrap">
         <div class="row">
           ${field("Bundle price (R)", `<input id="sp-bundle-price" type="number" min="0" value="${s && s.kind === "bundle" ? s.price : ""}" oninput="renderSpecialPreview()" />`)}
         </div>
-        ${field("Bundle groups (JSON)", `<textarea id="sp-bundlespec" rows="5" style="font-family:monospace;font-size:12px" oninput="renderSpecialPreview()">${esc(s?.bundleSpec || "")}</textarea>`)}
-        <p class="hint" style="margin:0 0 8px">Advanced: one group per course, e.g. <code>[{"name":"Large","categories":[2,3],"sizeLabel":"L","count":1}]</code>. Category ids come from /api/categories.</p>
+        <p class="hint" style="margin:0 0 8px">Optional: charge one fixed price for the whole bundle instead of the per-category rules above.</p>
       </div>
     </details>
 
@@ -1989,14 +2160,15 @@ window.openSpecial = (id) => {
     const isPick = preset === "pick_cat" || preset === "pick_items";
     const isDeal = preset === "deal";
     const isFlat = preset === "flat" || preset === "reduced";
-    const isBundle = preset === "bundle";
+    const isBundle = preset === "bundle" || preset === "catcombo";
     $("#sp-cat-wrap").hidden = !(isPick || isDeal);
     $("#sp-buyget").hidden = !isPick;
     $("#sp-deal-fields").hidden = !isDeal;
     $("#sp-flat-fields").hidden = !isFlat;
     $("#sp-items-wrap").hidden = !(isFlat || preset === "pick_items");
     $("#sp-paymode-wrap").hidden = !(preset === "pick_items");
-    $("#sp-bundle-wrap").hidden = !isBundle;
+    $("#sp-catbuilder-wrap").hidden = !isBundle;
+    $("#sp-bundle-wrap").hidden = preset !== "bundle";
     if (!$("#sp-cat-wrap").hidden) { try { renderBogoSizes(); } catch (e) {} }
     try { renderSpecialPicks(); } catch (e) {}
     try { renderSpecialSum(); } catch (e) {}
@@ -2007,6 +2179,7 @@ window.openSpecial = (id) => {
       flat: "A fixed combo at one price. The customer adds it to the cart as-is.",
       reduced: "A single menu item at a lower price for a limited time or on set days.",
       bundle: "The customer builds their own bundle from the groups below (e.g. 2 large pizzas + 1 side).",
+      catcombo: "The customer picks from the categories below. Free categories cost nothing; paid categories use the price rule you set, including buy-N-get-cheapest-free.",
     }[preset] || "";
     const helpEl = $("#sp-preset-help");
     if (helpEl) helpEl.textContent = help;
@@ -2022,6 +2195,9 @@ window.openSpecial = (id) => {
   };
 
   const sizesOf = (item) => ((item && item.sizes) || []).filter((z) => z.isActive !== false);
+  // Per-pizza UI state: which items have their topping list expanded. Kept in
+  // this closure so re-renders (size change, pick toggle) never collapse it.
+  const openExtraItems = new Set();
   window.specialPicks = (s?.items || []).map((x) => {
     let extras = [];
     try { extras = x.extras ? JSON.parse(x.extras) : []; } catch (e) { extras = []; }
@@ -2045,22 +2221,32 @@ window.openSpecial = (id) => {
           </select>`
         : `<span class="muted">no sizes</span>`;
       const tops = i.toppings || [];
-      const extrasHtml = (checked && tops.length)
-        ? `<div class="sp-extras">
-            <div class="muted" style="font-size:12px;margin:6px 0 4px;font-weight:600">Extra toppings (optional)</div>
-            ${tops.map((t) => {
-              const tp = t.topping;
-              const prices = tp.prices || [];
-              const priceForSize = prices.find((p) => p.sizeLabel === chosenSize)?.price ?? (prices[0]?.price ?? 0);
-              const isOn = (pick?.extras || []).some((e) => e.name === tp.name);
-              return `<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin:2px 0">
-                <input type="checkbox" ${isOn ? "checked" : ""} onchange="toggleSpecialExtra(${i.id}, '${String(tp.name).replace(/'/g, "\\'")}', ${priceForSize}, this.checked)" />
-                <span style="flex:1">${esc(tp.name)}</span>
-                <span class="muted">+R${priceForSize}</span>
-              </label>`;
-            }).join("")}
-          </div>`
-        : "";
+      const extraCount = (pick?.extras || []).length;
+      let extrasHtml = "";
+      if (checked && tops.length) {
+        const open = openExtraItems.has(i.id);
+        const toggle = `<button class="ghost" type="button" style="padding:3px 8px;font-size:12px;margin-top:6px" onclick="toggleSpecialExtras(${i.id})">${open ? "Hide toppings" : "+ Add topping"}${extraCount ? ` (${extraCount})` : ""}</button>`;
+        if (!open) {
+          extrasHtml = toggle;
+        } else {
+          const rows = tops.map((t) => {
+            const tp = t.topping;
+            const prices = tp.prices || [];
+            const priceForSize = prices.find((p) => p.sizeLabel === chosenSize)?.price ?? (prices[0]?.price ?? 0);
+            const isOn = (pick?.extras || []).some((e) => e.name === tp.name);
+            return `<label class="sp-top-row" style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin:2px 0">
+              <input type="checkbox" ${isOn ? "checked" : ""} onchange="toggleSpecialExtra(${i.id}, '${String(tp.name).replace(/'/g, "\\'")}', ${priceForSize}, this.checked)" />
+              <span style="flex:1">${esc(tp.name)}</span>
+              <span class="muted">+R${priceForSize}</span>
+            </label>`;
+          }).join("");
+          extrasHtml = `${toggle}
+            <div class="sp-extras">
+              <input class="search" placeholder="Search toppings…" style="width:100%;margin:6px 0 4px" oninput="filterSpecialToppings(${i.id}, this.value)" />
+              <div id="sp-tops-${i.id}">${rows}</div>
+            </div>`;
+        }
+      }
       return `<div class="sp-item ${checked ? "is-on" : ""}">
         <label class="sp-item-head">
           <input type="checkbox" value="${i.id}" ${checked ? "checked" : ""} onchange="toggleSpecialPick(${i.id}, this.checked)" />
@@ -2075,6 +2261,19 @@ window.openSpecial = (id) => {
         </div>
       </div>`;
     }).join("");
+  };
+  window.toggleSpecialExtras = (itemId) => {
+    if (openExtraItems.has(itemId)) openExtraItems.delete(itemId);
+    else openExtraItems.add(itemId);
+    renderSpecialPicks();
+  };
+  window.filterSpecialToppings = (itemId, value) => {
+    const host = document.getElementById("sp-tops-" + itemId);
+    if (!host) return;
+    const q = String(value || "").trim().toLowerCase();
+    host.querySelectorAll(".sp-top-row").forEach((row) => {
+      row.hidden = q ? !row.textContent.toLowerCase().includes(q) : false;
+    });
   };
   window.toggleSpecialPick = (itemId, on) => {
     if (on) {
@@ -2151,7 +2350,7 @@ window.openSpecial = (id) => {
     const free = Number($("#sp-free")?.value) || 0;
     const draft = {
       name, category, sizeLabel,
-      kind: preset === "pick_cat" || preset === "pick_items" ? "pick" : preset,
+      kind: preset === "pick_cat" || preset === "pick_items" ? "pick" : (preset === "catcombo" ? "bundle" : preset),
       buyCount: pay + free, payCount: pay, count: pay + free,
       price: 0,
       collectionOnly: Boolean($("#sp-collection")?.checked),
@@ -2167,9 +2366,9 @@ window.openSpecial = (id) => {
     if (preset === "deal") {
       draft.count = Number($("#sp-count")?.value) || 0;
       draft.price = Number($("#sp-price")?.value) || 0;
-    } else if (preset === "bundle") {
+    } else if (preset === "bundle" || preset === "catcombo") {
       draft.price = Number($("#sp-bundle-price")?.value) || 0;
-      draft.bundleSpec = $("#sp-bundlespec")?.value || "";
+      draft.bundleSpec = window.cbSpec("sp-catbuilder");
     } else if (preset === "flat" || preset === "reduced") {
       draft.price = Number($("#sp-flat-price")?.value) || 0;
     }
@@ -2204,6 +2403,7 @@ window.openSpecial = (id) => {
     </div>`;
     el.innerHTML = tile + banner;
   };
+  window.cbInit("sp-catbuilder", initialCatRows);
   renderSpecialPicks();
   renderSpecialSum();
   renderSpecialKind();
@@ -2212,7 +2412,7 @@ window.openSpecial = (id) => {
 window.saveSpecial = async (id) => {
   const preset = $("#sp-preset").value;
   const kind = preset === "deal" ? "deal"
-    : preset === "bundle" ? "bundle"
+    : (preset === "bundle" || preset === "catcombo") ? "bundle"
     : (preset === "pick_cat" || preset === "pick_items") ? "pick"
     : "flat";
   const categoryId = $("#sp-cat").value ? Number($("#sp-cat").value) : null;
@@ -2274,13 +2474,20 @@ window.saveSpecial = async (id) => {
     if (!(price > 0)) return toast("Enter the set price", true);
     payload = { ...base, kind: "deal", categoryId, sizeLabel, count, price };
   } else if (kind === "bundle") {
-    let spec = null;
-    try { spec = JSON.parse($("#sp-bundlespec").value.trim()); } catch (e) { return toast("Bundle groups must be valid JSON", true); }
-    if (!Array.isArray(spec) || !spec.length) return toast("Bundle groups must be a non-empty list", true);
-    const price = Number($("#sp-bundle-price").value) || 0;
-    const hasPaid = spec.some((g) => typeof g.paid === "boolean");
-    if (!hasPaid && !(price > 0)) return toast("Bundle needs a price", true);
-    payload = { ...base, kind: "bundle", price, bundleSpec: spec };
+    const spec = window.cbSpec("sp-catbuilder");
+    if (!spec.length) return toast("Add at least one category", true);
+    if (spec.some((g) => !g.categories.length)) return toast("Pick a category for every row", true);
+    const price = Number($("#sp-bundle-price")?.value) || 0;
+    const hasPaid = spec.some((g) => g.paid === true);
+    if (preset === "bundle" && !(price > 0)) return toast("Enter the bundle price", true);
+    if (!hasPaid && !(price > 0)) return toast("Add a paid category or a bundle price", true);
+    payload = {
+      ...base,
+      kind: "bundle",
+      price,
+      bundleSpec: spec,
+      payMode: (preset === "bundle" && price > 0) ? "fixed" : "expensive",
+    };
   } else {
     const price = Number($("#sp-flat-price").value) || 0;
     if (!pickItems().length) return toast("Pick at least one item", true);
@@ -2675,7 +2882,7 @@ window.quickRangeBundle = () => {
     const el = $("#qrb-groups");
     if (!el) return;
     el.innerHTML = window.qrbGroups.map((g, gi) => {
-      const cat = state.categories.find((c) => c.id === g.catId);
+      const cat = state.categories.find((c) => c.id === (g.categories || [])[0]);
       const itemLabels = (g.itemIds || []).map((id) => {
         const it = state.items.find((x) => x.id === id);
         return it ? `${esc(it.name)} (${esc(g.sizeLabel)})` : id;
@@ -2697,7 +2904,8 @@ window.quickRangeBundle = () => {
     }).join("");
   };
   window.qrbRemoveGroup = (gi) => { window.qrbGroups.splice(gi, 1); window.renderQrbGroups(); };
-  window.qrbAddCategory = (paid) => {
+  window.qrbAddCategory = (paid, editIdx) => {
+    window.qrbEditing = Number.isInteger(editIdx) ? editIdx : null;
     // popup to select category + items
     const catOpts = state.categories.filter((c) => c.isActive !== false).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
     openModal(`
@@ -2740,7 +2948,7 @@ window.quickRangeBundle = () => {
       const priceMode = paid ? ($("#qrb-pop-pricemode") ? $("#qrb-pop-pricemode").value : "value") : "free";
       const price = priceMode === "fixed" ? (Number($("#qrb-pop-price").value) || 0) : 0;
       const cat = state.categories.find((c) => c.id === catId);
-      window.qrbGroups.push({
+      const group = {
         name: cat ? cat.name : "Group",
         categories: [catId],
         sizeLabel,
@@ -2749,7 +2957,10 @@ window.quickRangeBundle = () => {
         priceMode,
         price,
         ...(itemIds.length ? { itemIds } : {}),
-      });
+      };
+      if (window.qrbEditing != null) window.qrbGroups[window.qrbEditing] = group;
+      else window.qrbGroups.push(group);
+      window.qrbEditing = null;
       const overlays = document.querySelectorAll(".overlay");
       if (overlays.length) overlays[overlays.length-1].remove();
       window.renderQrbGroups();
@@ -2757,8 +2968,27 @@ window.quickRangeBundle = () => {
     window.qrbPopLoadItems();
   };
   window.qrbEditGroup = (gi) => {
-    // simple edit via re-opening popup not implemented; allow remove+readd
-    toast("Remove and re-add to edit", true);
+    const g = window.qrbGroups[gi];
+    if (!g) return;
+    window.qrbAddCategory(g.paid !== false, gi);
+    setTimeout(() => {
+      const catSel = $("#qrb-pop-cat");
+      if (catSel && (g.categories || [])[0]) {
+        catSel.value = String(g.categories[0]);
+        window.qrbPopLoadItems();
+      }
+      requestAnimationFrame(() => {
+        const sz = $("#qrb-pop-size"); if (sz && g.sizeLabel) sz.value = g.sizeLabel;
+        const cnt = $("#qrb-pop-count"); if (cnt) cnt.value = g.count || 1;
+        const pm = $("#qrb-pop-pricemode");
+        if (pm && g.priceMode) { pm.value = g.priceMode; window.qrbPopTogglePrice(); }
+        const pr = $("#qrb-pop-price"); if (pr) pr.value = g.price || "";
+        (g.itemIds || []).forEach((id) => {
+          const cb = document.querySelector('.qrb-pop-item[value="' + id + '"]');
+          if (cb) cb.checked = true;
+        });
+      });
+    }, 0);
   };
   window.renderQrbGroups();
   window.saveQuickRangeBundle = async () => {
@@ -2819,7 +3049,7 @@ window.quickFixedRangeBundle = () => {
     const el = $("#qfrb-groups");
     if (!el) return;
     el.innerHTML = window.qfrbGroups.map((g, gi) => {
-      const cat = state.categories.find((c) => c.id === g.catId);
+      const cat = state.categories.find((c) => c.id === (g.categories || [])[0]);
       const itemLabels = (g.itemIds || []).map((id) => {
         const it = state.items.find((x) => x.id === id);
         return it ? `${esc(it.name)} (${esc(g.sizeLabel)})` : id;
@@ -2840,7 +3070,8 @@ window.quickFixedRangeBundle = () => {
     }).join("");
   };
   window.qfrbRemoveGroup = (gi) => { window.qfrbGroups.splice(gi, 1); window.renderQfrbGroups(); };
-  window.qfrbAddCategory = (paid) => {
+  window.qfrbAddCategory = (paid, editIdx) => {
+    window.qfrbEditing = Number.isInteger(editIdx) ? editIdx : null;
     const catOpts = state.categories.filter((c) => c.isActive !== false).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
     openModal(`
       <h3>${paid ? "Paid" : "Free"} item selection</h3>
@@ -2871,21 +3102,43 @@ window.quickFixedRangeBundle = () => {
       const itemIds = Array.from(document.querySelectorAll(".qfrb-pop-item:checked")).map((x) => Number(x.value));
       const count = Number($("#qfrb-pop-count").value) || 1;
       const cat = state.categories.find((c) => c.id === catId);
-      window.qfrbGroups.push({
+      const group = {
         name: cat ? cat.name : "Group",
         categories: [catId],
         sizeLabel,
         count,
         paid,
         ...(itemIds.length ? { itemIds } : {}),
-      });
+      };
+      if (window.qfrbEditing != null) window.qfrbGroups[window.qfrbEditing] = group;
+      else window.qfrbGroups.push(group);
+      window.qfrbEditing = null;
       const overlays = document.querySelectorAll(".overlay");
       if (overlays.length) overlays[overlays.length-1].remove();
       window.renderQfrbGroups();
     };
     window.qfrbPopLoadItems();
   };
-  window.qfrbEditGroup = (gi) => { toast("Remove and re-add to edit", true); };
+  window.qfrbEditGroup = (gi) => {
+    const g = window.qfrbGroups[gi];
+    if (!g) return;
+    window.qfrbAddCategory(g.paid !== false, gi);
+    setTimeout(() => {
+      const catSel = $("#qfrb-pop-cat");
+      if (catSel && (g.categories || [])[0]) {
+        catSel.value = String(g.categories[0]);
+        window.qfrbPopLoadItems();
+      }
+      requestAnimationFrame(() => {
+        const sz = $("#qfrb-pop-size"); if (sz && g.sizeLabel) sz.value = g.sizeLabel;
+        const cnt = $("#qfrb-pop-count"); if (cnt) cnt.value = g.count || 1;
+        (g.itemIds || []).forEach((id) => {
+          const cb = document.querySelector('.qfrb-pop-item[value="' + id + '"]');
+          if (cb) cb.checked = true;
+        });
+      });
+    }, 0);
+  };
   window.renderQfrbGroups();
   window.saveQuickFixedRangeBundle = async () => {
     const name = $("#qfrb-name").value.trim() || "Fixed Range Bundle";

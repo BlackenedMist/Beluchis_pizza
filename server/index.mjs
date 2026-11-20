@@ -1350,7 +1350,9 @@ app.post(
         if (!g || !Array.isArray(g.categories) || !g.categories.length) return res.status(400).json({ error: "each bundle group needs at least one category" });
         const cnt = Number(g.count);
         if (!Number.isInteger(cnt) || cnt < 1) return res.status(400).json({ error: "each bundle group count must be 1 or more" });
-        if (!g.sizeLabel) return res.status(400).json({ error: "each bundle group needs a size" });
+        // An empty size means "any size": category rows built in the admin
+        // form can cover a whole category rather than one pinned size.
+        if (g.sizeLabel === undefined || g.sizeLabel === null) g.sizeLabel = "";
       }
       const hasPaid = Array.isArray(spec) && spec.some((g) => typeof g.paid === "boolean");
       const p = Number(price);
@@ -1501,7 +1503,9 @@ app.put(
         if (!g || !Array.isArray(g.categories) || !g.categories.length) return res.status(400).json({ error: "each bundle group needs at least one category" });
         const cnt = Number(g.count);
         if (!Number.isInteger(cnt) || cnt < 1) return res.status(400).json({ error: "each bundle group count must be 1 or more" });
-        if (!g.sizeLabel) return res.status(400).json({ error: "each bundle group needs a size" });
+        // An empty size means "any size": category rows built in the admin
+        // form can cover a whole category rather than one pinned size.
+        if (g.sizeLabel === undefined || g.sizeLabel === null) g.sizeLabel = "";
       }
       const bs2 = bundleSpec !== undefined ? bundleSpec : existing.bundleSpec;
       let spec2 = null;
@@ -2466,7 +2470,7 @@ const resolveBundleSpecial = async (special, picks) => {
     const itemIds = Array.isArray(g.itemIds) ? new Set(g.itemIds.map(Number)) : null;
     const sizeLabel = g.sizeLabel;
     const cnt = Number(g.count || 0);
-    const matching = resolved.filter((r) => (itemIds ? itemIds.has(r.item.id) : cats.has(r.item.categoryId)) && r.sizeLabel === sizeLabel);
+    const matching = resolved.filter((r) => (itemIds ? itemIds.has(r.item.id) : cats.has(r.item.categoryId)) && (!sizeLabel || r.sizeLabel === sizeLabel));
     if (matching.length !== cnt)
       throw badRequest(`${special.name}: expected ${cnt} ${sizeLabel} pizza(s) from the selected categories, got ${matching.length}`);
   }
@@ -2482,7 +2486,7 @@ const resolveBundleSpecial = async (special, picks) => {
     resolved.forEach((r, i) => {
       if (claimed.has(i)) return;
       const ok = itemIds ? itemIds.has(r.item.id) : cats.has(r.item.categoryId);
-      if (ok && r.sizeLabel === sizeLabel && n < cnt) {
+      if (ok && (!sizeLabel || r.sizeLabel === sizeLabel) && n < cnt) {
         claimed.add(i);
         n++;
       }
@@ -2823,6 +2827,14 @@ app.post(
               const grpPicks = picksByGroup[gi] || [];
               if (mode === "fixed") {
                 price += Number(g.price) || 0;
+              } else if (mode === "each") {
+                price += (Number(g.price) || 0) * grpPicks.length;
+              } else if (mode === "cheapest") {
+                // Buy N, cheapest free: charge the most expensive picks only.
+                const bases = grpPicks.map((r) => r.base);
+                const freeN = Math.min(bases.length, Math.max(1, Number(g.freeCount) || 1));
+                const kept = bases.slice().sort((a, b) => b - a).slice(0, Math.max(0, bases.length - freeN));
+                price += kept.reduce((a, b) => a + b, 0);
               } else {
                 price += grpPicks.reduce((sum, r) => sum + r.base, 0);
               }

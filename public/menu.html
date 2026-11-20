@@ -713,7 +713,7 @@ function renderMenu() {
             '<button type="button" data-qinc-special="' + s.id + '" aria-label="Increase">+</button></span>' +
             '<button class="add-special" data-special-id="' + s.id + '"' + locked + '>Add to Order</button>';
       const detail = bundle
-        ? '<div class="special-parts">' + (JSON.parse(s.bundleSpec || "[]").map((g) => '<span class="part">' + esc(g.name) + ": " + g.count + " x " + esc(g.sizeLabel) + "</span>").join("")) + "</div>"
+        ? '<div class="special-parts">' + (JSON.parse(s.bundleSpec || "[]").map((g) => '<span class="part">' + esc(g.name) + ": " + g.count + " x " + esc(g.sizeLabel || "any size") + "</span>").join("")) + "</div>"
         : bogo
         ? '<div class="special-parts">' +
             (s.category ? '<span class="part">Pick any ' + esc(s.category.name) + "</span>" : "") +
@@ -1148,6 +1148,49 @@ function bundleGroups(s) {
   try { return typeof s.bundleSpec === "string" ? JSON.parse(s.bundleSpec) : (s.bundleSpec || []); } catch (e) { return []; }
 }
 
+/* One group's charge, used by both the live preview and the cart line so the
+   customer always sees the same price the server will confirm. */
+function bundleGroupPrice(g, picks) {
+  if (!g || g.paid === false) return 0;
+  const mode = g.priceMode || "value";
+  const bases = (picks || []).map((p) => {
+    const it = Shop.data.byId.get(Number(p.itemId));
+    const sz = it && (it.sizes || []).find((x) => x.sizeLabel === p.sizeLabel);
+    return sz ? sz.price : 0;
+  });
+  if (mode === "fixed") return Number(g.price) || 0;
+  if (mode === "each") return (Number(g.price) || 0) * bases.length;
+  if (mode === "cheapest") {
+    const freeN = Math.min(bases.length, Math.max(1, Number(g.freeCount) || 1));
+    return bases.slice().sort((a, b) => b - a).slice(0, Math.max(0, bases.length - freeN)).reduce((a, b) => a + b, 0);
+  }
+  if (mode === "highest") return bases.reduce((m, v) => Math.max(m, v), 0);
+  return bases.reduce((sum, v) => sum + v, 0);
+}
+
+function bundlePickBase(p) {
+  const it = Shop.data.byId.get(Number(p && p.itemId));
+  const sz = it && (it.sizes || []).find((x) => x.sizeLabel === p.sizeLabel);
+  return sz ? sz.price : 0;
+}
+
+/* Price shown beside each step title while the customer builds the bundle. */
+function bundleStepPriceLabel(g, groupPicks, idx) {
+  if (!g || g.paid === false) return "Free";
+  const mode = g.priceMode || "value";
+  if (mode === "cheapest") {
+    const freeN = Math.min(groupPicks.length, Math.max(1, Number(g.freeCount) || 1));
+    const freeIdx = new Set(groupPicks
+      .map((p, i) => ({ i, base: bundlePickBase(p) }))
+      .sort((a, b) => a.base - b.base)
+      .slice(0, freeN)
+      .map((o) => o.i));
+    if (freeIdx.has(idx)) return "Free (cheapest)";
+  }
+  if (mode === "each") return money(Number(g.price) || 0) + " each";
+  return money(bundlePickBase(groupPicks[idx]));
+}
+
 function bundlePickGroupIndex(picks, idx) {
   // idx into picks; determine group by cumulative counts
   let acc = 0;
@@ -1166,7 +1209,7 @@ function bundleItemsForGroup(g) {
     ? ids.map((id) => Shop.data.byId.get(id)).filter(Boolean)
     : (Shop.data.items || []).filter((it) => !cats.size || cats.has(it.categoryId));
   for (const it of pool) {
-    if ((it.sizes || []).some((x) => x.isActive !== false && x.sizeLabel === g.sizeLabel)) out.push(it);
+    if ((it.sizes || []).some((x) => x.isActive !== false && (!g.sizeLabel || x.sizeLabel === g.sizeLabel))) out.push(it);
   }
   return out;
 }
@@ -1182,18 +1225,7 @@ function bundleTotalText() {
     const gi = bundlePickGroupIndex(bundleModal.picks, idx);
     picksByGroup[gi].push(p);
   });
-  groups.forEach((g, gi) => {
-    if (g.paid === false) return;
-    const mode = g.priceMode || "value";
-    const grpPicks = picksByGroup[gi] || [];
-    const bases = grpPicks.map((p) => {
-      const it = Shop.data.byId.get(Number(p.itemId));
-      const sz = it && (it.sizes || []).find((x) => x.sizeLabel === p.sizeLabel);
-      return sz ? sz.price : 0;
-    });
-    if (mode === "fixed") unitPrice += Number(g.price) || 0;
-    else unitPrice += bases.reduce((sum, v) => sum + v, 0);
-  });
+  groups.forEach((g, gi) => { unitPrice += bundleGroupPrice(g, picksByGroup[gi] || []); });
   const ex = Shop.extrasTotal(picks);
   return money(unitPrice + ex) + (ex ? " (incl. " + money(ex) + " extras)" : "");
 }
@@ -1201,22 +1233,34 @@ function bundleTotalText() {
 function renderBundle() {
   const s = bundleModal.special;
   const groups = bundleModal.groups;
+  // Group index and position within each group, for the per-step price label.
+  const picksByGroup = groups.map(() => []);
+  const localIndex = [];
+  const counters = groups.map(() => 0);
+  bundleModal.picks.forEach((p, idx) => {
+    const gi = bundlePickGroupIndex(bundleModal.picks, idx);
+    localIndex[idx] = counters[gi]++;
+    if (p.itemId) picksByGroup[gi].push(p);
+  });
   const rows = bundleModal.picks.map((p, i) => {
-    const g = groups[bundlePickGroupIndex(bundleModal.picks, i)];
+    const gi = bundlePickGroupIndex(bundleModal.picks, i);
+    const g = groups[gi];
     const items = bundleItemsForGroup(g);
     const item = Shop.data.byId.get(Number(p.itemId));
-    const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && x.sizeLabel === g.sizeLabel) : [];
-    const tops = item ? Shop.availToppings(item, g.sizeLabel) : [];
+    const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && (!g.sizeLabel || x.sizeLabel === g.sizeLabel)) : [];
+    const effectiveSize = p.sizeLabel || (sizes[0] ? sizes[0].sizeLabel : null);
+    const tops = item ? Shop.availToppings(item, effectiveSize) : [];
     const tiles = items.map((it) => {
       const img = it.imageUrl ? '<img src="' + esc(it.imageUrl) + '" alt="" style="width:100%;height:80px;object-fit:cover;border-radius:6px" />' : '<div style="width:100%;height:80px;background:#eee;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px">No image</div>';
       const sel = it.id === Number(p.itemId) ? "outline:3px solid var(--accent);" : "";
       return '<div data-bundle-tile="' + i + '" data-item-id="' + it.id + '" style="cursor:pointer;border:1px solid #ddd;border-radius:8px;padding:6px;text-align:center;' + sel + '">' + img + '<div style="font-size:11px;margin-top:4px">' + esc(it.name) + '</div></div>';
     }).join("");
     return (
-      '<div class="field" style="margin-bottom:12px"><label>' + esc(g.name) + ' ' + (i + 1) + '</label>' +
+      '<div class="field" style="margin-bottom:12px"><label>' + esc(g.name) + ' ' + (i + 1) +
+        ' <span class="muted" style="font-weight:400">' + bundleStepPriceLabel(g, picksByGroup[gi] || [], localIndex[i]) + '</span></label>' +
       '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-top:6px">' + tiles + '</div>' +
       (tops.length ? '<div class="opt-list" style="margin-top:6px">' + tops.map((t) => {
-        const price = Shop.topPriceOf ? Shop.topPriceOf(t, g.sizeLabel) : 0;
+        const price = Shop.topPriceOf ? Shop.topPriceOf(t, effectiveSize) : 0;
         const on = (p.extras || []).some((e) => e.name === t.topping.name);
         return '<label class="opt"><input type="checkbox" data-bundle-top="' + i + '" data-top-name="' + esc(t.topping.name) + '" data-top-price="' + price + '"' + (on ? " checked" : "") + " /><span>" + esc(t.topping.name) + '</span><span class="cost">+' + money(price) + "</span></label>";
       }).join("") + "</div>" : "") +
@@ -1242,7 +1286,8 @@ const openBundle = (s) => {
     for (let n = 0; n < Number(g.count || 0); n++) {
       const items = bundleItemsForGroup(g);
       const item = items[0];
-      picks.push({ itemId: item ? item.id : null, sizeLabel: g.sizeLabel, extras: [], group: g });
+      const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && (!g.sizeLabel || x.sizeLabel === g.sizeLabel)) : [];
+      picks.push({ itemId: item ? item.id : null, sizeLabel: sizes[0] ? sizes[0].sizeLabel : (g.sizeLabel || null), extras: [], group: g });
     }
   });
   bundleModal = { special: s, groups, picks };
@@ -1259,7 +1304,7 @@ $("#bundle-modal").addEventListener("click", (e) => {
     const s = bundleModal.special;
     const groups = bundleGroups(s);
     const g = groups[bundlePickGroupIndex(bundleModal.picks, i)];
-    const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && x.sizeLabel === g.sizeLabel) : [];
+    const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && (!g.sizeLabel || x.sizeLabel === g.sizeLabel)) : [];
     bundleModal.picks[i] = { itemId: item.id, sizeLabel: sizes[0] ? sizes[0].sizeLabel : g.sizeLabel, extras: [] };
     renderBundle();
     return;
@@ -1272,7 +1317,9 @@ $("#bundle-modal").addEventListener("change", (e) => {
     const i = Number(it.dataset.bundleItem);
     const item = Shop.data.byId.get(Number(it.value));
     bundleModal.picks[i].itemId = item ? item.id : null;
-    bundleModal.picks[i].sizeLabel = bundleModal.groups[bundlePickGroupIndex(bundleModal.picks, i)].sizeLabel;
+    const g = bundleModal.groups[bundlePickGroupIndex(bundleModal.picks, i)];
+    const szs = (item?.sizes || []).filter((x) => x.isActive !== false && (!g.sizeLabel || x.sizeLabel === g.sizeLabel));
+    bundleModal.picks[i].sizeLabel = szs[0] ? szs[0].sizeLabel : (g.sizeLabel || null);
     bundleModal.picks[i].extras = [];
     renderBundle();
     return;
@@ -1312,19 +1359,7 @@ $("#bundle-modal").addEventListener("click", (e) => {
     const gi = bundlePickGroupIndex(bundleModal.picks, bundleModal.picks.indexOf(p));
     picksByGroup[gi].push(p);
   });
-  groups.forEach((g, gi) => {
-    if (g.paid === false) return;
-    const mode = g.priceMode || "value";
-    const grpPicks = picksByGroup[gi] || [];
-    const bases = grpPicks.map((p) => {
-      const it = Shop.data.byId.get(Number(p.itemId));
-      const sz = it && (it.sizes || []).find((x) => x.sizeLabel === p.sizeLabel);
-      return sz ? sz.price : 0;
-    });
-    if (mode === "fixed") unitPrice += Number(g.price) || 0;
-    else if (mode === "highest") unitPrice += bases.reduce((m, v) => Math.max(m, v), 0);
-    else unitPrice += bases.reduce((sum, v) => sum + v, 0);
-  });
+  groups.forEach((g, gi) => { unitPrice += bundleGroupPrice(g, picksByGroup[gi] || []); });
   unitPrice += Shop.extrasTotal(pizzas);
   addLine({ kind: "special", specialId: s.id, name: s.name, unitPrice, pizzas, collectionOnly: Boolean(s.collectionOnly), qty: 1 });
   closeOverlay("#bundle-overlay");
