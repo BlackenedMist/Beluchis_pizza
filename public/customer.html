@@ -209,8 +209,8 @@
     </div>
     <form id="login-form">
       <div class="field">
-        <label for="login-phone">Cellphone</label>
-        <input type="tel" id="login-phone" placeholder="e.g. 081 234 5678" autocomplete="tel" required />
+        <label for="login-id">Email or cellphone</label>
+        <input type="text" id="login-id" placeholder="081 234 5678 or you@example.com" autocomplete="username" required />
       </div>
       <div class="field">
         <label for="login-pass">Password</label>
@@ -246,7 +246,7 @@
        <button class="primary" type="submit" id="reg-btn">Create account</button>
      </form>
      <form id="reset-form" hidden>
-       <div class="field"><label for="reset-phone">Cellphone</label><input type="tel" id="reset-phone" placeholder="e.g. 081 234 5678" autocomplete="tel" required /></div>
+       <div class="field"><label for="reset-id">Email or cellphone</label><input type="text" id="reset-id" placeholder="081 234 5678 or you@example.com" autocomplete="username" required /></div>
        <div class="field"><label for="reset-name">First name</label><input type="text" id="reset-name" placeholder="e.g. Paul" autocomplete="name" required /></div>
        <div class="field"><label for="reset-pass">New password</label><input type="password" id="reset-pass" placeholder="At least 4 characters" autocomplete="new-password" required /></div>
        <button class="primary" type="submit" id="reset-btn">Reset password</button>
@@ -291,8 +291,8 @@
         </div>
         <div class="row">
           <div class="col field">
-            <label for="det-phone">Cellphone (used to log in)</label>
-            <input type="tel" id="det-phone" autocomplete="tel" required />
+            <label for="det-phone">Cellphone (optional — email also works for login)</label>
+            <input type="tel" id="det-phone" autocomplete="tel" />
           </div>
           <div class="col field">
             <label for="det-email">Email</label>
@@ -427,7 +427,7 @@ $("#login-form").addEventListener("submit", async (e) => {
   try {
     await api("/api/customer/auth/login", {
       method: "POST",
-      body: JSON.stringify({ cellphone: $("#login-phone").value.trim(), password: $("#login-pass").value }),
+      body: JSON.stringify({ identifier: $("#login-id").value.trim(), password: $("#login-pass").value }),
     });
     if (goToNext()) return;
     await loadDash();
@@ -467,7 +467,7 @@ $("#reset-form").addEventListener("submit", async (e) => {
     await api("/api/customer/auth/reset-password", {
       method: "POST",
       body: JSON.stringify({
-        cellphone: $("#reset-phone").value.trim(),
+        identifier: $("#reset-id").value.trim(),
         firstName: $("#reset-name").value.trim(),
         password: $("#reset-pass").value,
       }),

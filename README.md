@@ -48,7 +48,8 @@ The server prints its URLs on boot:
   member is sent to `/cashier` if their role is `cashier`, otherwise `/admin`.
 - **Customer**: open `/portal` (or "My orders" in the storefront header). First
   time you must claim your account — place an order with your cellphone, then
-  "First time? Set your password". After that, log in with cellphone + password
+  "First time? Set your password" (cellphone **or email** works; your first name
+  is also required). After that, log in with **email or cellphone** + password
   to view your order history (with a live status timeline) and any coupons
   issued to you ("Offers for you"). The **My details** panel updates your
   name, cellphone, email and saved delivery address/location; those details
@@ -433,9 +434,10 @@ for LAN use. See `kitchen/README.md` for setup and `.env` keys.
   the DB across restarts.
 - The live Code Engine preview uses a generated `ADMIN_PIN`, not the `1234`
   default — see **Logging in** for where to find it.
-- Cellphone login/set-password matches the **exact** phone string the customer
-  used at checkout (the same trim that `POST /api/orders` stores), so use the
-  exact same format (e.g. `081 234 5678` vs `+27 81 234 5678` must match).
+- Login accepts **email or cellphone**; claim accepts cellphone or email plus
+  the exact first name. Cellphone matching accepts legacy formats
+  (`081 234 5678`, `+27 81 234 5678`) via `canonicalPhone`, but using the exact
+  number stored on the account is still the most reliable option.
 
 - Re-seeding grows SQLite autoincrement IDs every run — never hardcode IDs in
   scripts; fetch them via the API.

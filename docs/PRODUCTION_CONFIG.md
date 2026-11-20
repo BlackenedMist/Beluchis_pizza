@@ -115,3 +115,5 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3100/portal
   imported account already owns the email — it returns a claim invitation.
 - A claim can use cellphone **or** email (for the few imported rows with no
   phone), always verified with the exact first name.
+- Login, reset-password and the My-details editor also accept **email or
+  cellphone**, so email-only accounts stay usable after the session expires.

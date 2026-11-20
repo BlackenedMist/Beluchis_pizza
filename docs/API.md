@@ -134,12 +134,12 @@ storefront and homepage poll this on load.
 | `POST /api/auth/login` | public | `{ username?, pin }` — blank/`admin` username → env `ADMIN_PIN`. Sets `beluchis_admin` |
 | `POST /api/auth/logout` | staff | Clears the staff session/cookie |
 | `GET /api/auth/me` | staff | `{ principal, role, name }` |
-| `POST /api/customer/auth/set-password` | public | Claim a guest account: `{ cellphone, firstName, password }`. First name must match the account; password ≥ 4 chars; 404 if no order exists for that number; 400 if already claimed. Auto-login |
-| `POST /api/customer/auth/reset-password` | public | Reset a claimed account: `{ cellphone, firstName, password }`. Both must match the account. Auto-login |
-| `POST /api/customer/auth/login` | public | `{ cellphone, password }` — sets `beluchis_customer`. Rejects unclaimed accounts |
+| `POST /api/customer/auth/set-password` | public | Claim a guest account: `{ cellphone?, email?, firstName, password }` — cellphone **or** email identifies the account. First name must match; password ≥ 4 chars; 404 if no account matches; 400 if already claimed. Auto-login |
+| `POST /api/customer/auth/reset-password` | public | Reset a claimed account: `{ identifier?, cellphone?, email?, firstName, password }` — identifier is email or cellphone. Both identifier and first name must match. Auto-login |
+| `POST /api/customer/auth/login` | public | `{ identifier, password }` — `identifier` is an email address or cellphone; legacy `{ cellphone, password }` also works. Sets `beluchis_customer`. Rejects unclaimed accounts |
 | `POST /api/customer/auth/logout` | customer | Clears customer session |
 | `GET /api/customer/auth/me` | customer | Current customer profile (password hash never serialized) |
-| `PUT /api/customer/profile` | customer | Update `{ firstName?, lastName?, email?, cellphone?, addressLabel?, lat?, lng? }`. Cellphone stays required because it is the login id; duplicate cellphone/email returns `400`. Returns the updated profile |
+| `PUT /api/customer/profile` | customer | Update `{ firstName?, lastName?, email?, cellphone?, addressLabel?, lat?, lng? }`. At least one of email/cellphone must remain (both are valid login ids); duplicate cellphone/email returns `400`. Returns the updated profile |
 | `GET /api/customer/addresses` | customer | List saved delivery locations (max 3, uniquely named). Returns `{ items, limit, used }` |
 | `POST /api/customer/addresses` | customer | Create `{ label, address, lat, lng, isDefault? }`. `lat`/`lng` are the map pin (required). Max 3 per customer; duplicate label or duplicate address (case/whitespace/punctuation-insensitive) returns 400. Returns the created row |
 | `PUT /api/customer/addresses/:id` | customer | Update any of `{ label, address, lat, lng, isDefault }` (same validation). Duplicate checks only apply to fields being changed, so setting a location as default still works |

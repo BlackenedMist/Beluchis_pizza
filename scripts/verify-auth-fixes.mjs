@@ -14,6 +14,8 @@ const DATABASE_URL = `file:${dbPath.replace(/\\/g, "/")}`;
 const PORT = 3199;
 const base = `http://127.0.0.1:${PORT}`;
 const email = `legacy-verify-${process.pid}@example.com`;
+const phoneEmail = `phone-verify-${process.pid}@example.com`;
+const phone = "+27000000002";
 
 fs.copyFileSync(path.join(root, "dev.db"), dbPath);
 process.env.DATABASE_URL = DATABASE_URL;
@@ -24,7 +26,11 @@ const post = async (url, body) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  return { status: res.status, body: await res.json().catch(() => ({})) };
+  return {
+    status: res.status,
+    body: await res.json().catch(() => ({})),
+    cookie: (res.headers.get("set-cookie") || "").split(";")[0],
+  };
 };
 
 let child;
@@ -45,6 +51,19 @@ try {
       email,
       cellphone: null,
       username: `verify-legacy-${process.pid}`,
+      passwordHash: "x",
+      claimedAt: null,
+    },
+  });
+  // A second throwaway account WITH a phone, for the legacy cellphone path.
+  await prisma.customer.deleteMany({ where: { email: phoneEmail } });
+  await prisma.customer.create({
+    data: {
+      firstName: "Phone",
+      lastName: "Verify",
+      email: phoneEmail,
+      cellphone: phone,
+      username: `verify-phone-${process.pid}`,
       passwordHash: "x",
       claimedAt: null,
     },
@@ -103,6 +122,46 @@ try {
   check("claim by email works for an account with no phone",
     claim.status === 201 && Boolean(claim.body.customer?.claimedAt),
     `status ${claim.status}`);
+
+  const loginByEmail = await post("/api/customer/auth/login", {
+    identifier: email, password: "pass1234",
+  });
+  check("login works by email for a no-phone account",
+    loginByEmail.status === 200 && Boolean(loginByEmail.cookie),
+    `status ${loginByEmail.status}`);
+
+  const unknown = await post("/api/customer/auth/login", {
+    identifier: `nobody-${process.pid}@example.com`, password: "pass1234",
+  });
+  check("unknown identifier gets a generic 401",
+    unknown.status === 401 && !JSON.stringify(unknown.body).includes("@"),
+    `status ${unknown.status}`);
+
+  const reset = await post("/api/customer/auth/reset-password", {
+    identifier: email, firstName: "Legacy", password: "reset1234",
+  });
+  check("reset-password works by email",
+    reset.status === 200 && Boolean(reset.body.customer?.claimedAt),
+    `status ${reset.status}`);
+
+  const profile = await fetch(base + "/api/customer/profile", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Cookie: reset.cookie },
+    body: JSON.stringify({ cellphone: null, email, firstName: "Legacy", lastName: "Verify" }),
+  });
+  check("profile saves with no cellphone", profile.status === 200, `status ${profile.status}`);
+
+  const phoneClaim = await post("/api/customer/auth/set-password", {
+    cellphone: phone, firstName: "Phone", password: "pass1234",
+  });
+  check("claim by cellphone still works", phoneClaim.status === 201, `status ${phoneClaim.status}`);
+
+  const loginByPhone = await post("/api/customer/auth/login", {
+    cellphone: phone, password: "pass1234",
+  });
+  check("login by cellphone still works (legacy key)",
+    loginByPhone.status === 200 && Boolean(loginByPhone.cookie),
+    `status ${loginByPhone.status}`);
 
   const cfg = await (await fetch(base + "/api/delivery/config")).json();
   check("shop centre is Worcester, not (0,0)",

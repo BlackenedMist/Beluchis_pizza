@@ -175,6 +175,18 @@ const findCustomerByPhone = async (raw) => {
   return matches.find((c) => c.claimedAt) || unclaimed || matches[0] || null;
 };
 
+// One login identifier: an email address OR a cellphone number. Emails are
+// stored lowercase; anything without "@" keeps the existing phone normalisation
+// (legacy formats, canonical matching, preference for claimed accounts).
+const findCustomerByIdentifier = async (raw) => {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+  if (value.includes("@")) {
+    return prisma.customer.findUnique({ where: { email: value.toLowerCase() } });
+  }
+  return findCustomerByPhone(value);
+};
+
 const publicOrder = ({ customer, ...rest }) => ({ ...rest, customer: customer ? publicCustomer(customer) : null });
 
 const isUniqueViolation = (e) => e.code === "P2002";
@@ -646,9 +658,7 @@ app.post(
 
     // Most imported accounts have a cellphone; a handful only have an email.
     // Accept either as the account identifier, always with the first name check.
-    let customer = phoneKey
-      ? await findCustomerByPhone(phoneKey)
-      : await prisma.customer.findUnique({ where: { email: emailKey } });
+    let customer = await findCustomerByIdentifier(phoneKey || emailKey);
     if (!customer)
       return res.status(404).json({
         error: "No account found for that cellphone or email. Place an order with it first, then come back to set your password.",
@@ -736,13 +746,14 @@ app.post(
 app.post(
   "/api/customer/auth/reset-password",
   asyncHandler(async (req, res) => {
-    const { cellphone, firstName, password } = req.body || {};
+    const { identifier = null, cellphone = null, email = null, firstName, password } = req.body || {};
     if (throttledLogin(req)) return res.status(429).json({ error: "too many attempts, try again later" });
-    if (!String(cellphone || "").trim()) return res.status(400).json({ error: "Cellphone is required." });
+    // Accept `identifier`, or either legacy key, so email-only accounts can recover.
+    const idKey = String(identifier || cellphone || email || "").trim();
+    if (!idKey) return res.status(400).json({ error: "Email or cellphone is required." });
     if (!password || String(password).length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
-    const phone = canonicalPhone(cellphone);
-    const customer = await findCustomerByPhone(cellphone);
-    if (!customer || !customer.claimedAt) return res.status(404).json({ error: "No account found for that cellphone." });
+    const customer = await findCustomerByIdentifier(idKey);
+    if (!customer || !customer.claimedAt) return res.status(404).json({ error: "No account found for that email or cellphone." });
     const first = String(firstName || "").trim();
     if (!first) return res.status(400).json({ error: "First name is required to reset the password." });
     if (customer.firstName.toLowerCase() !== first.toLowerCase())
@@ -760,15 +771,18 @@ app.post(
 app.post(
   "/api/customer/auth/login",
   asyncHandler(async (req, res) => {
-    const { cellphone = null, password = null } = req.body || {};
-    if (!cellphone?.trim() || !password)
-      return res.status(400).json({ error: "cellphone and password are required" });
+    const { identifier = null, cellphone = null, email = null, password = null } = req.body || {};
+    // `identifier` is the new field; the two legacy keys still work unchanged.
+    const idKey = String(identifier || cellphone || email || "").trim();
+    if (!idKey || !password)
+      return res.status(400).json({ error: "email or cellphone, and password, are required" });
     if (throttledLogin(req)) return res.status(429).json({ error: "too many attempts, try again later" });
 
-    const customer = await findCustomerByPhone(cellphone);
-    if (!customer || !customer.claimedAt) return res.status(401).json({ error: "invalid cellphone or password" });
+    const customer = await findCustomerByIdentifier(idKey);
+    // Keep the error generic so the endpoint cannot be used to enumerate accounts.
+    if (!customer || !customer.claimedAt) return res.status(401).json({ error: "invalid email/cellphone or password" });
     const ok = await bcrypt.compare(String(password), customer.passwordHash);
-    if (!ok) return res.status(401).json({ error: "invalid cellphone or password" });
+    if (!ok) return res.status(401).json({ error: "invalid email/cellphone or password" });
 
     createCustomerSession(res, customer.id);
     res.json({ ok: true, customer: publicCustomer(customer) });
@@ -860,8 +874,7 @@ app.put(
 
     if (first !== undefined && !first) return res.status(400).json({ error: "First name is required." });
     if (last !== undefined && !last) return res.status(400).json({ error: "Last name is required." });
-    if (!finalCell)
-      return res.status(400).json({ error: "A cellphone number is required to log in." });
+    // Email is a valid login identifier too; keep at least one of the two.
     if (!validContact(finalEmail, finalCell))
       return res.status(400).json({ error: "Please keep at least an email address or cellphone on your account." });
 
