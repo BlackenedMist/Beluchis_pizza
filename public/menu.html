@@ -259,6 +259,23 @@
     line-height: 1; padding: 3px 6px; border-radius: 7px; cursor: pointer;
   }
   .manage-locations:hover { background: #f5efe4; }
+  /* Bundle builder: one pick at a time, so a 9-pizza bundle doesn't need endless scrolling */
+  .bundle-step { border: 1.5px solid #c9b59d; border-radius: 10px; margin-bottom: 8px; overflow: hidden; background: #fff; }
+  .bundle-head {
+    width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+    border: 0; background: #f7f1e7; cursor: pointer; font-size: 14px; font-weight: 700;
+    color: var(--ink); text-align: left;
+  }
+  .bundle-head[aria-expanded="true"] { background: var(--accent); color: #fff; }
+  .bundle-num {
+    width: 22px; height: 22px; border-radius: 50%; background: #fff; color: var(--accent);
+    display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; flex: none;
+  }
+  .bundle-head[aria-expanded="true"] .bundle-num { background: rgba(255,255,255,.25); color: #fff; }
+  .bundle-title { flex: 1; }
+  .bundle-choice { font-size: 12px; font-weight: 500; opacity: .9; max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bundle-body { padding: 10px 12px; }
+  .bundle-body[hidden] { display: none; }
 
   /* Checkout accordion */
   .co-step { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; overflow: hidden; background: #fff; }
@@ -1298,6 +1315,8 @@ function bundleTotalText() {
 function renderBundle() {
   const s = bundleModal.special;
   const groups = bundleModal.groups;
+  const overlay = $("#bundle-overlay");
+  const scroll = overlay ? overlay.scrollTop : 0;
   // Group index and position within each group, for the per-step price label.
   const picksByGroup = groups.map(() => []);
   const localIndex = [];
@@ -1320,27 +1339,38 @@ function renderBundle() {
       const sel = it.id === Number(p.itemId) ? "outline:3px solid var(--accent);" : "";
       return '<div data-bundle-tile="' + i + '" data-item-id="' + it.id + '" style="cursor:pointer;border:1px solid #ddd;border-radius:8px;padding:6px;text-align:center;' + sel + '">' + img + '<div style="font-size:11px;margin-top:4px">' + esc(it.name) + '</div></div>';
     }).join("");
+    const open = bundleModal.openStep === i;
+    const chosen = (Shop.data.byId.get(Number(p.itemId)) || {}).name || "Choose one";
+    const price = bundleStepPriceLabel(g, picksByGroup[gi] || [], localIndex[i]);
     return (
-      '<div class="field" style="margin-bottom:12px"><label>' + esc(g.name) + ' ' + (i + 1) +
-        ' <span class="muted" style="font-weight:400">' + bundleStepPriceLabel(g, picksByGroup[gi] || [], localIndex[i]) + '</span></label>' +
-      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-top:6px">' + tiles + '</div>' +
-      (tops.length ? '<div class="opt-list" style="margin-top:6px">' + tops.map((t) => {
-        const price = Shop.topPriceOf ? Shop.topPriceOf(t, effectiveSize) : 0;
-        const on = (p.extras || []).some((e) => e.name === t.topping.name);
-        return '<label class="opt"><input type="checkbox" data-bundle-top="' + i + '" data-top-name="' + esc(t.topping.name) + '" data-top-price="' + price + '"' + (on ? " checked" : "") + " /><span>" + esc(t.topping.name) + '</span><span class="cost">+' + money(price) + "</span></label>";
-      }).join("") + "</div>" : "") +
-      "</div>"
+      '<div class="bundle-step">' +
+        '<button type="button" class="bundle-head" data-bs-toggle="' + i + '" aria-expanded="' + open + '">' +
+          '<span class="bundle-num">' + (i + 1) + '</span>' +
+          '<span class="bundle-title">' + esc(g.name) + '</span>' +
+          '<span class="bundle-choice">' + esc(chosen) + ' &middot; ' + esc(price) + '</span>' +
+          '<span class="co-chev">&#9662;</span>' +
+        '</button>' +
+        '<div class="bundle-body" data-bs-body="' + i + '"' + (open ? "" : " hidden") + '>' +
+          '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px">' + tiles + '</div>' +
+          (tops.length ? '<div class="opt-list" style="margin-top:6px">' + tops.map((t) => {
+            const topPrice = Shop.topPriceOf ? Shop.topPriceOf(t, effectiveSize) : 0;
+            const on = (p.extras || []).some((e) => e.name === t.topping.name);
+            return '<label class="opt"><input type="checkbox" data-bundle-top="' + i + '" data-top-name="' + esc(t.topping.name) + '" data-top-price="' + topPrice + '"' + (on ? " checked" : "") + ' /><span>' + esc(t.topping.name) + '</span><span class="cost">+' + money(topPrice) + "</span></label>";
+          }).join("") + "</div>" : "") +
+        '</div>' +
+      '</div>'
     );
   }).join("");
   $("#bundle-modal").innerHTML =
     "<h3>" + esc(s.name) + "</h3>" +
-    '<p class="sub">Build your bundle &middot; Total: <span id="bundle-total-top">' + bundleTotalText() + '</span></p>' +
+    '<p class="sub">Build your bundle &middot; Total: <span id="bundle-total-top">' + bundleTotalText() + '</span> &middot; Tap a step to open it</p>' +
     rows +
     '<div class="modal-actions">' +
     '<span class="total" id="bundle-total">' + bundleTotalText() + "</span>" +
     '<button class="ghost" data-action="close-bundle">Cancel</button>' +
     '<button class="primary" data-action="confirm-bundle">Add to Order</button>' +
     "</div>";
+  if (overlay) overlay.scrollTop = scroll;
 }
 
 const openBundle = (s) => {
@@ -1355,12 +1385,19 @@ const openBundle = (s) => {
       picks.push({ itemId: item ? item.id : null, sizeLabel: sizes[0] ? sizes[0].sizeLabel : (g.sizeLabel || null), extras: [], group: g });
     }
   });
-  bundleModal = { special: s, groups, picks };
+  bundleModal = { special: s, groups, picks, openStep: 0 };
   $("#bundle-overlay").hidden = false;
   renderBundle();
 };
 
 $("#bundle-modal").addEventListener("click", (e) => {
+  const head = e.target.closest("[data-bs-toggle]");
+  if (head) {
+    const i = Number(head.dataset.bsToggle);
+    bundleModal.openStep = bundleModal.openStep === i ? -1 : i;
+    renderBundle();
+    return;
+  }
   const tile = e.target.closest("[data-bundle-tile]");
   if (tile) {
     const i = Number(tile.dataset.bundleTile);
@@ -1371,6 +1408,8 @@ $("#bundle-modal").addEventListener("click", (e) => {
     const g = groups[bundlePickGroupIndex(bundleModal.picks, i)];
     const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && (!g.sizeLabel || x.sizeLabel === g.sizeLabel)) : [];
     bundleModal.picks[i] = { itemId: item.id, sizeLabel: sizes[0] ? sizes[0].sizeLabel : g.sizeLabel, extras: [] };
+    // Collapse this step and open the next one — a guided, one-at-a-time flow.
+    bundleModal.openStep = i + 1 < bundleModal.picks.length ? i + 1 : i;
     renderBundle();
     return;
   }
