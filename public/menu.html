@@ -1183,7 +1183,7 @@ const openCustomize = (item, size) => {
 const closeOverlay = (sel) => { $(sel).hidden = true; };
 
 /* ------------------------------------------------------------- BOGO deals */
-let bogoModal = { special: null, picks: [] };
+let bogoModal = { special: null, picks: [], openStep: 0 };
 
 const bogoCategoryItems = (s) => {
   const cat = Shop.data.catById.get(s.categoryId);
@@ -1218,6 +1218,8 @@ function renderBogo() {
   const cnt = bogoPickCount(s);
   const pay = bogoPayCount(s);
   if (!items.length) { toast("That deal has no available pizzas right now"); closeOverlay("#bogo-overlay"); return; }
+  const overlay = $("#bogo-overlay");
+  const scroll = overlay ? overlay.scrollTop : 0;
   const rows = bogoModal.picks.map((p, i) => {
     const item = Shop.data.byId.get(Number(p.itemId));
     const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && (!s.sizeLabel || x.sizeLabel === s.sizeLabel)) : [];
@@ -1228,35 +1230,58 @@ function renderBogo() {
       const price = (it.sizes || []).find((x) => x.isActive !== false && (!s.sizeLabel || x.sizeLabel === s.sizeLabel));
       return '<div data-bogo-tile="' + i + '" data-item-id="' + it.id + '" style="cursor:pointer;border:1px solid #ddd;border-radius:8px;padding:6px;text-align:center;' + sel + '">' + img + '<div style="font-size:11px;margin-top:4px">' + esc(it.name) + (price ? '<br/>' + money(price.price) : '') + '</div></div>';
     }).join("");
+    const open = bogoModal.openStep === i;
+    const chosen = item ? esc(item.name) + (p.sizeLabel ? " (" + esc(p.sizeLabel) + ")" : "") : "Choose one";
     return (
-      '<div class="field" style="margin-bottom:12px"><label>Pizza ' + (i + 1) + '</label>' +
-      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-top:6px">' + tiles + '</div>' +
-      (sizes.length > 1 ? '<select data-bogo-size="' + i + '" style="margin-top:6px;width:100%">' + sizes.map((sz) =>
-        '<option value="' + esc(sz.sizeLabel) + '"' + (sz.sizeLabel === p.sizeLabel ? " selected" : "") + ">" + esc(sz.sizeLabel) + " &middot; " + money(sz.price) + "</option>").join("") + "</select>" : "") +
-      (tops.length ? '<div class="opt-list" style="margin-top:6px">' + tops.map((t) => {
-        const price = topPriceOf(t, p.sizeLabel) || 0;
-        const on = (p.extras || []).some((e) => e.name === t.topping.name);
-        return '<label class="opt"><input type="checkbox" data-bogo-top="' + i + '" data-top-name="' + esc(t.topping.name) + '" data-top-price="' + price + '"' + (on ? " checked" : "") + " /><span>" + esc(t.topping.name) + '</span><span class="cost">+' + money(price) + "</span></label>";
-      }).join("") + "</div>" : "") +
-      "</div>"
+      '<div class="bundle-step">' +
+        '<button type="button" class="bundle-head" data-bs-toggle="' + i + '" aria-expanded="' + open + '">' +
+          '<span class="bundle-num">' + (i + 1) + '</span>' +
+          '<span class="bundle-title">Pizza ' + (i + 1) + '</span>' +
+          '<span class="bundle-choice">' + chosen + '</span>' +
+          '<span class="co-chev">&#9662;</span>' +
+        '</button>' +
+        '<div class="bundle-body" data-bs-body="' + i + '"' + (open ? "" : " hidden") + '>' +
+          '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px">' + tiles + '</div>' +
+          (sizes.length > 1 ? '<select data-bogo-size="' + i + '" style="margin-top:6px;width:100%">' + sizes.map((sz) =>
+            '<option value="' + esc(sz.sizeLabel) + '"' + (sz.sizeLabel === p.sizeLabel ? " selected" : "") + ">" + esc(sz.sizeLabel) + " &middot; " + money(sz.price) + "</option>").join("") + "</select>" : "") +
+          (tops.length ? '<div class="opt-list" style="margin-top:6px">' + tops.map((t) => {
+            const topPrice = topPriceOf(t, p.sizeLabel) || 0;
+            const on = (p.extras || []).some((e) => e.name === t.topping.name);
+            return '<label class="opt"><input type="checkbox" data-bogo-top="' + i + '" data-top-name="' + esc(t.topping.name) + '" data-top-price="' + topPrice + '"' + (on ? " checked" : "") + ' /><span>' + esc(t.topping.name) + '</span><span class="cost">+' + money(topPrice) + "</span></label>";
+          }).join("") + "</div>" : "") +
+        '</div>' +
+      '</div>'
     );
   }).join("");
-
+  const allPicked = bogoModal.picks.every((p) => p.itemId && p.sizeLabel);
+  const summaryHtml = (bogoModal.openStep === -1 && allPicked)
+    ? '<div class="bundle-summary"><b>All set &mdash; here is your deal</b><ul>' +
+      bogoModal.picks.map((p, i) => {
+        const it = Shop.data.byId.get(Number(p.itemId));
+        const extras = (p.extras || []).map((x) => " +" + esc(x.name)).join("");
+        return "<li>Pizza " + (i + 1) + ": <b>" + esc((it || {}).name || "?") + "</b>" +
+          (p.sizeLabel ? " (" + esc(p.sizeLabel) + ")" : "") + extras + "</li>";
+      }).join("") + "</ul></div>"
+    : "";
   $("#bogo-modal").innerHTML =
     "<h3>" + esc(s.name) + "</h3>" +
-    '<p class="sub">Choose ' + cnt + " pizzas &middot; you pay for the " + pay + " most expensive" + (s.sizeLabel ? " &middot; " + esc(s.sizeLabel) + " only" : "") + "</p>" +
-    rows +
+    '<p class="sub">Choose ' + cnt + " pizzas &middot; you pay for the " + pay + " most expensive" + (s.sizeLabel ? " &middot; " + esc(s.sizeLabel) + " only" : "") + " &middot; Tap a step to open it</p>" +
+    rows + summaryHtml +
     '<div class="modal-actions">' +
     '<span class="total" id="bogo-total">' + bogoTotalText() + "</span>" +
+    '<button class="ghost" data-action="restart-bogo">Start again</button>' +
     '<button class="ghost" data-action="close-bogo">Cancel</button>' +
     '<button class="primary" data-action="confirm-bogo">Add to Order</button>' +
     "</div>";
+  if (overlay) overlay.scrollTop = scroll;
 }
 
 const openBogo = (s) => {
   const cnt = (s.kind === "pick") ? (s.buyCount || s.count || 3) : (s.count || 2);
-  bogoModal = { special: s, picks: Array.from({ length: cnt }, () => newBogoPick(s)) };
-  $("#bogo-overlay").hidden = false;
+  bogoModal = { special: s, picks: Array.from({ length: cnt }, () => newBogoPick(s)), openStep: 0 };
+  const ov = $("#bogo-overlay");
+  if (ov) ov.scrollTop = 0;
+  ov.hidden = false;
   renderBogo();
 };
 
@@ -1503,6 +1528,13 @@ $("#bundle-modal").addEventListener("click", (e) => {
 });
 
 $("#bogo-modal").addEventListener("click", (e) => {
+  const head = e.target.closest("[data-bs-toggle]");
+  if (head) {
+    const i = Number(head.dataset.bsToggle);
+    bogoModal.openStep = bogoModal.openStep === i ? -1 : i;
+    renderBogo();
+    return;
+  }
   const tile = e.target.closest("[data-bogo-tile]");
   if (tile) {
     const i = Number(tile.dataset.bogoTile);
@@ -1511,6 +1543,8 @@ $("#bogo-modal").addEventListener("click", (e) => {
     const s = bogoModal.special;
     const sizes = item ? (item.sizes || []).filter((x) => x.isActive !== false && (!s.sizeLabel || x.sizeLabel === s.sizeLabel)) : [];
     bogoModal.picks[i] = { itemId: item.id, sizeLabel: sizes[0] ? sizes[0].sizeLabel : (s.sizeLabel || null), extras: [] };
+    // Guided flow: collapse this step, open the next one, then show the summary.
+    bogoModal.openStep = i + 1 < bogoModal.picks.length ? i + 1 : -1;
     renderBogo();
     return;
   }
@@ -1544,6 +1578,15 @@ $("#bogo-modal").addEventListener("change", (e) => {
 
 $("#bogo-modal").addEventListener("click", (e) => {
   if (e.target.closest('[data-action="close-bogo"]')) { closeOverlay("#bogo-overlay"); return; }
+  if (e.target.closest('[data-action="restart-bogo"]')) {
+    const cnt = bogoPickCount(bogoModal.special);
+    bogoModal.picks = Array.from({ length: cnt }, () => newBogoPick(bogoModal.special));
+    bogoModal.openStep = 0;
+    const ov = $("#bogo-overlay");
+    if (ov) ov.scrollTop = 0;
+    renderBogo();
+    return;
+  }
   if (!e.target.closest('[data-action="confirm-bogo"]')) return;
   const s = bogoModal.special;
   const pizzas = bogoModal.picks
