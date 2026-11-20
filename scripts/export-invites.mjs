@@ -43,7 +43,8 @@ if (!SEND && !CSV) {
 
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
 const PUBLIC_ORIGIN = PUBLIC_BASE_URL || "http://localhost:3100";
-const INVITE_URL = `${PUBLIC_ORIGIN}/login`;
+// /login is the staff PIN page — customers need the claim form on /portal.
+const INVITE_URL = `${PUBLIC_ORIGIN}/portal?claim=1`;
 
 const DEFAULT_SUBJECT = "Your Beluchis account is ready";
 const DEFAULT_BODY =

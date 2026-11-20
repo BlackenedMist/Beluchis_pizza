@@ -20,6 +20,8 @@ export function haversineKm(a, b) {
 }
 
 const num = (value, fallback) => {
+  // BUG-1: a blank Setting must use the fallback, never become 0 (Number("")).
+  if (value == null || String(value).trim() === "") return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 };
@@ -40,7 +42,10 @@ export function zonesFromSettings(s) {
   const fee = Math.max(0, num(s["delivery.feeAmount"], 85));
   const beyondFee = Math.max(0, num(s["delivery.beyondFeeAmount"], 95));
   const cutoffRaw = String(s["delivery.noDeliveryRadiusKm"] ?? "").trim();
-  const cutoff = cutoffRaw === "" ? null : Math.max(max, num(cutoffRaw, NaN));
+  const cutoffNum = cutoffRaw === "" ? null : num(cutoffRaw, NaN);
+  const cutoff = cutoffNum == null || !Number.isFinite(cutoffNum)
+    ? null
+    : Math.max(max, cutoffNum);
 
   const zones = [
     { id: "free", label: `Free delivery (0-${free}km)`, color: "#2d8a4e", minKm: 0, maxKm: free, fee: 0, type: "free" },

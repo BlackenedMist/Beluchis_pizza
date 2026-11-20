@@ -23,7 +23,8 @@
     "import:customers": "node --env-file-if-exists=.env scripts/import-wp-customers.mjs",
     "invites:dry-run": "node --env-file-if-exists=.env scripts/export-invites.mjs --dry-run",
     "invites:csv": "node --env-file-if-exists=.env scripts/export-invites.mjs --csv invites.csv",
-    "invites:send": "node --env-file-if-exists=.env scripts/export-invites.mjs --send"
+    "invites:send": "node --env-file-if-exists=.env scripts/export-invites.mjs --send",
+    "verify:auth": "node scripts/verify-auth-fixes.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

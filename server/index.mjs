@@ -20,6 +20,10 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const prisma = new PrismaClient();
 const app = express();
+// nginx forwards X-Forwarded-For / X-Forwarded-Proto. Trust that single hop so
+// per-IP throttling sees the real client; otherwise every request looks like
+// loopback and the login throttle exempts everyone.
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3100;
 // Never fall back to the well-known 1234 PIN in production. Local dev keeps it
 // for convenience; a deployed app without ADMIN_PIN disables the env-PIN login
@@ -223,13 +227,18 @@ const getSetting = async (key, fallback = null) => {
 
 const numSetting = async (key, fallback) => {
   const v = await getSetting(key, null);
-  return v == null ? fallback : nOr(v, fallback);
+  // BUG-1: Number("") is 0, so a blank Setting used to become a zero coordinate
+  // or fee. Blank must mean "use the default", never zero.
+  if (v == null || String(v).trim() === "") return fallback;
+  return nOr(v, fallback);
 };
 
 // Live delivery configuration assembled from the Setting table (never cached).
 const getDeliveryConfig = async () => {
-  const shopLat = await numSetting("shop.lat", null);
-  const shopLng = await numSetting("shop.lng", null);
+  // Blank shop coordinates fall back to the Worcester CBD default so delivery
+  // distances (and the derived zone bands) are never measured from (0,0).
+  const shopLat = await numSetting("shop.lat", -33.646);
+  const shopLng = await numSetting("shop.lng", 19.448);
   const freeRadiusKm = await numSetting("delivery.freeRadiusKm", 3);
   const maxRadiusKm = await numSetting("delivery.maxRadiusKm", 10);
   const feeAmount = await numSetting("delivery.feeAmount", 85);
@@ -547,8 +556,10 @@ const requireRole = (...roles) => (req, res, next) => {
   next();
 };
 
-// Simple per-IP throttle: 10 login attempts per 15 minutes (loopback exempt
-// so local development/testing never hits the wall).
+// Per-IP throttle behind nginx (trust proxy is set above). South African
+// mobile customers often share a CGNAT IP, so allow 20 attempts / 15 min;
+// loopback stays exempt for local development/testing.
+const LOGIN_ATTEMPT_LIMIT = 20;
 const loginAttempts = new Map();
 const throttledLogin = (req) => {
   const ip = req.ip || req.socket?.remoteAddress || "unknown";
@@ -560,7 +571,7 @@ const throttledLogin = (req) => {
     return false;
   }
   rec.count += 1;
-  return rec.count > 10;
+  return rec.count > LOGIN_ATTEMPT_LIMIT;
 };
 
 const safeEquals = (a, b) => {
@@ -624,17 +635,23 @@ const tierFor = (scorePct) => TIER_BANDS.find((b) => scorePct >= b.minScore)?.na
 app.post(
   "/api/customer/auth/set-password",
   asyncHandler(async (req, res) => {
-    const { cellphone = null, firstName = null, password = null } = req.body || {};
-    if (!cellphone?.trim()) return res.status(400).json({ error: "cellphone is required" });
+    const { cellphone = null, email = null, firstName = null, password = null } = req.body || {};
+    const phoneKey = String(cellphone || "").trim();
+    const emailKey = String(email || "").trim().toLowerCase();
+    if (!phoneKey && !emailKey)
+      return res.status(400).json({ error: "cellphone or email is required" });
     if (!password || String(password).length < 4)
       return res.status(400).json({ error: "password must be at least 4 characters" });
     if (throttledLogin(req)) return res.status(429).json({ error: "too many attempts, try again later" });
 
-    const phone = canonicalPhone(cellphone);
-    let customer = await findCustomerByPhone(cellphone);
+    // Most imported accounts have a cellphone; a handful only have an email.
+    // Accept either as the account identifier, always with the first name check.
+    let customer = phoneKey
+      ? await findCustomerByPhone(phoneKey)
+      : await prisma.customer.findUnique({ where: { email: emailKey } });
     if (!customer)
       return res.status(404).json({
-        error: "No account found for that cellphone. Place an order with it first, then come back to set your password.",
+        error: "No account found for that cellphone or email. Place an order with it first, then come back to set your password.",
       });
 
     const nameProvided = String(firstName || "").trim();
@@ -669,20 +686,48 @@ app.post(
     if (!String(cellphone || "").trim()) return res.status(400).json({ error: "Cellphone is required." });
     if (!password || String(password).length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
     const phone = canonicalPhone(cellphone);
-    const existing = await findCustomerByPhone(cellphone);
-    if (existing) return res.status(400).json({ error: "An account with that cellphone already exists. Log in or reset your password." });
+    const emailKey = email ? String(email).trim().toLowerCase() || null : null;
+    // Imported WordPress customers already occupy most email addresses. Check
+    // email as well as phone (the old code checked only phone and crashed with
+    // a P2002/500). Point them at the claim form instead of failing the insert.
+    const [existing, existingByEmail] = await Promise.all([
+      findCustomerByPhone(cellphone),
+      emailKey
+        ? prisma.customer.findUnique({ where: { email: emailKey }, select: { id: true } })
+        : Promise.resolve(null),
+    ]);
+    if (existing || existingByEmail) {
+      return res.status(409).json({
+        error: "An account with that cellphone or email already exists. Open 'Claim guest account' on the My Orders page and set your password with your first name.",
+        code: "account_exists",
+        claimUrl: "/portal?claim=1",
+      });
+    }
     const username = "cust-" + phone.replace(/[^0-9]/g, "").slice(-8) + "-" + Math.random().toString(36).slice(2, 6);
-    const customer = await prisma.customer.create({
-      data: {
-        firstName: String(firstName).trim(),
-        lastName: String(lastName).trim(),
-        email: email ? String(email).trim() || null : null,
-        cellphone: phone,
-        username,
-        passwordHash: await bcrypt.hash(String(password), 10),
-        claimedAt: new Date(),
-      },
-    });
+    let customer;
+    try {
+      customer = await prisma.customer.create({
+        data: {
+          firstName: String(firstName).trim(),
+          lastName: String(lastName).trim(),
+          email: emailKey,
+          cellphone: phone,
+          username,
+          passwordHash: await bcrypt.hash(String(password), 10),
+          claimedAt: new Date(),
+        },
+      });
+    } catch (e) {
+      // Last-resort guard for a race between the lookup and the insert.
+      if (isUniqueViolation(e)) {
+        return res.status(409).json({
+          error: "An account with that cellphone or email already exists. Open 'Claim guest account' on the My Orders page and set your password.",
+          code: "account_exists",
+          claimUrl: "/portal?claim=1",
+        });
+      }
+      throw e;
+    }
     createCustomerSession(res, customer.id);
     res.status(201).json({ ok: true, customer: publicCustomer(customer) });
   })
@@ -2083,7 +2128,8 @@ app.post("/api/mail/test-invite", requireRole("admin"), asyncHandler(async (req,
   }
   const subject = await getSetting("mail.inviteSubject", "Your Beluchis account is ready");
   const body = await getSetting("mail.inviteBody", "Hi {firstName},\n\nYour Beluchis account is ready. Set your password to start ordering:\n{url}\n\n— The Beluchis team");
-  const url = `${PUBLIC_ORIGIN}/login`;
+  // Invites must land on the customer claim form, not the staff PIN login.
+  const url = `${PUBLIC_ORIGIN}/portal?claim=1`;
   const res2 = await sendMail({
     to,
     subject: fill(subject, { firstName: "there", url }),
