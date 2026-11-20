@@ -290,6 +290,11 @@
   .cart-line .name { font-weight: 700; font-size: 13.5px; }
   .cart-line .meta { font-size: 12px; color: var(--muted); }
   .cart-line .extras { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+  .cart-line .sub-item { display: flex; justify-content: space-between; gap: 10px; margin-top: 4px; padding-left: 14px; font-size: 11.5px; color: var(--muted); }
+  .cart-line .sub-item .sub-label { flex: 1; }
+  .cart-line .sub-item .sub-price { font-weight: 600; white-space: nowrap; color: var(--ink); }
+  .cart-line .sub-item .sub-price.free { color: #1b7f3a; }
+  .cart-line .special-total { display: flex; justify-content: space-between; margin-top: 8px; padding: 6px 0 0 14px; border-top: 1px dashed var(--line); font-size: 12.5px; font-weight: 700; color: var(--ink); }
   .cart-line .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
   .qty { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .qty button { width: 30px; height: 28px; border: 0; background: #fff; cursor: pointer; font-size: 15px; }
@@ -1158,35 +1163,11 @@ const openBogo = (s) => {
 
 let bundleModal = { special: null, groups: [], picks: [] };
 
-function bundleGroups(s) {
-  try { return typeof s.bundleSpec === "string" ? JSON.parse(s.bundleSpec) : (s.bundleSpec || []); } catch (e) { return []; }
-}
-
-/* One group's charge, used by both the live preview and the cart line so the
-   customer always sees the same price the server will confirm. */
-function bundleGroupPrice(g, picks) {
-  if (!g || g.paid === false) return 0;
-  const mode = g.priceMode || "value";
-  const bases = (picks || []).map((p) => {
-    const it = Shop.data.byId.get(Number(p.itemId));
-    const sz = it && (it.sizes || []).find((x) => x.sizeLabel === p.sizeLabel);
-    return sz ? sz.price : 0;
-  });
-  if (mode === "fixed") return Number(g.price) || 0;
-  if (mode === "each") return (Number(g.price) || 0) * bases.length;
-  if (mode === "cheapest") {
-    const freeN = Math.min(bases.length, Math.max(1, Number(g.freeCount) || 1));
-    return bases.slice().sort((a, b) => b - a).slice(0, Math.max(0, bases.length - freeN)).reduce((a, b) => a + b, 0);
-  }
-  if (mode === "highest") return bases.reduce((m, v) => Math.max(m, v), 0);
-  return bases.reduce((sum, v) => sum + v, 0);
-}
-
-function bundlePickBase(p) {
-  const it = Shop.data.byId.get(Number(p && p.itemId));
-  const sz = it && (it.sizes || []).find((x) => x.sizeLabel === p.sizeLabel);
-  return sz ? sz.price : 0;
-}
+/* Bundle pricing lives in shop.js so the live preview and the cart line use
+   exactly the same numbers (and mirror POST /api/orders). */
+function bundleGroups(s) { return Shop.bundleGroups(s); }
+function bundleGroupPrice(g, picks) { return Shop.bundleGroupPrice(g, picks); }
+function bundlePickBase(p) { return Shop.bundlePickBase(p); }
 
 /* Price shown beside each step title while the customer builds the bundle. */
 function bundleStepPriceLabel(g, groupPicks, idx) {
@@ -1207,12 +1188,7 @@ function bundleStepPriceLabel(g, groupPicks, idx) {
 
 function bundlePickGroupIndex(picks, idx) {
   // idx into picks; determine group by cumulative counts
-  let acc = 0;
-  for (let g = 0; g < bundleModal.groups.length; g++) {
-    acc += Number(bundleModal.groups[g].count || 0);
-    if (idx < acc) return g;
-  }
-  return bundleModal.groups.length - 1;
+  return Shop.bundleGroupIndex(bundleModal.groups, idx);
 }
 
 function bundleItemsForGroup(g) {

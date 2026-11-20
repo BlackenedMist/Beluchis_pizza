@@ -138,6 +138,139 @@
   }
   const extrasTotal = (pizzas) => (pizzas || []).reduce((s, p) => s + (p.extras || []).reduce((a, e) => a + e.price, 0), 0);
 
+  /* --------------------------------------------- special cart line breakdown
+     These helpers mirror POST /api/orders pricing so the cart can list every
+     item inside a special with its own (charged) price, mark free items FREE,
+     and show one special total at the end of the line. */
+  const specialById = (id) => (DATA.specials || []).find((s) => s.id === Number(id)) || null;
+  const basePriceOfPick = (pick, item) => {
+    const src = item || DATA.byId.get(Number(pick && pick.itemId));
+    const sz = src && (src.sizes || []).find((x) => x.sizeLabel === (pick && pick.sizeLabel) && x.isActive !== false);
+    return sz ? Number(sz.price) || 0 : 0;
+  };
+  const extrasOfPick = (pick) => ((pick && pick.extras) || []).reduce((s, e) => s + (Number(e && e.price) || 0), 0);
+
+  const bundleGroupsOf = (sp) => {
+    try {
+      const raw = sp && sp.bundleSpec;
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  };
+  const bundleGroupIndexOf = (groups, idx) => {
+    let acc = 0;
+    for (let i = 0; i < groups.length; i++) {
+      acc += Number(groups[i].count || 0);
+      if (idx < acc) return i;
+    }
+    return Math.max(0, groups.length - 1);
+  };
+  // Charge per pick inside one bundle group. The sum of these is exactly what
+  // the order page's bundleGroupPrice() returns for the same group.
+  function bundlePickPrices(g, picks) {
+    const out = picks.map(() => 0);
+    if (!g || g.paid === false) return out;
+    const mode = g.priceMode || "value";
+    const bases = picks.map((p) => basePriceOfPick(p));
+    if (mode === "fixed") { if (out.length) out[0] = Number(g.price) || 0; return out; }
+    if (mode === "each") return picks.map(() => Number(g.price) || 0);
+    if (mode === "cheapest") {
+      const freeN = Math.min(bases.length, Math.max(1, Number(g.freeCount) || 1));
+      bases.map((b, i) => ({ b, i })).sort((a, b) => b.b - a.b)
+        .slice(0, Math.max(0, bases.length - freeN))
+        .forEach((o) => { out[o.i] = o.b; });
+      return out;
+    }
+    if (mode === "highest") {
+      let top = -1, val = -1;
+      bases.forEach((b, i) => { if (b > val) { val = b; top = i; } });
+      if (top >= 0) out[top] = val;
+      return out;
+    }
+    return bases.slice();
+  }
+  const bundleGroupPrice = (g, picks) => bundlePickPrices(g, picks).reduce((a, b) => a + b, 0);
+  const bundlePickBase = (p) => basePriceOfPick(p);
+  const bundleGroups = (sp) => bundleGroupsOf(sp);
+
+  function specialBreakdown(line) {
+    const sp = specialById(line && line.specialId);
+    const kind = String((sp && sp.kind) || "flat").toLowerCase();
+    const qty = Math.max(1, Number(line && line.qty) || 1);
+    const rows = [];
+
+    const addRow = (name, sizeLabel, extras, quantity, price, free) => {
+      const n = Number(quantity) > 1 ? Number(quantity) + "× " : "";
+      const sz = sizeLabel ? " (" + esc(sizeLabel) + ")" : "";
+      const ex = (extras || []).length ? " + " + extras.map((e) => esc(e.name || e)).join(", ") : "";
+      rows.push({
+        label: n + esc(name || "Item") + sz + ex,
+        price: Math.max(0, Number(price) || 0),
+        free: Boolean(free) || (Number(price) || 0) <= 0,
+      });
+    };
+
+    const pizzas = Array.isArray(line && line.pizzas) ? line.pizzas : [];
+    if (pizzas.length && kind === "bundle") {
+      const groups = bundleGroupsOf(sp);
+      const byGroup = groups.map(() => []);
+      pizzas.forEach((p, i) => {
+        const gi = bundleGroupIndexOf(groups, i);
+        (byGroup[gi] = byGroup[gi] || []).push(i);
+      });
+      const prices = new Array(pizzas.length).fill(0);
+      groups.forEach((g, gi) => {
+        const idxs = byGroup[gi] || [];
+        const charges = bundlePickPrices(g, idxs.map((i) => pizzas[i]));
+        idxs.forEach((i, k) => { prices[i] = charges[k] || 0; });
+      });
+      pizzas.forEach((p, i) => {
+        const ex = extrasOfPick(p);
+        addRow(p.name, p.sizeLabel, p.extras, 1, prices[i] + ex, prices[i] === 0 && ex === 0);
+      });
+    } else if (pizzas.length) {
+      // BOGO / pick N pay M: the most expensive picks are paid, the rest free
+      // (or use the special's fixed paid flags when configured that way).
+      const count = pizzas.length;
+      const payCount = line.payCount != null
+        ? Math.max(0, Number(line.payCount) || 0)
+        : (kind === "pick" ? Math.max(1, count - 1) : Math.ceil(count / 2));
+      const bases = pizzas.map((p) => basePriceOfPick(p));
+      const need = Math.max(0, count - payCount);
+      const free = new Set();
+      const paidMap = new Map((sp && Array.isArray(sp.items) ? sp.items : [])
+        .map((si) => [Number(si.itemId), si.paid !== false]));
+      if (sp && sp.payMode === "fixed" && paidMap.size) {
+        pizzas.forEach((p, i) => {
+          const id = Number(p.itemId);
+          if (paidMap.has(id) && paidMap.get(id) === false) free.add(i);
+        });
+        bases.map((b, i) => ({ b, i })).filter((o) => !free.has(o.i))
+          .sort((a, b) => a.b - b.b).slice(0, Math.max(0, need - free.size))
+          .forEach((o) => free.add(o.i));
+      } else {
+        bases.map((b, i) => ({ b, i })).sort((a, b) => a.b - b.b).slice(0, need)
+          .forEach((o) => free.add(o.i));
+      }
+      pizzas.forEach((p, i) => {
+        const ex = extrasOfPick(p);
+        addRow(p.name, p.sizeLabel, p.extras, 1, (free.has(i) ? 0 : bases[i]) + ex, free.has(i) && ex === 0);
+      });
+    } else {
+      // Flat / combo: the special's own items; paid:false means free.
+      const items = (sp && Array.isArray(sp.items)) ? sp.items : [];
+      for (const si of items) {
+        const it = si.item || DATA.byId.get(Number(si.itemId));
+        let ex = [];
+        try { ex = typeof si.extras === "string" ? JSON.parse(si.extras || "[]") : (si.extras || []); } catch { ex = []; }
+        const isFree = si.paid === false;
+        addRow(it && it.name ? it.name : ("Item " + si.itemId), si.sizeLabel, ex, si.quantity || 1,
+          isFree ? 0 : basePriceOfPick({ itemId: si.itemId, sizeLabel: si.sizeLabel }, it), isFree);
+      }
+    }
+    return { rows, total: (Number(line && line.unitPrice) || 0) * qty, qty };
+  }
+
   /* ------------------------------------------------------- automatic deals
      Fixed-price specials (kind === "deal") apply themselves: any `count`
      items from the special's category, at the special's size, for a flat
@@ -401,24 +534,20 @@
   }
 
   function renderSpecialLine(l, idx) {
-    const picks = (l.pizzas || []).map((p) =>
-      '<div class="extras">' + esc(p.name || (DATA.byId.get(Number(p.itemId)) || {}).name || "Pizza") + (p.sizeLabel ? " (" + esc(p.sizeLabel) + ")" : "") + "</div>"
-    ).join("");
-    const bundle = l.pizzas
-      ? ""
-      : ((DATA.specials.find((x) => x.id === l.specialId) || {}).items || []).map((si) => {
-          let extras = [];
-          try { extras = si.extras ? JSON.parse(si.extras) : []; } catch (e) { extras = []; }
-          const extrasTxt = extras.length ? " + " + extras.map((e) => esc(e.name)).join(", ") : "";
-          return '<div class="extras">' + (si.quantity > 1 ? si.quantity + "&times; " : "") + esc(si.item.name) + (si.sizeLabel ? " (" + esc(si.sizeLabel) + ")" : "") + extrasTxt + "</div>";
-        }).join("");
-    const meta = l.pizzas
-      ? "Pick " + (l.pizzas.length) + ", pay for " + (l.payCount || Math.ceil(l.pizzas.length / 2)) + " | R" + l.unitPrice + " each"
+    const b = specialBreakdown(l);
+    const meta = (l.pizzas || []).length
+      ? "Pick " + l.pizzas.length + ", pay for " + (l.payCount || Math.ceil(l.pizzas.length / 2)) + " | R" + l.unitPrice + " each"
       : "Combo | R" + l.unitPrice + " each";
+    const subItems = b.rows.map((r) =>
+      '<div class="sub-item"><span class="sub-label">' + r.label + '</span>' +
+      '<span class="sub-price' + (r.free ? " free" : "") + '">' + (r.free ? "FREE" : money(r.price)) + "</span></div>"
+    ).join("");
     return (
-      '<div class="cart-line">' +
-      '<div class="top"><span class="name">' + esc(l.name) + (l.collectionOnly ? ' <span class="meta">(Collection only)</span>' : "") + '</span><span class="line-total">' + money(l.unitPrice * l.qty) + "</span></div>" +
-      '<div class="meta">' + meta + "</div>" + picks + bundle +
+      '<div class="cart-line special-line">' +
+      '<div class="top"><span class="name">' + esc(l.name) + (l.collectionOnly ? ' <span class="meta">(Collection only)</span>' : "") + "</span></div>" +
+      '<div class="meta">' + meta + "</div>" +
+      subItems +
+      '<div class="special-total"><span>Special total</span><span>' + money(b.total) + "</span></div>" +
       '<div class="foot"><span class="qty"><button data-q="-1" data-idx="' + idx + '">&minus;</button><span class="n">' + l.qty + '</span><button data-q="1" data-idx="' + idx + '">+</button></span>' +
       '<button class="remove" data-remove-idx="' + idx + '">Remove</button></div>' +
       "</div>"
@@ -466,6 +595,7 @@
     sizeRowOf, basePriceOf, topPriceOf, availBases, availToppings, hasCustom, categoryOf, activeSpecials, specialCurrentlyActive,
     pastaPriceOf, availPastaTypes,
     outOfSeasonToppings, affordableSwaps, bogoBaseTotal, extrasTotal, applyDeals, refreshDeals, setFulfilment,
+    specialBreakdown, bundleGroups, bundleGroupIndex: bundleGroupIndexOf, bundleGroupPrice, bundlePickBase,
     load, reconcile, toast, data: DATA, hooks,
     get fulfilment() { return FULFILMENT; },
     get onCheckout() { return hooks.onCheckout; },
