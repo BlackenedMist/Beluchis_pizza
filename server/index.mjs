@@ -3081,7 +3081,7 @@ app.post(
           // for a bundle again, and so the free pizza is explicitly marked.
           const picks = resolved.resolved.map((r, idx) => {
             const free = freePick[idx] === true;
-            const label = `${free ? "FREE \u2014 " : ""}${r.item.name}${r.sizeLabel ? ` (${r.sizeLabel})` : ""}`;
+            const label = `${r.item.name}${r.sizeLabel ? ` (${r.sizeLabel})` : ""}`;
             return { name: label, sizeLabel: r.sizeLabel, price: r.base, paid: !free, free, extras: r.extras };
           });
           const gross = resolved.resolved.reduce((sum, r) => sum + r.base, 0);

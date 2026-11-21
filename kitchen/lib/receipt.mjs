@@ -65,6 +65,16 @@ function paymentLabel(order) {
 
 const rule = { text: '-'.repeat(WIDTH), align: 'center' };
 
+function extraLabel(extra) {
+  if (!extra || typeof extra !== 'object') return extra == null ? '' : String(extra);
+  const label = extra.name || (extra.itemId != null ? `Item #${extra.itemId}` : '');
+  if (!label) return '';
+  if (/^(FREE|PAID)\b/i.test(label)) return label;
+  if (extra.free === true) return `FREE \u2014 ${label}`;
+  if (extra.paid === true) return `PAID \u2014 ${label}`;
+  return label;
+}
+
 function customerName(customer) {
   if (!customer) return '';
   return [customer.firstName, customer.lastName].filter(Boolean).join(' ');
@@ -87,20 +97,15 @@ export function buildReceipt(order) {
   segs.push(rule);
   segs.push({ text: padCentre('ITEMS'), align: 'center', bold: true });
   for (const item of order.items || []) {
-    const head = `${item.quantity}x ${item.itemName || 'Item'}${item.sizeLabel ? ` (${item.sizeLabel})` : ''}`;
+    let head = `${item.quantity}x ${item.itemName || 'Item'}${item.sizeLabel ? ` (${item.sizeLabel})` : ''}`;
+    if (Number(item.total) === 0 && Number(item.unitPrice) === 0 && !/^FREE\b/i.test(head)) head = `FREE \u2014 ${head}`;
     const lines = wrap(head);
     lines.forEach((line, i) => segs.push({ text: line, bold: true }));
     if (item.extras) {
       try {
         for (const extra of JSON.parse(item.extras)) {
-          // Bundle picks carry a readable name on the server (including a
-          // "FREE — " prefix). Never stringify a raw object as [object Object].
-          if (extra && typeof extra === 'object') {
-            const label = extra.name || (extra.itemId != null ? `Item #${extra.itemId}` : null);
-            if (label) segs.push({ text: `   + ${label}`, bold: extra.free === true });
-          } else if (extra != null) {
-            segs.push({ text: `   + ${extra}` });
-          }
+          const label = extraLabel(extra);
+          if (label) segs.push({ text: `   + ${label}`, bold: extra && extra.free === true });
         }
       } catch { /* ignore */ }
     }

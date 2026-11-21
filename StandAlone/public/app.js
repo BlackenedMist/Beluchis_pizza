@@ -105,6 +105,16 @@ async function loadOrders() {
   } catch { /* ignore */ }
 }
 
+function extraLabel(extra) {
+  if (!extra || typeof extra !== 'object') return extra == null ? '' : String(extra);
+  const label = extra.name || (extra.itemId != null ? `Item #${extra.itemId}` : '');
+  if (!label) return '';
+  if (/^(FREE|PAID)\b/i.test(label)) return label;
+  if (extra.free === true) return `FREE \u2014 ${label}`;
+  if (extra.paid === true) return `PAID \u2014 ${label}`;
+  return label;
+}
+
 function orderRow(order) {
   const tpl = $('#orderCard');
   const node = tpl.content.cloneNode(true);
@@ -120,20 +130,15 @@ function orderRow(order) {
   const ul = node.querySelector('.items');
   (order.items || []).forEach((item) => {
     const li = document.createElement('li');
-    const name = `${item.itemName || 'Item'}${item.sizeLabel ? ` (${item.sizeLabel})` : ''}`;
+    let name = `${item.itemName || 'Item'}${item.sizeLabel ? ` (${item.sizeLabel})` : ''}`;
+    const freeLine = Number(item.total) === 0 && Number(item.unitPrice) === 0;
+    if (freeLine && !/^FREE\b/i.test(name)) name = `FREE \u2014 ${name}`;
     li.innerHTML = `<span><span class="q">${esc(item.quantity)}×</span> ${esc(name)}</span><span>${money(item.total)}</span>`;
     ul.appendChild(li);
     if (item.extras) {
       try {
         for (const extra of JSON.parse(item.extras)) {
-          // Bundle picks carry a readable name (and a free flag) from the
-          // server. Never render a raw object as "[object Object]".
-          let label = null;
-          if (extra && typeof extra === 'object') {
-            label = extra.name || (extra.itemId != null ? `Item #${extra.itemId}` : null);
-          } else if (extra != null) {
-            label = String(extra);
-          }
+          const label = extraLabel(extra);
           if (!label) continue;
           const ex = document.createElement('li');
           ex.className = 'extra' + (extra && extra.free ? ' free' : '');
@@ -460,7 +465,13 @@ function wireEvents() {
 }
 
 // ---------- bindings ----------
-$('#refreshOrders').addEventListener('click', loadOrders);
+// Refresh must pull fresh order data from the server first - the bridge keeps
+// its own cached copy, so re-rendering alone shows stale prices and picks.
+$('#refreshOrders').addEventListener('click', async () => {
+  try { await fetch('/api/poll', { method: 'POST' }); } catch { /* ignore */ }
+  await loadOrders();
+  loadStatus();
+});
 $('#scanBtn').addEventListener('click', runScan);
 // The manual-add form serves three kinds of printer, so the address and port
 // fields only make sense for the raw-network one.
