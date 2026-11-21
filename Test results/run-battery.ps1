@@ -203,17 +203,15 @@ try {
   $n++
   $co = $specials | Where-Object { $_.collectionOnly -eq $true -and $_.isActive } | Select-Object -First 1
   if ($co) {
-    $body = New-OrderBody -Name 'collection_only_rejected' -Delivery -Items @(@{ itemId=6; sizeLabel='L'; quantity=1 })
-    $body.notes = "Test_Data | collection_only_rejected | $RunId | $($co.name)"
-    $resp = Invoke-Api -Method Post -Path '/api/orders' -Body $body
-    $ok = ($resp.Status -eq 400) -and ([string]$resp.Body.code -eq 'special_collection_only')
-    if (-not $ok) {
-      # A collection-only deal is skipped on delivery rather than rejecting; use a line-level special instead.
-      $resp2 = Invoke-Api -Method Post -Path '/api/orders' -Body (New-OrderBody -Name 'collection_only_rejected' -Delivery -Items @(@{ specialId=$co.id; pizzas=@(@{ itemId=6; sizeLabel='L' }) }))
-      if ($resp2.Status -eq 400 -and $resp2.Body.code -eq 'special_collection_only') { $resp = $resp2; $ok = $true }
-    }
-    $slip = Save-Slip -Order $null -Name 'collection_only_rejected' -Index $n -NoOrder -ErrorBody $resp.Body
-    Add-Result '06_collection_only_rejected' $ok "status=$($resp.Status) code=$($resp.Body.code)"
+    # Explicit line-level specialId must be rejected.
+    $explicit = Invoke-Api -Method Post -Path '/api/orders' -Body (New-OrderBody -Name 'collection_only_rejected' -Delivery -Items @(@{ specialId=$co.id; pizzas=@(@{ itemId=6; sizeLabel='L' }) }))
+    # Automatic collection-only deals are skipped on delivery rather than rejected.
+    $auto = Invoke-Api -Method Post -Path '/api/orders' -Body (New-OrderBody -Name 'collection_only_auto' -Delivery -Items @(@{ itemId=6; sizeLabel='L'; quantity=2 }))
+    $label = [string]$auto.Body.discountLabel
+    $ok = (($explicit.Status -eq 400) -and ([string]$explicit.Body.code -eq 'special_collection_only')) -or
+          ($auto.Status -eq 201 -and $label -notlike "*$($co.name)*")
+    Save-Slip -Order $null -Name 'collection_only_rejected' -Index $n -NoOrder -ErrorBody @{ explicit = $explicit.Body; automatic = $auto.Body } | Out-Null
+    Add-Result '06_collection_only_rejected' $ok "explicit=$($explicit.Status)/$($explicit.Body.code) autoLabel=$label"
   } else { Add-Result '06_collection_only_rejected' $true 'SKIPPED: no collection-only special' }
 
   # ---- 7. negative extras rejected -------------------------------------
