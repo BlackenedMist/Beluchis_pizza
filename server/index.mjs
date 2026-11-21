@@ -2930,6 +2930,13 @@ app.post(
     let dealSaving = 0;
     const dealLabels = new Set();
     const dealApplications = [];
+    // Bundles with a free group save money that is invisible on any one line
+    // (the free pizza is simply not charged). Gross up the bundle line and
+    // record the saving at order level so receipts, emails and staff boards
+    // show the promotion by name instead of an unexplained lower total.
+    let bundleSaving = 0;
+    const bundleLabels = new Set();
+    const bundleApplications = [];
 
     for (const line of items) {
       // Bundle/special line — validated active.
@@ -3035,24 +3042,21 @@ app.post(
           const hasPaidFlag = groups.some((g) => typeof g.paid === "boolean");
           const fixedBundlePrice = String(special.payMode || "").toLowerCase() === "fixed";
           let price = special.price || 0;
+          // Map each pick to its group by cumulative count. Needed for pricing
+          // and so every pizza can be labelled paid/free on the receipt.
+          const groupOf = resolved.resolved.map((_, idx) => {
+            let a = 0;
+            for (let gi = 0; gi < groups.length; gi++) {
+              a += Number(groups[gi].count || 0);
+              if (idx < a) return gi;
+            }
+            return groups.length - 1;
+          });
+          const freePick = groupOf.map((gi) => hasPaidFlag && (groups[gi] || {}).paid === false);
           if (!fixedBundlePrice && hasPaidFlag) {
             price = 0;
-            // Map each resolved pick to its group by cumulative count.
-            let acc = 0;
-            const groupOf = resolved.resolved.map((_, idx) => {
-              let a = 0;
-              for (let gi = 0; gi < groups.length; gi++) {
-                a += Number(groups[gi].count || 0);
-                if (idx < a) return gi;
-              }
-              return groups.length - 1;
-            });
-            // group picks
             const picksByGroup = groups.map(() => []);
-            resolved.resolved.forEach((r, idx) => {
-              const gi = groupOf[idx];
-              picksByGroup[gi].push(r);
-            });
+            resolved.resolved.forEach((r, idx) => picksByGroup[groupOf[idx]].push(r));
             groups.forEach((g, gi) => {
               if (g.paid === false) return;
               const mode = g.priceMode || "value";
@@ -3072,14 +3076,30 @@ app.post(
               }
             });
           }
+          // Human-readable pick list. Stored in OrderItem.extras so receipts,
+          // confirmation emails and staff boards never print "[object Object]"
+          // for a bundle again, and so the free pizza is explicitly marked.
+          const picks = resolved.resolved.map((r, idx) => {
+            const free = freePick[idx] === true;
+            const label = `${free ? "FREE \u2014 " : ""}${r.item.name}${r.sizeLabel ? ` (${r.sizeLabel})` : ""}`;
+            return { name: label, sizeLabel: r.sizeLabel, price: r.base, paid: !free, free, extras: r.extras };
+          });
+          const gross = resolved.resolved.reduce((sum, r) => sum + r.base, 0);
+          const saving = Math.max(0, gross - price);
+          if (saving > 0) {
+            bundleSaving += saving * quantity;
+            bundleLabels.add(special.name);
+            bundleApplications.push({ name: special.name, count: quantity, price, normal: gross, saving: saving * quantity });
+          }
+          const chargeEach = saving > 0 ? gross : price;
           rows.push({
             itemId: null,
             itemName: special.name,
             sizeLabel: null,
-            unitPrice: price,
+            unitPrice: chargeEach,
             quantity,
-            extras: resolved.extrasJson || null,
-            total: (price + extrasTotal) * quantity,
+            extras: JSON.stringify(picks),
+            total: (chargeEach + extrasTotal) * quantity,
           });
           continue;
         }
@@ -3260,7 +3280,7 @@ app.post(
     const orderTotal = foodSubtotal + deliveryFee;
     // Automatic deals come off the food first, so a coupon applies to the
     // price the customer is actually paying.
-    const subtotal = foodSubtotal - dealSaving + deliveryFee;
+    const subtotal = foodSubtotal - dealSaving - bundleSaving + deliveryFee;
 
     // Coupon: validated server-side only (never trust the client).
     let coupon = null;
@@ -3287,11 +3307,11 @@ app.post(
       couponLabel = coupon.label || (coupon.kind === "percent" ? `${coupon.value}% off` : `R${coupon.value} off`);
     }
 
-    // Fold the automatic deal saving and the coupon into a single markdown -
+    // Fold automatic deals, bundle free items and the coupon into one markdown -
     // that is what the receipt, cashier board, portal and confirmation email
-    // already render, so no display code has to know deals exist.
-    const dealLabel = [...dealLabels].join(", ") || null;
-    const discountAmount = dealSaving + couponDiscount;
+    // already render, so no display code has to know promotions exist.
+    const dealLabel = [...dealLabels, ...bundleLabels].join(", ") || null;
+    const discountAmount = dealSaving + bundleSaving + couponDiscount;
     const discountLabel = [dealLabel, couponLabel].filter(Boolean).join(" + ") || null;
     const grandTotal = orderTotal - discountAmount + tipAmount;
 
@@ -3314,6 +3334,7 @@ app.post(
         discountLabel,
         discounts: [
           ...dealApplications,
+          ...bundleApplications,
           ...(couponDiscount > 0 ? [{ name: couponLabel || "Coupon", count: 1, price: 0, normal: couponDiscount, saving: couponDiscount }] : []),
         ],
         deliveryFee,
