@@ -96,6 +96,9 @@ main { max-width: 1080px; margin: 0 auto; padding: 22px; }
 .items li { padding: 5px 0; display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
 .items li .q { color: var(--brand); font-weight: 700; }
 .items .extra { font-size: 12.5px; color: var(--muted); }
+.items .extra.free { color: var(--green); font-weight: 700; }
+.promo { font-size: 12.5px; color: var(--brand); font-weight: 600; }
+.tip { font-size: 12.5px; color: var(--muted); }
 
 .notes {
   background: #fff4c9; border: 1px solid #ecd97e; border-radius: 8px;

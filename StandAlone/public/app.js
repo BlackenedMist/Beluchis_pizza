@@ -120,15 +120,24 @@ function orderRow(order) {
   const ul = node.querySelector('.items');
   (order.items || []).forEach((item) => {
     const li = document.createElement('li');
-    const name = `${item.quantity}x ${item.itemName || 'Item'}${item.sizeLabel ? ` (${item.sizeLabel})` : ''}`;
+    const name = `${item.itemName || 'Item'}${item.sizeLabel ? ` (${item.sizeLabel})` : ''}`;
     li.innerHTML = `<span><span class="q">${esc(item.quantity)}×</span> ${esc(name)}</span><span>${money(item.total)}</span>`;
     ul.appendChild(li);
     if (item.extras) {
       try {
         for (const extra of JSON.parse(item.extras)) {
+          // Bundle picks carry a readable name (and a free flag) from the
+          // server. Never render a raw object as "[object Object]".
+          let label = null;
+          if (extra && typeof extra === 'object') {
+            label = extra.name || (extra.itemId != null ? `Item #${extra.itemId}` : null);
+          } else if (extra != null) {
+            label = String(extra);
+          }
+          if (!label) continue;
           const ex = document.createElement('li');
-          ex.className = 'extra';
-          ex.textContent = '   + ' + (extra.name || extra);
+          ex.className = 'extra' + (extra && extra.free ? ' free' : '');
+          ex.textContent = '   + ' + label;
           ul.appendChild(ex);
         }
       } catch { /* ignore */ }
@@ -153,6 +162,21 @@ function orderRow(order) {
   if (label) {
     pay.textContent = label;
     if (order.paymentStatus === 'paid') pay.classList.add('paid-online');
+  }
+
+  const foot = node.querySelector('.order-foot');
+  if (order.discountAmount > 0 || order.discountLabel) {
+    const promo = document.createElement('div');
+    promo.className = 'promo';
+    const label = order.discountLabel ? `Promotion: ${order.discountLabel}` : 'Discount';
+    promo.textContent = `${label}  -${money(order.discountAmount)}`;
+    foot.parentNode.insertBefore(promo, foot);
+  }
+  if (order.tipAmount > 0) {
+    const tip = document.createElement('div');
+    tip.className = 'tip';
+    tip.textContent = `Tip: ${money(order.tipAmount)}`;
+    foot.parentNode.insertBefore(tip, foot);
   }
 
   node.querySelector('.total').textContent = money(order.grandTotal ?? order.total);
