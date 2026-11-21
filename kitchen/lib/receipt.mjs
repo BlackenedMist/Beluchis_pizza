@@ -93,7 +93,14 @@ export function buildReceipt(order) {
     if (item.extras) {
       try {
         for (const extra of JSON.parse(item.extras)) {
-          segs.push({ text: `   + ${extra.name || extra}` });
+          // Bundle picks carry a readable name on the server (including a
+          // "FREE — " prefix). Never stringify a raw object as [object Object].
+          if (extra && typeof extra === 'object') {
+            const label = extra.name || (extra.itemId != null ? `Item #${extra.itemId}` : null);
+            if (label) segs.push({ text: `   + ${label}`, bold: extra.free === true });
+          } else if (extra != null) {
+            segs.push({ text: `   + ${extra}` });
+          }
         }
       } catch { /* ignore */ }
     }
@@ -111,6 +118,9 @@ export function buildReceipt(order) {
   if (order.customer?.cellphone) segs.push({ text: `Tel: ${order.customer.cellphone}` });
   if (order.deliveryAddress) {
     for (const line of wrap(order.deliveryAddress, WIDTH, 'To: ')) segs.push({ text: line });
+  }
+  if (order.discountLabel) {
+    for (const line of wrap(`Promotion: ${order.discountLabel}`)) segs.push({ text: line });
   }
   if (order.discountAmount > 0) {
     segs.push({ text: `Subtotal: ${money(order.total)}` });
