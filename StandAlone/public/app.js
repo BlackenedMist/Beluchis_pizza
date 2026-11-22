@@ -186,19 +186,25 @@ function orderRow(order) {
 
   node.querySelector('.total').textContent = money(order.grandTotal ?? order.total);
 
-  node.querySelector('.preview').addEventListener('click', async () => {
-    const box = node.querySelector('.receipt');
+  // `node` is a DocumentFragment: renderOrders() appends it to the page, which
+  // empties it. Querying `node` here returns null, so all handlers must use the
+  // real card element that ended up in the DOM.
+  card.querySelector('.preview').addEventListener('click', async () => {
+    const box = card.querySelector('.receipt');
     if (!box.hidden) { box.hidden = true; return; }
     try {
       const r = await fetch(`/api/orders/${order.id}/receipt`, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
       box.textContent = data.text || '';
       box.hidden = false;
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast(`Could not preview #${order.id}: ${err.message}`, false);
+    }
   });
 
-  node.querySelector('.reprint').addEventListener('click', async () => {
-    const btn = node.querySelector('.reprint');
+  card.querySelector('.reprint').addEventListener('click', async () => {
+    const btn = card.querySelector('.reprint');
     btn.disabled = true;
     try {
       const r = await fetch(`/api/print/${order.id}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
@@ -206,8 +212,11 @@ function orderRow(order) {
       const names = (data.results || (data.printer ? [{ printer: data.printer, ok: data.ok }] : []))
         .map((x) => `${x.printer ? x.printer.name : 'printer'}${x.ok ? '' : ' (failed)'}`);
       toast(r.ok ? `Printed to ${names.join(' + ') || 'printer'}` : `Print failed: ${data.error}`, r.ok);
-    } catch { toast('Print request failed', false); }
-    btn.disabled = false;
+    } catch (err) {
+      toast(`Print request failed: ${err.message}`, false);
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   return node;

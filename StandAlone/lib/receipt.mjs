@@ -25,31 +25,57 @@ function padCentre(text, width = WIDTH) {
   return ' '.repeat(left) + t + ' '.repeat(pad - left);
 }
 
+// Break long tokens (URLs, long street names) instead of dropping the tail.
+// Indent is accounted for so wrapped address lines still fit the paper.
 function wrap(text, width = WIDTH, indent = '') {
-  const words = String(text || '').split(' ').filter(Boolean);
+  const avail = Math.max(1, width - indent.length);
+  const words = String(text || '').split(/\s+/).filter(Boolean);
   const out = [];
   let cur = '';
+  const flush = () => {
+    if (cur) { out.push(indent + cur); cur = ''; }
+  };
   for (const word of words) {
-    const next = cur ? `${cur} ${word}` : word;
-    if (next.length > width) {
-      if (cur) out.push(indent + cur);
-      cur = word.length > width ? word.slice(0, width) : word;
-    } else {
-      cur = next;
+    let w = word;
+    while (w.length > avail) {
+      flush();
+      out.push(indent + w.slice(0, avail));
+      w = w.slice(avail);
     }
+    if (!w) continue;
+    const next = cur ? `${cur} ${w}` : w;
+    if (next.length > avail) { flush(); cur = w; } else { cur = next; }
   }
-  if (cur) out.push(indent + cur);
+  flush();
   return out.length ? out : [''];
 }
 
 function paymentLabel(order) {
   if (order.paymentMethod === 'cod_cash') return 'CASH ON DELIVERY';
   if (order.paymentMethod === 'cod_card') return 'CARD ON DELIVERY';
+  if (order.paymentMethod === 'pay_at_counter') return 'PAY AT COUNTER';
   if (order.paymentMethod === 'payfast' || order.paymentMethod === 'paygate') {
     if (order.paymentStatus === 'paid') return 'PAID ONLINE';
     if (order.paymentStatus === 'failed') return 'PAYMENT FAILED';
     return 'PAYMENT PENDING';
   }
+  return '';
+}
+
+function distanceLabel(order) {
+  const raw = order.deliveryDistance;
+  if (raw == null || raw === '') return '';
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return `Distance: ${n >= 100 ? n.toFixed(0) : n.toFixed(1)} km`;
+}
+
+function deliveryFeeLabel(order) {
+  const fee = Number(order.deliveryFee || 0);
+  const status = String(order.deliveryStatus || '').trim();
+  if (fee > 0) return `Delivery fee: ${money(fee)}`;
+  if (/^free$/i.test(status)) return 'Delivery: FREE';
+  if (status) return `Delivery: ${status}`;
   return '';
 }
 
@@ -85,12 +111,44 @@ export function buildReceipt(order) {
   const pay = paymentLabel(order);
   if (pay) segs.push({ text: `Payment: ${pay}` });
   segs.push(rule);
+
+  // Customer and delivery information belongs at the top of the slip, where
+  // the kitchen and driver look first. Everything needed for a delivery is
+  // grouped in one labelled block; collection orders get the same contact
+  // block without the delivery-only lines.
+  const isDelivery = Boolean(order.deliveryAddress);
+  const name = customerName(order.customer);
+  const tel = order.customer?.cellphone;
+  if (isDelivery || name || tel) {
+    segs.push({ text: padCentre(isDelivery ? 'DELIVERY DETAILS' : 'COLLECTION DETAILS'), align: 'center', bold: true, size: 2 });
+    if (name) segs.push({ text: `Customer: ${name}` });
+    if (tel) segs.push({ text: `Tel: ${tel}` });
+    if (isDelivery) {
+      for (const line of wrap(order.deliveryAddress, WIDTH, 'To: ')) segs.push({ text: line });
+      const label = order.addressLabel || order.customer?.addressLabel;
+      // Legacy profiles sometimes store the whole address as the label.
+      // Don't print the same text twice on a 32-character slip.
+      if (label && String(label).trim().toLowerCase() !== String(order.deliveryAddress || '').trim().toLowerCase()) {
+        segs.push({ text: `Label: ${label}` });
+      }
+      const distance = distanceLabel(order);
+      if (distance) segs.push({ text: distance });
+      const fee = deliveryFeeLabel(order);
+      if (fee) segs.push({ text: fee });
+    }
+    if (order.notes) {
+      segs.push({ text: 'NOTE:', bold: true, size: 2 });
+      for (const line of wrap(order.notes)) segs.push({ text: line, bold: true });
+    }
+    segs.push(rule);
+  }
+
   segs.push({ text: padCentre('ITEMS'), align: 'center', bold: true });
   for (const item of order.items || []) {
     let head = `${item.quantity}x ${item.itemName || 'Item'}${item.sizeLabel ? ` (${item.sizeLabel})` : ''}`;
     if (Number(item.total) === 0 && Number(item.unitPrice) === 0 && !/^FREE\b/i.test(head)) head = `FREE \u2014 ${head}`;
     const lines = wrap(head);
-    lines.forEach((line, i) => segs.push({ text: line, bold: true }));
+    lines.forEach((line) => segs.push({ text: line, bold: true }));
     if (item.extras) {
       try {
         for (const extra of JSON.parse(item.extras)) {
@@ -103,17 +161,6 @@ export function buildReceipt(order) {
     segs.push({ text: '' });
   }
   segs.push(rule);
-  if (order.notes) {
-    segs.push({ text: padCentre('NOTE'), align: 'center', bold: true, size: 2 });
-    for (const line of wrap(order.notes)) segs.push({ text: line, bold: true });
-    segs.push(rule);
-  }
-  const name = customerName(order.customer);
-  if (name) segs.push({ text: `Customer: ${name}` });
-  if (order.customer?.cellphone) segs.push({ text: `Tel: ${order.customer.cellphone}` });
-  if (order.deliveryAddress) {
-    for (const line of wrap(order.deliveryAddress, WIDTH, 'To: ')) segs.push({ text: line });
-  }
   if (order.discountLabel) {
     for (const line of wrap(`Promotion: ${order.discountLabel}`)) segs.push({ text: line });
   }
