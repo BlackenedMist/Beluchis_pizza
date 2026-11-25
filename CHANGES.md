@@ -139,3 +139,29 @@ Reworked the customer delivery experience so that:
 ## Docs
 
 - `README.md` and `docs/API.md` updated (address endpoints, `deliveryAddressId`, `quote`, legacy profile fields).
+
+---
+
+# Beluchis Pizza — Street number field in the address wizard
+
+Date: 2026-11-25
+
+## Summary
+
+- The shared address wizard (`delivery-map/src/addressWizard.js`, bundled into `public/assets/beluchis-delivery.js`) now has an editable **Street number** field directly under the address card and above the map, instead of relying on a number captured only by the geocoder.
+- The address card and the completion summary show the complete address as **street number + street name + area** (e.g. `12 Dudley Road Johnson Park`), so the saved delivery address and the order/receipt carry the full number.
+- The field is pre-filled when the geocoder supplies a house number, stays editable for curated street names, manual pins and GPS, and updates the displayed address live.
+- Applies to both the checkout order form (`public/menu.html`) and the customer portal's saved locations (`public/customer.html`) because they mount the same wizard.
+
+---
+
+# Beluchis Pizza — One-click address confirmation
+
+Date: 2026-11-25
+
+## Summary
+
+- The address wizard now has one confirmation action: **"Yes, that's my house"** saves the location immediately instead of opening an "All done" step with a second **Continue** button.
+- Removed the wizard's driver-note field — driver notes belong in checkout's **Notes & tip** step, so there is no duplicate input.
+- Checkout confirmation now saves the address (or records a once-off address), selects it, and advances straight to **Notes & tip**. The earlier blocked state (Continue disabled until the address was saved separately) is gone.
+- The customer portal's address wizard behaves the same way: confirming saves the location, generating a unique default name when the name field is left empty. The Save button stays available as a retry path if the request fails.

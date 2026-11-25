@@ -783,9 +783,7 @@ async function mountPortalAddressWizard() {
           check,
         };
         destroyPortalAddressWizard();
-        showPendingAddr(pendingAddr);
-        const h = $("#addr-geo-hint");
-        if (h) h.textContent = "Address found — check it, then save this location.";
+        void savePendingAddr();
       },
     });
   } catch (e) {
@@ -811,6 +809,55 @@ function resetAddrForm() {
   $("#addr-save").textContent = "Save location";
   $("#addr-cancel").hidden = true;
   const e = $("#addr-err"); if (e) e.hidden = true;
+}
+
+// The wizard's single confirmation saves the location straight away. The
+// Save button remains as a retry path if the request fails.
+async function savePendingAddr() {
+  const labelEl = document.getElementById("addr-label");
+  const err = document.getElementById("addr-err");
+  if (!pendingAddr?.address) { if (err) { err.textContent = "Find your address first."; err.hidden = false; } return false; }
+  if (pendingAddr.lat == null || pendingAddr.lng == null) {
+    if (err) { err.textContent = "Find your address on the map first."; err.hidden = false; }
+    return false;
+  }
+  let label = (labelEl?.value || "").trim();
+  if (!label) {
+    let used = [];
+    try {
+      const rows = await api("/api/customer/addresses");
+      used = (Array.isArray(rows) ? rows : (rows.items || [])).map((r) => String(r.label || "").toLowerCase());
+    } catch (_) {}
+    for (const n of ["Home", "Home 2", "Home 3", "Work", "Other"]) {
+      if (!used.includes(n.toLowerCase())) { label = n; break; }
+    }
+    if (!label) label = "Location " + (used.length + 1);
+    if (labelEl) labelEl.value = label;
+  }
+  if (err) err.hidden = true;
+  const btn = document.getElementById("addr-save");
+  if (btn) btn.disabled = true;
+  try {
+    const body = { label, address: pendingAddr.address, lat: pendingAddr.lat, lng: pendingAddr.lng };
+    let saved = null;
+    if (editingAddressId) {
+      saved = await api("/api/customer/addresses/" + editingAddressId, { method: "PUT", body: JSON.stringify(body) });
+    } else {
+      saved = await api("/api/customer/addresses", { method: "POST", body: JSON.stringify(body) });
+    }
+    resetAddrForm();
+    const rows = await loadAddresses();
+    if (saved && Array.isArray(rows) && !rows.some((r) => r.id === saved.id)) {
+      if (err) { err.textContent = "Saved, but the list did not refresh. Please refresh the page."; err.hidden = false; }
+    }
+    return true;
+  } catch (e) {
+    if (err) { err.textContent = e.message; err.hidden = false; }
+    showPendingAddr(pendingAddr);
+    return false;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 async function loadAddresses() {
   const list = document.getElementById("addresses-list");
@@ -908,33 +955,7 @@ async function loadAddresses() {
 document.addEventListener("DOMContentLoaded", () => {
   startAddrWizard();
   const saveBtn = document.getElementById("addr-save");
-  if (saveBtn) saveBtn.addEventListener("click", async () => {
-    const label = document.getElementById("addr-label")?.value.trim() || "";
-    const err = document.getElementById("addr-err");
-    if (!label) { if (err) { err.textContent = "Give this location a name (e.g. Home, Work)."; err.hidden = false; } return; }
-    if (!pendingAddr?.address) { if (err) { err.textContent = "Find your address first."; err.hidden = false; } return; }
-    if (pendingAddr.lat == null || pendingAddr.lng == null) {
-      if (err) { err.textContent = "Find your address on the map first."; err.hidden = false; }
-      return;
-    }
-    if (err) err.hidden = true;
-    saveBtn.disabled = true;
-    try {
-      const body = { label, address: pendingAddr.address, lat: pendingAddr.lat, lng: pendingAddr.lng };
-      let saved = null;
-      if (editingAddressId) {
-        saved = await api("/api/customer/addresses/" + editingAddressId, { method: "PUT", body: JSON.stringify(body) });
-      } else {
-        saved = await api("/api/customer/addresses", { method: "POST", body: JSON.stringify(body) });
-      }
-      resetAddrForm();
-      const rows = await loadAddresses();
-      if (saved && Array.isArray(rows) && !rows.some((r) => r.id === saved.id)) {
-        if (err) { err.textContent = "Saved, but the list did not refresh. Please refresh the page."; err.hidden = false; }
-      }
-    } catch (e) { if (err) { err.textContent = e.message; err.hidden = false; } }
-    finally { saveBtn.disabled = false; }
-  });
+  if (saveBtn) saveBtn.addEventListener("click", () => { void savePendingAddr(); });
   const cancelBtn = document.getElementById("addr-cancel");
   if (cancelBtn) cancelBtn.addEventListener("click", () => { resetAddrForm(); loadAddresses(); });
 });

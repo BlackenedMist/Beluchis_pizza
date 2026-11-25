@@ -1878,6 +1878,70 @@ function showPendingAddress(p) {
   });
 }
 
+// "Yes, that's my house" is the only confirmation: save the address and
+// advance to Notes & tip. The panel's Save button retries after a failure.
+async function commitPendingAddress() {
+  const err = $("#delivery-add-err");
+  const label = $("#new-addr-label")?.value.trim() || "";
+  const mode = addressEntryMode;
+  if (mode !== "once" && !label) {
+    if (err) { err.textContent = "Give this location a name."; err.hidden = false; }
+    return false;
+  }
+  if (!pendingAddress?.address) {
+    if (err) { err.textContent = "Find your address first."; err.hidden = false; }
+    return false;
+  }
+  if (pendingAddress.lat == null || pendingAddress.lng == null) {
+    if (err) { err.textContent = "Find your address on the map first."; err.hidden = false; }
+    return false;
+  }
+  if (err) err.hidden = true;
+  const btn = $("#delivery-add-save");
+  const wasDisabled = btn?.disabled;
+  if (btn) btn.disabled = true;
+  try {
+    let saved = null;
+    if (mode === "once") {
+      onceOffAddress = {
+        address: pendingAddress.address,
+        lat: pendingAddress.lat,
+        lng: pendingAddress.lng,
+      };
+    } else {
+      const res = await fetch("/api/customer/addresses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label,
+          address: pendingAddress.address,
+          lat: pendingAddress.lat,
+          lng: pendingAddress.lng,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "Could not save");
+      saved = d;
+    }
+    closeCheckoutAddressPanel(false);
+    if (mode !== "once") await populateDeliveryLocations();
+    const sel = $("#delivery-location");
+    if (sel) {
+      sel.value = mode === "once" ? "once" : "addr:" + saved.id;
+      applySelectedDeliveryLocation();
+    }
+    showSavedAddressView();
+    setCheckoutStep(4);
+    return true;
+  } catch (e) {
+    if (err) { err.textContent = e.message; err.hidden = false; }
+    showPendingAddress(pendingAddress);
+    return false;
+  } finally {
+    if (btn) btn.disabled = wasDisabled;
+  }
+}
+
 async function mountCheckoutAddressWizard() {
   const mount = $("#delivery-wizard");
   if (!mount) return;
@@ -1920,7 +1984,7 @@ async function mountCheckoutAddressWizard() {
         if ($("#new-addr-label") && !$("#new-addr-label").value) $("#new-addr-label").value = defaultLocationLabel();
         if (state.pin) setDeliveryPin(state.pin.lat, state.pin.lng);
         destroyAddressWizard();
-        showPendingAddress(pendingAddress);
+        void commitPendingAddress();
       },
     });
   } catch (e) {
@@ -2020,6 +2084,7 @@ function prepareAddressView() {
   stage.hidden = true;
   const val = $("#delivery-location")?.value || "";
   setTimeout(() => {
+    if (checkoutStep !== 3) return;  // address was confirmed and we moved on
     loading.hidden = true;
     stage.hidden = false;
     const savedView = $("#saved-address-view");
@@ -2242,58 +2307,7 @@ document.addEventListener("click", (e) => {
     return;
   }
   if (!e.target.closest("#delivery-add-save")) return;
-  const label = $("#new-addr-label")?.value.trim() || "";
-  const err = $("#delivery-add-err");
-  if (addressEntryMode !== "once" && !label) { if (err) { err.textContent = "Give this location a name."; err.hidden = false; } return; }
-  if (!pendingAddress?.address) { if (err) { err.textContent = "Find your address first."; err.hidden = false; } return; }
-  if (pendingAddress.lat == null || pendingAddress.lng == null) {
-    if (err) { err.textContent = "Find your address on the map first."; err.hidden = false; }
-    return;
-  }
-  if (err) err.hidden = true;
-  const btn = e.target.closest("#delivery-add-save");
-  btn.disabled = true;
-  // A once-off address is never saved — it is sent with this order only.
-  if (addressEntryMode === "once") {
-    onceOffAddress = {
-      address: pendingAddress.address,
-      lat: pendingAddress.lat,
-      lng: pendingAddress.lng,
-    };
-    closeCheckoutAddressPanel(false);
-    const sel = $("#delivery-location");
-    if (sel) { sel.value = "once"; applySelectedDeliveryLocation(); }
-    showSavedAddressView();
-    btn.disabled = false;
-    return;
-  }
-  (async () => {
-    try {
-      const row = await fetch("/api/customer/addresses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          label,
-          address: pendingAddress.address,
-          lat: pendingAddress.lat,
-          lng: pendingAddress.lng,
-        }),
-      }).then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.error || "Could not save");
-        return d;
-      });
-      closeCheckoutAddressPanel(false);
-      await populateDeliveryLocations();
-      const sel = $("#delivery-location");
-      if (sel) { sel.value = "addr:" + row.id; applySelectedDeliveryLocation(); }
-      showSavedAddressView();
-    } catch (err2) {
-      if (err) { err.textContent = err2.message; err.hidden = false; }
-    } finally {
-      btn.disabled = false;
-    }
-  })();
+  void commitPendingAddress();
 });
 
 let reviewMap = null, reviewMarkerDest = null, reviewMarkerShop = null;

@@ -5,6 +5,7 @@ import { createDeliveryGeocoder } from './geocode/deliveryGeocoder.js';
 
 const DEFAULT_ZONES_URL = '/data/sample-zones.json';
 let stylesReady = false;
+let wizardSeq = 0;
 
 function ensureStyles() {
   if (stylesReady && document.getElementById('aw-styles')) return;
@@ -34,13 +35,18 @@ function ensureStyles() {
       .aw-btn.primary:hover:not(:disabled) { background:#247a41; }
       .aw-address-card { font-size:25px; font-weight:800; background:#eef5ff; border:2px solid #cfe0f7;
         border-radius:12px; padding:16px 18px; margin-bottom:12px; }
+      .aw-number-field { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 12px; }
+      .aw-number-field label { font-weight:800; font-size:18px; }
+      .aw-number-field input { font:inherit; font-size:18px; width:140px; padding:10px 12px;
+        border:2px solid #9a9a9a; border-radius:10px; }
+      .aw-compact .aw-number-field { margin:0 0 8px; gap:8px; }
+      .aw-compact .aw-number-field label { font-size:14px; }
+      .aw-compact .aw-number-field input { font-size:14px; width:110px; padding:8px 10px;
+        border-width:1.5px; border-color:#b7a58f; border-radius:8px; }
       .aw-delivery { font-size:22px; font-weight:800; padding:10px 0; }
       .aw-delivery.ok { color:#17662f; }
       .aw-delivery.bad { color:#a11; }
       .aw-map { width:100%; height:440px; border:2px solid #c9c9c9; border-radius:12px; margin:14px 0; }
-      .aw-summary { font-size:21px; background:#f5f8fc; border:2px solid #dbe5f2; border-radius:12px;
-        padding:18px 20px; margin-bottom:18px; }
-      .aw-summary div { margin:8px 0; }
       .aw-pin-icon { background:transparent; border:0; }
       .aw-pin { font-size:44px; line-height:44px; width:56px; height:56px; text-align:center;
         filter:drop-shadow(0 3px 3px rgba(0,0,0,.4)); cursor:grab; }
@@ -56,10 +62,6 @@ function ensureStyles() {
         border-bottom:1px solid #eee; }
       .aw-result-main { font-size:20px; font-weight:700; }
       .aw-result-sub { font-size:15px; color:#555; margin-top:2px; }
-      .aw-note { font-size:16px; color:#555; margin-top:10px; }
-      .aw-note summary { cursor:pointer; font-size:17px; }
-      .aw-note input, .aw-note textarea { font:inherit; font-size:18px; width:100%; padding:10px;
-        border-radius:10px; border:1px solid #bbb; }
     `;
     document.head.appendChild(style);
   }
@@ -100,6 +102,7 @@ export async function createAddressWizard(options = {}) {
   const api = options.api || createApi(config);
 
   container.innerHTML = '';
+  const numberId = 'aw-street-number-' + (++wizardSeq);
   const root = document.createElement('div');
   root.className = 'aw-wizard';
   // Compact mode uses the host app's typography (see .aw-compact CSS) so the
@@ -117,22 +120,17 @@ export async function createAddressWizard(options = {}) {
     <section class="aw-step" data-step="2">
       <h2 class="aw-question">Is this the right spot?</h2>
       <div class="aw-address-card" data-role="address"></div>
+      <div class="aw-number-field">
+        <label for="${numberId}">Street number</label>
+        <input id="${numberId}" type="text" data-role="number" inputmode="numeric"
+          autocomplete="house-number" placeholder="e.g. 10" aria-label="Street number" />
+      </div>
       <div class="aw-delivery" data-role="delivery"></div>
       <div class="aw-status" data-role="pin-status" role="status" aria-live="polite"></div>
       <div class="aw-map" data-role="map" style="height:${options.mapHeight || 440}px"></div>
       <button type="button" class="aw-btn primary" data-role="confirm" disabled>Yes, that's my house</button>
       <button type="button" class="aw-btn ghost" data-role="different">Different address</button>
       <button type="button" class="aw-btn ghost" data-role="gps">Use my location (GPS)</button>
-      <details class="aw-note">
-        <summary>Add a note for the driver (optional)</summary>
-        <input type="text" data-role="instructions" placeholder="Gate code, landmark, ..." />
-      </details>
-    </section>
-    <section class="aw-step" data-step="3">
-      <h2 class="aw-question">All done</h2>
-      <div class="aw-summary" data-role="summary"></div>
-      <button type="button" class="aw-btn primary" data-role="finish">Continue</button>
-      <button type="button" class="aw-btn ghost" data-role="restart">Start again</button>
     </section>`;
   container.appendChild(root);
 
@@ -153,6 +151,19 @@ export async function createAddressWizard(options = {}) {
     const el = $(role);
     el.textContent = text || '';
     el.className = 'aw-status' + (cls ? ' ' + cls : '');
+  }
+
+  // The card above the map always shows the complete address: the editable
+  // street number first, then the street name and area from the geocoder.
+  function addressText() {
+    const a = state.address || {};
+    const full = [$('number').value.trim(), a.street, a.area].filter(Boolean).join(' ');
+    if (full) return full;
+    return a.label || (state.manual ? 'Check the pin on the map' : 'Tap your house on the map');
+  }
+
+  function updateAddressCard() {
+    $('address').textContent = addressText();
   }
 
   function showStep(n) {
@@ -277,7 +288,8 @@ export async function createAddressWizard(options = {}) {
       area: p.area || '',
     };
     state.manual = false;
-    $('address').textContent = result.name;
+    $('number').value = p.number || '';
+    updateAddressCard();
     showStep(2);
     const msg = p.number
       ? 'We found your address. Drag the pin if it is not exactly right.'
@@ -289,7 +301,8 @@ export async function createAddressWizard(options = {}) {
     state.address = null;
     state.manual = true;
     clearPin();
-    $('address').textContent = 'Tap your house on the map';
+    $('number').value = '';
+    updateAddressCard();
     showStep(2);
     status('pin-status', 'Tap the map near your house. Then drag the big pin to the right spot.');
     map.setView(shopLL, 11);
@@ -297,12 +310,13 @@ export async function createAddressWizard(options = {}) {
 
   map.on('click', (e) => {
     if (currentStep === 2) {
-      if (state.manual) $('address').textContent = 'Check the pin on the map';
+      if (state.manual) updateAddressCard();
       setPin(e.latlng);
     }
   });
 
   // ------------------------------------------------------------ buttons
+  $('number').addEventListener('input', updateAddressCard);
   $('manual').addEventListener('click', goManual);
   $('different').addEventListener('click', () => {
     clearPin();
@@ -318,40 +332,23 @@ export async function createAddressWizard(options = {}) {
     status('pin-status', 'Finding your location…');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        if (state.manual) $('address').textContent = 'Check the pin on the map';
+        if (state.manual) updateAddressCard();
         setPin(new L.LatLng(pos.coords.latitude, pos.coords.longitude));
       },
       (err) => status('pin-status', 'Could not find your location. Tap the map instead. (' + err.message + ')', 'err'),
       { enableHighAccuracy: true, timeout: 10000 }
     );
   });
+  // One confirmation: "Yes, that's my house" saves the address immediately.
+  // Driver notes live in the checkout's Notes & tip step, not in this wizard.
   $('confirm').addEventListener('click', () => {
     if (!state.pin || !state.check || !state.check.inArea) return;
-    state.instructions = $('instructions').value.trim();
-    const a = state.address || {};
-    $('summary').innerHTML =
-      `<div><b>We'll deliver to:</b> ${a.label || 'The pin on the map'}</div>` +
-      `<div><b>Distance:</b> ${state.check.distanceKm} km</div>` +
-      `<div><b>Delivery:</b> ${state.check.inArea
-        ? (state.check.fee === 0 ? 'Free' : 'R' + state.check.fee)
-        : 'Not available'}</div>` +
-      (state.instructions ? `<div><b>Note for driver:</b> ${state.instructions.replace(/[<>&]/g, '')}</div>` : '');
-    showStep(3);
-  });
-  $('finish').addEventListener('click', () => {
+    const number = $('number').value.trim();
+    if (number && !state.address) state.address = { label: '', street: '', area: '' };
+    if (state.address) state.address.number = number;
     if (typeof options.onComplete === 'function') {
       options.onComplete({ state: { ...state }, check: state.check });
     }
-  });
-  $('restart').addEventListener('click', () => {
-    clearPin();
-    control.setQuery('');
-    $('instructions').value = '';
-    $('address').textContent = '';
-    $('delivery').textContent = '';
-    status('search-status', '');
-    status('pin-status', '');
-    showStep(1);
   });
 
   const timers = new Set();
