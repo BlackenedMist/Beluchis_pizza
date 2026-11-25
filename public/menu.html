@@ -753,6 +753,8 @@ const availBases = Shop.availBases;
 const availToppings = Shop.availToppings;
 const pastaPriceOf = Shop.pastaPriceOf;
 const availPastaTypes = Shop.availPastaTypes;
+const availOptionSets = Shop.availOptionSets;
+const optionExtraName = Shop.optionExtraName;
 const hasCustom = Shop.hasCustom;
 
 const customUnitTotal = () => {
@@ -768,6 +770,11 @@ const customUnitTotal = () => {
   if (pastaSel) {
     const pt = (item.pastaTypes || []).find((x) => x.pastaType.id === Number(pastaSel.value));
     if (pt) unit += pastaPriceOf(pt, size) || 0;
+  }
+  for (const sel of $$("select[data-option-set]", $("#customize-modal"))) {
+    if (!sel.value || Number(sel.value) === 0) continue;
+    const found = Shop.findOptionValue(item, sel.dataset.optionSet, sel.value, size);
+    if (found) unit += Number(found.value.price) || 0;
   }
   for (const c of $$("input[data-top-id]:checked", $("#customize-modal"))) {
     const t = item.toppings.find((x) => x.topping.id === Number(c.dataset.topId));
@@ -991,9 +998,29 @@ const customizeSizes = () => {
 
 function renderCustomize() {
   const { item, size } = customModal;
-  const bases = availBases(item, size);
+  const optionSets = availOptionSets(item, size);
+  // Items with no migrated option sets keep their legacy base/pasta pickers.
+  const useLegacyPickers = !(item.optionSets || []).length;
+  const bases = useLegacyPickers ? availBases(item, size) : [];
   const tops = availToppings(item, size);
-  const pastaTypes = availPastaTypes(item, size);
+  const pastaTypes = useLegacyPickers ? availPastaTypes(item, size) : [];
+
+  const previousOptions = customModal.optionValues || {};
+  customModal.optionValues = {};
+  for (const set of optionSets) {
+    const prev = Number(previousOptions[set.id]) || 0;
+    customModal.optionValues[set.id] = (set.values || []).some((v) => v.id === prev && v.isActive !== false) ? prev : 0;
+  }
+  const optionHtml = optionSets.map((set) => {
+    const values = (set.values || []).filter((v) => v.isActive !== false)
+      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || a.name.localeCompare(b.name));
+    return '<div class="field"><label>' + esc(set.name) + (set.sizeLabel ? " (" + esc(set.sizeLabel) + ")" : "") + '</label>' +
+      '<select data-option-set="' + set.id + '">' +
+      '<option value="0">No preference</option>' +
+      values.map((v) => '<option value="' + v.id + '"' + (Number(customModal.optionValues[set.id]) === v.id ? " selected" : "") + ">" +
+        esc(v.name) + (Number(v.price) ? " (+" + money(v.price) + ")" : "") + "</option>").join("") +
+      "</select></div>";
+  }).join("");
 
   let base = bases.find((b) => b.base.id === Number(customModal.baseId));
   if (!base) base = bases.find((b) => basePriceOf(b, size) === 0) || bases[0];
@@ -1003,7 +1030,7 @@ function renderCustomize() {
   if (!pasta) pasta = pastaTypes.find((p) => (pastaPriceOf(p, size) || 0) === 0) || pastaTypes[0];
   customModal.pastaTypeId = pasta ? pasta.pastaType.id : null;
 
-  const pastaOpts = pastaTypes.length
+  const pastaOpts = useLegacyPickers && pastaTypes.length
     ? '<div class="field"><label>Pasta type</label><select id="pick-pasta">' +
       pastaTypes.map((p) => {
         const adj = pastaPriceOf(p, size) || 0;
@@ -1013,7 +1040,7 @@ function renderCustomize() {
       "</select></div>"
     : "";
 
-  const baseOpts = (bases.length
+  const baseOpts = (useLegacyPickers && bases.length
     ? '<div class="field"><label>Base</label><select id="pick-base">' +
       bases.map((b) => {
         const p = basePriceOf(b, size);
@@ -1055,7 +1082,7 @@ function renderCustomize() {
   } else {
     customModal.swapFor = null;
   }
-  const note = !bases.length && !tops.length && !pastaTypes.length ? '<p class="hint">Includes base and standard toppings. Not available with extra toppings.</p>' : "";
+  const note = !bases.length && !tops.length && !pastaTypes.length && !optionSets.length ? '<p class="hint">Includes base and standard toppings. Not available with extra toppings.</p>' : "";
 
   const cImgs = (item.images && item.images.length) ? item.images : (item.imageUrl ? [{ url: item.imageUrl, alt: item.name }] : []);
   const cGallery = cImgs.length
@@ -1070,7 +1097,7 @@ function renderCustomize() {
     "<h3>" + esc(item.name) + "</h3>" +
     '<p class="sub">' + esc(size) + " &middot; " + money(sizeRowOf(item, size).price) + (item.description ? " &middot; " + esc(item.description) : "") + "</p>" +
     '<div class="size-pick">' + customizeSizes() + "</div>" +
-    pastaOpts + baseOpts + topList + swapHtml + note +
+    pastaOpts + baseOpts + optionHtml + topList + swapHtml + note +
     '<div class="modal-actions">' +
     '<span class="total" id="custom-total"></span>' +
     '<span class="stepper" role="group" aria-label="Quantity">' +
@@ -1087,6 +1114,12 @@ function renderCustomize() {
 $("#customize-modal").addEventListener("change", (e) => {
   if (e.target.matches("#pick-swap")) {
     customModal.swapPick = Number(e.target.value);
+    return;
+  }
+  if (e.target.matches("select[data-option-set]")) {
+    customModal.optionValues[Number(e.target.dataset.optionSet)] = Number(e.target.value) || 0;
+    const totalEl = $("#custom-total");
+    if (totalEl && customModal.item) customDisplay(totalEl);
     return;
   }
   if (e.target.matches("#pick-base") || e.target.matches("#pick-pasta") || e.target.matches("input[data-top-id]")) {
@@ -1156,6 +1189,16 @@ $("#customize-modal").addEventListener("click", (e) => {
   if (pastaLink) {
     extras.push({ name: "Pasta: " + pastaLink.pastaType.name, price: pastaPriceOf(pastaLink, size) || 0 });
   }
+  // Generic option sets: a display row is enough — the server re-prices it.
+  const optionValueIds = [];
+  for (const sel of $$("select[data-option-set]", $("#customize-modal"))) {
+    const valueId = Number(sel.value) || 0;
+    if (!valueId) continue;
+    const found = Shop.findOptionValue(item, sel.dataset.optionSet, valueId, size);
+    if (!found) continue;
+    optionValueIds.push(found.value.id);
+    extras.push({ name: optionExtraName(found.set, found.value), price: Number(found.value.price) || 0 });
+  }
   if (customModal.swapFor && customModal.swapPick) {
     const swap = item.toppings.find((x) => x.topping.id === Number(customModal.swapPick));
     const gone = item.toppings.find((x) => x.topping.id === customModal.swapFor);
@@ -1167,15 +1210,16 @@ $("#customize-modal").addEventListener("click", (e) => {
     kind: "item", itemId: item.id, name: item.name, catHint: cat ? cat.name : "",
     sizeLabel: size, unitPrice, extras, qty,
     pastaTypeId: pastaLink ? pastaLink.pastaType.id : null,
+    optionValueIds,
   });
   closeOverlay("#customize-overlay");
   toast("Added " + (qty > 1 ? qty + " \u00d7 " : "") + item.name + " (" + size + ")");
 });
 
-let customModal = { item: null, size: null, baseId: null, pastaTypeId: null, tops: [], qty: 1, swapFor: null, swapPick: 0 };
+let customModal = { item: null, size: null, baseId: null, pastaTypeId: null, optionValues: {}, tops: [], qty: 1, swapFor: null, swapPick: 0 };
 
 const openCustomize = (item, size) => {
-  customModal = { item, size, baseId: null, pastaTypeId: null, tops: [], qty: 1, swapFor: null, swapPick: 0 };
+  customModal = { item, size, baseId: null, pastaTypeId: null, optionValues: {}, tops: [], qty: 1, swapFor: null, swapPick: 0 };
   $("#customize-overlay").hidden = false;
   renderCustomize();
 };
@@ -2694,7 +2738,7 @@ $("#checkout-overlay").addEventListener("submit", async (e) => {
               ? { pizzas: l.pizzas.map((p) => ({ itemId: p.itemId, sizeLabel: p.sizeLabel, extras: p.extras || [] })) }
               : {}),
           }
-        : { itemId: l.itemId, sizeLabel: l.sizeLabel, quantity: l.qty, pastaTypeId: l.pastaTypeId ?? null, extras: (l.extras || []).map((x) => ({ name: x.name, price: x.price })) }
+        : { itemId: l.itemId, sizeLabel: l.sizeLabel, quantity: l.qty, pastaTypeId: l.pastaTypeId ?? null, optionValueIds: l.optionValueIds || [], extras: (l.extras || []).map((x) => ({ name: x.name, price: x.price })) }
     ),
   };
   window.__lastCheckoutPayload = payload;

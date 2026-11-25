@@ -36,6 +36,7 @@ model Item {
   toppings    ItemTopping[]
   bases       ItemBase[]
   pastaTypes  ItemPastaType[]
+  optionSets  ItemOptionSet[]
   images      ItemImage[]
   orderItems  OrderItem[]
   specialItems SpecialItem[]
@@ -360,6 +361,53 @@ model ItemPastaType {
   pastaType   PastaType @relation(fields: [pastaTypeId], references: [id], onDelete: Cascade)
 
   @@unique([itemId, pastaTypeId])
+}
+
+// Generic, reusable option lists. An item can attach any number of sets; the
+// customer picks at most one value per set. `sizeLabel` lets the same list have
+// a flat price per size (e.g. "Pasta type" for M and for L) without creating
+// two differently-named lists. A null sizeLabel applies to every size.
+model OptionSet {
+  id          Int              @id @default(autoincrement())
+  name        String
+  slug        String           @unique
+  description String?
+  receiptName String?
+  sizeLabel   String?
+  sortOrder   Int              @default(0)
+  isActive    Boolean          @default(true)
+  values      OptionValue[]
+  items       ItemOptionSet[]
+
+  @@unique([name, sizeLabel])
+}
+
+model OptionValue {
+  id              Int       @id @default(autoincrement())
+  optionSetId     Int
+  optionSet       OptionSet @relation(fields: [optionSetId], references: [id], onDelete: Cascade)
+  name            String
+  price           Int       @default(0)
+  sortOrder       Int       @default(0)
+  isActive        Boolean   @default(true)
+  // Link back to the legacy Base/PastaType row so old carts can be repriced
+  // with the new system instead of silently dropping their choice.
+  legacyType      String?
+  legacyId        Int?
+  legacySizeLabel String?
+
+  @@unique([optionSetId, name])
+  @@index([legacyType, legacyId])
+}
+
+model ItemOptionSet {
+  id          Int       @id @default(autoincrement())
+  itemId      Int
+  item        Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  optionSetId Int
+  optionSet   OptionSet @relation(fields: [optionSetId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, optionSetId])
 }
 
 model StaffUser {

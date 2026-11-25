@@ -146,7 +146,7 @@ npm run seed         # load the demo catalog (idempotent)
 | `public/preview-mobile.html` | Storefront documentation page served at `/preview/mobile` — a live same-origin iframe of `/order` inside a device frame (small phone / standard phone / tablet / desktop selector). Geolocation is blocked in iframes, so the delivery hint runs in address-only mode. |
 | `public/preview-portal.html` | Customer-portal documentation page served at `/preview/portal` — a live iframe of `/portal` with a device selector and an automatic sign-in as the seeded demo customer Zanele (when nobody is logged in), so it opens showing real order history + an offer. |
 | `public/login.html` | Staff login (username + PIN). Served at `/login`. Redirects by role: `cashier → /cashier`, everyone else → `/admin`. |
-| `public/admin.html` | Admin console. Served at `/admin`. Tabs: **Orders** (live board), **Inbox** (contact form messages, admin/orders), **Items** (picture upload + "Show on home"), **Specials** (flat/combo or weekly **BOGO**), **Toppings** (incl. **In season**), **Bases**, **Pasta Types** (per-size charges + assign to all pastas), **Categories**, **Users**, **Loyalty** (admin-only), and **Delivery → Shop** (trading hours, online-ordering toggle, force-open override + live OPEN/CLOSED badge). Staff Users role dropdown includes **Cashier**. |
+| `public/admin.html` | Admin console. Served at `/admin`. Tabs: **Orders** (live board), **Inbox** (contact form messages, admin/orders), **Items** (picture upload + "Show on home"), **Specials** (flat/combo or weekly **BOGO**), **Toppings** (incl. **In season**), **Option sets** (named lists with flat-priced values + assign to a category), **Categories**, **Users**, **Loyalty** (admin-only), and **Delivery → Shop** (trading hours, online-ordering toggle, force-open override + live OPEN/CLOSED badge). Staff Users role dropdown includes **Cashier**. |
 | `public/cashier.html` | Cashier portal. Served at `/cashier`. Polls `GET /api/orders` every 10 s; flashes new `placed` orders (orange ring + banner + beep after a page click), shows the live board with payment/delivery chips, and offers a **Mark out for delivery** button on `placed`/`preparing` orders. Catches what the kitchen daemon prints: new order → slip auto-prints + order becomes `preparing` here. |
 | `public/theme.css` | Shared design tokens (colors, type, spacing). |
 | `public/assets/` | Local map assets: Leaflet (JS/CSS + marker images) and `leaflet-control-geocoder`, plus the built `beluchis-delivery.js` wizard bundle. Served locally so checkout/portal never depend on a CDN. Rebuild with `npm run build:delivery-map`. |
@@ -242,7 +242,8 @@ in the same basket on `/order`:
   `addLine()`, `changeQty()`, `removeLine()`, `setLines()`, `clear()`, `renderCart()`,
   `syncUI()`, `load()`, `reconcile()`, `toast()`, pricing helpers
   (`sizeRowOf`, `basePriceOf`, `topPriceOf`, `pastaPriceOf`, `availBases`,
-  `availToppings`, `availPastaTypes`, `hasCustom`), promo helpers
+  `availToppings`, `availPastaTypes`, `availOptionSets`, `optionExtraName`,
+  `findOptionValue`, `hasCustom`), promo helpers
   (`activeSpecials`, `outOfSeasonToppings`, `affordableSwaps`, `bogoBaseTotal`,
   `extrasTotal`), the loaded catalog (`Shop.data`), and the getters `Shop.cart` /
   hooks `onCheckout` / `onCartChange`.
@@ -275,18 +276,28 @@ in the same basket on `/order`:
   price for that size** ("Swap for Chilli (free)"), plus "Remove <topping>". A
   chosen swap is recorded on the line as `Swap: <name>`.
 
-### Pasta types
+### Option sets
 
-- Pasta types (Spaghetti, Penne, Linguine, …) work like pizza bases: Admin →
-  **Menu → Pasta Types** creates a type, sets an optional extra charge per size,
-  and can tick **Assign to every item in the Pastas category** to link it in one go.
-  Individual items can be adjusted in the item editor's **Pasta types** grid.
-- Pasta items that have at least one type open the customize dialog and show a
-  **Pasta type** picker. The chosen type's per-size price is added to the line and
-  stored as a `Pasta: <name>` extra on the order, so tickets, receipts and reorders
-  keep the choice.
-- The server re-prices the type from `PastaTypePrice` and rejects types that are
-  inactive, not linked to the item, or not sold in the chosen size.
+- Admin → **Menu → Option sets** creates reusable named lists (for example
+  **Pasta type** with Spaghetti/Penne/Linguine, or **Base** with Thin/Thick).
+  Each value has a flat extra charge, sort order and active flag. A set can carry
+  a **size label** so the same list has different prices for M and L without
+  creating two differently-named lists, and a **receipt label** so printed extras
+  stay familiar (`Pasta: Spaghetti`).
+- Sets are attached in the item editor's **Option sets** grid, or in bulk from
+  the set editor with **Assign to every item in this category**.
+- The customer gets one dropdown per set that applies to the chosen size, with a
+  **No preference** default. The choice is stored on the cart line as
+  `optionValueIds` and printed as `<receipt label>: <value>` on the order.
+- The server validates every selected value (set attached to the item, set and
+  value active, correct size, one value per set) and re-prices from the DB, so a
+  stale or tampered client price cannot survive. Cart reconciliation drops
+  deleted values and recharges from the live menu.
+- The old **Bases** and **Pasta Types** admin screens are gone, but their tables
+  and API endpoints remain for historical orders. Run
+  `npm run option-sets:import` (script `scripts/migrate-option-sets.mjs`) once to
+  fold existing data into option sets; it is safe to re-run **before** you start
+  editing those sets in admin (re-running later can recreate deleted legacy values).
 
 ### Specials
 

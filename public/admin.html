@@ -309,8 +309,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
       <button data-tab="specials">Specials</button>
       <button data-tab="deals">Deals</button>
       <button data-tab="toppings">Toppings</button>
-      <button data-tab="bases">Bases</button>
-      <button data-tab="pastatypes">Pasta Types</button>
+      <button data-tab="optionsets">Option sets</button>
       <button data-tab="categories">Categories</button>
     </div>
   </div>
@@ -336,8 +335,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
   <section id="tab-specials" class="panel" hidden></section>
   <section id="tab-deals" class="panel" hidden></section>
   <section id="tab-toppings" class="panel" hidden></section>
-  <section id="tab-bases" class="panel" hidden></section>
-  <section id="tab-pastatypes" class="panel" hidden></section>
+  <section id="tab-optionsets" class="panel" hidden></section>
   <section id="tab-categories" class="panel" hidden></section>
   <section id="tab-users" class="panel" hidden></section>
   <section id="tab-loyalty" class="panel" hidden></section>
@@ -372,7 +370,7 @@ const shopDate = (d) =>
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const state = {
-  items: [], toppings: [], bases: [], pastaTypes: [], categories: [], specials: [],
+  items: [], toppings: [], optionSets: [], categories: [], specials: [],
   orders: [], users: [], contact: [], me: null,
   tab: "orders", search: "",
   fItems: { category: "", type: "", active: "" },
@@ -431,11 +429,11 @@ function toast(msg, isErr=false) {
 function roleLabel(r) { return ROLES[r] || r; }
 
 async function loadAll() {
-  const [items, toppings, bases, pastaTypes, categories, specials, stats] = await Promise.all([
-    api("/api/items"), api("/api/toppings"), api("/api/bases"), api("/api/pasta-types"), api("/api/categories"), api("/api/specials"), api("/api/stats"),
+  const [items, toppings, optionSets, categories, specials, stats] = await Promise.all([
+    api("/api/items"), api("/api/toppings"), api("/api/option-sets"), api("/api/categories"), api("/api/specials"), api("/api/stats"),
   ]);
-  state.items = items; state.toppings = toppings; state.bases = bases; state.pastaTypes = pastaTypes; state.categories = categories; state.specials = specials;
-  $("#stats").textContent = `${stats.items} items · ${stats.specials} specials · ${stats.toppings} toppings · ${stats.bases} bases · ${stats.pastaTypes} pasta types · ${stats.categories} categories · ${stats.orders} orders`;
+  state.items = items; state.toppings = toppings; state.optionSets = optionSets; state.categories = categories; state.specials = specials;
+  $("#stats").textContent = `${stats.items} items · ${stats.specials} specials · ${stats.toppings} toppings · ${stats.optionSets} option sets · ${stats.categories} categories · ${stats.orders} orders`;
   if (state.me?.role === "admin") {
     try { state.settings = (await api("/api/settings")).settings; state.delivery = (await api("/api/delivery/config")); state.shop = await api("/api/shop/status"); }
     catch { state.settings = {}; state.delivery = null; state.shop = null; }
@@ -915,7 +913,7 @@ function renderItems() {
         </div>
         ${c.dealText ? `<div class="muted" style="font-size:12px;margin-bottom:6px">${esc(c.dealText)}</div>` : ""}
         <table>
-          <thead><tr><th>Name</th><th>Type</th><th>Sizes</th><th>Toppings</th><th>Bases</th><th>Pasta types</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Sizes</th><th>Toppings</th><th>Option sets</th><th></th></tr></thead>
           <tbody>
             ${c.items.map((i) => `
               <tr>
@@ -928,8 +926,7 @@ function renderItems() {
                 <td>${esc(i.itemType)}</td>
                 <td>${fmtSizes(i.sizes)}</td>
                 <td>${i.toppings.length ? i.toppings.slice(0,4).map((t) => `<span class="tag">${esc(t.topping.name)}</span>`).join("") + (i.toppings.length>4?`<span class="tag off">+${i.toppings.length-4}</span>`:"") : '<span class="muted">—</span>'}</td>
-                <td>${i.bases.length ? i.bases.map((b) => `<span class="tag">${esc(b.base.name)}</span>`).join("") : '<span class="muted">—</span>'}</td>
-                <td>${(i.pastaTypes || []).length ? i.pastaTypes.map((p) => `<span class="tag">${esc(p.pastaType.name)}</span>`).join("") : '<span class="muted">—</span>'}</td>
+                <td>${(i.optionSets || []).length ? i.optionSets.map((s) => `<span class="tag">${esc(s.optionSet.name)}${s.optionSet.sizeLabel ? " (" + esc(s.optionSet.sizeLabel) + ")" : ""}</span>`).join("") : '<span class="muted">—</span>'}</td>
                 <td class="row-actions">
                   <button onclick="openItem(${i.id})">Edit</button>
                   <button class="danger" onclick="delItem(${i.id})">Delete</button>
@@ -1005,6 +1002,141 @@ function renderBases() {
       </tbody>
     </table>` : `<div class="empty">${state.bases.length ? "No bases match your search" : "No bases"}</div>`}`;
 }
+
+// -------------------------------------------------------------- Option sets
+function renderOptionSets() {
+  const el = $("#tab-optionsets");
+  if (!el) return;
+  const q = state.search.trim().toLowerCase();
+  const list = state.optionSets.filter((s) => !q || s.name.toLowerCase().includes(q) || (s.description || "").toLowerCase().includes(q));
+  el.innerHTML = `
+    <div class="toolbar">
+      <h2>Option sets <span class="muted" style="font-size:12px;font-weight:400">${list.length} of ${state.optionSets.length}</span></h2>
+      <div style="display:flex;gap:8px">
+        <input class="search" placeholder="Search option sets…" value="${esc(state.search)}" oninput="state.search=this.value;$('#global-search').value=this.value;render()" />
+        <button class="primary" onclick="openOptionSet()">+ Add option set</button>
+      </div>
+    </div>
+    <p class="hint" style="max-width:720px;margin-bottom:12px">Create a named list (for example <b>Pasta type</b> with Spaghetti, Penne and Linguine, or <b>Base</b> with Thin and Thick). Give each value a flat extra price, then tick the set on the items that offer it. Customers pick one value per set, or “No preference”.</p>
+    ${list.length ? `
+    <table>
+      <thead><tr><th>Name</th><th>Size</th><th>On receipt</th><th>Values</th><th>On items</th><th></th></tr></thead>
+      <tbody>
+        ${list.map((s) => `
+          <tr>
+            <td><b>${esc(s.name)}</b>${s.isActive === false ? ' <span class="tag off">inactive</span>' : ""}${s.description ? `<br><span class="muted">${esc(s.description)}</span>` : ""}</td>
+            <td>${s.sizeLabel ? `<span class="tag">${esc(s.sizeLabel)}</span>` : '<span class="muted">all sizes</span>'}</td>
+            <td>${esc(s.receiptName || s.name)}</td>
+            <td>${s.values.length}</td>
+            <td>${s._count.items}</td>
+            <td class="row-actions">
+              <button onclick="openOptionSet(${s.id})">Edit</button>
+              <button class="danger" onclick="delOptionSet(${s.id})">Delete</button>
+            </td>
+          </tr>`).join("")}
+      </tbody>
+    </table>` : `<div class="empty">${state.optionSets.length ? "No option sets match your search" : "No option sets yet — add Pasta type, Base, Sauce…"}</div>`}`;
+}
+
+window.openOptionSet = (id, fromItem = false) => {
+  window.osFromItem = Boolean(fromItem);
+  const set = id ? state.optionSets.find((x) => x.id === id) : null;
+  openModal(`
+    <h3>${set ? "Edit" : "Add"} option set</h3>
+    <div class="row">
+      ${field("Name *", `<input id="os-name" value="${esc(set?.name || "")}" placeholder="e.g. Pasta type" />`)}
+      ${field("Size label", `<input id="os-size" value="${esc(set?.sizeLabel || "")}" placeholder="blank = all sizes" />`)}
+    </div>
+    <div class="row">
+      ${field("Label on receipt", `<input id="os-receipt" value="${esc(set?.receiptName || "")}" placeholder="defaults to the name" />`)}
+      ${field("Sort order", `<input id="os-sort" type="number" value="${set?.sortOrder ?? 0}" />`)}
+    </div>
+    ${field("Description", `<textarea id="os-desc" rows="2">${esc(set?.description || "")}</textarea>`)}
+    ${field("Availability", `<label style="display:flex;align-items:center;gap:8px;font-weight:600"><input type="checkbox" id="os-active" ${set?.isActive !== false ? "checked" : ""} /> Active (untick to hide it from the menu)</label>`)}
+    ${field("Values", `<div id="os-values"></div><button class="ghost" onclick="addOSValue()" style="margin-top:6px">+ Add value</button>`)}
+    <p class="hint" style="margin:0 0 10px">Prices are flat extra charges in rand. Use 0 for no extra charge. Size-label this set when a list has different prices for M and L.</p>
+    ${field("Bulk assign", `<div class="row">
+      <select id="os-category"><option value="">— choose a category —</option>${state.categories.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600"><input type="checkbox" id="os-apply" /> Assign to every item in this category</label>
+    </div>`)}
+    <div class="modal-actions">
+      <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
+      <button class="primary" onclick="saveOptionSet(${id ?? ""})">Save</button>
+    </div>`);
+  window.osValues = set ? set.values.map((v) => ({ name: v.name, price: v.price, sortOrder: v.sortOrder, isActive: v.isActive !== false })) : [];
+  window.renderOSValues = () => {
+    $("#os-values").innerHTML = osValues.length ? osValues.map((v, i) => `
+      <div class="price-row">
+        <input placeholder="name" value="${esc(v.name)}" style="flex:2" oninput="osValues[${i}].name=this.value" />
+        <span class="muted">R</span><input placeholder="price" value="${v.price}" oninput="osValues[${i}].price=this.value" />
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" ${v.isActive ? "checked" : ""} onchange="osValues[${i}].isActive=this.checked" /> active</label>
+        <button class="ghost" onclick="osValues.splice(${i},1);renderOSValues()">✕</button>
+      </div>`).join("") : '<p class="muted">No values yet — add the choices customers will see.</p>';
+  };
+  window.addOSValue = () => { osValues.push({ name: "", price: 0, sortOrder: osValues.length, isActive: true }); renderOSValues(); };
+  renderOSValues();
+};
+
+window.saveOptionSet = async (id) => {
+  const seen = new Set();
+  const values = osValues.map((v, i) => ({
+    name: String(v.name || "").trim(),
+    price: Number(v.price) || 0,
+    sortOrder: Number(v.sortOrder) || i,
+    isActive: v.isActive !== false,
+  })).filter((v) => {
+    if (!v.name || seen.has(v.name.toLowerCase())) return false;
+    seen.add(v.name.toLowerCase());
+    return true;
+  });
+  const payload = {
+    name: $("#os-name").value.trim(),
+    sizeLabel: $("#os-size").value.trim() || null,
+    receiptName: $("#os-receipt").value.trim() || null,
+    sortOrder: Number($("#os-sort").value) || 0,
+    description: $("#os-desc").value.trim() || null,
+    isActive: $("#os-active").checked,
+    values,
+    applyToCategoryId: $("#os-apply").checked ? Number($("#os-category").value) || null : null,
+  };
+  if (!payload.name) return toast("Name is required", true);
+  try {
+    const saved = id
+      ? await api(`/api/option-sets/${id}`, { method: "PUT", body: JSON.stringify(payload) })
+      : await api("/api/option-sets", { method: "POST", body: JSON.stringify(payload) });
+    toast(saved.linked ? `Option set saved · linked to ${saved.linked} item(s)` : "Option set saved");
+    const overlays = document.querySelectorAll(".overlay");
+    overlays[overlays.length - 1]?.remove();
+    if (window.osFromItem) {
+      window.osFromItem = false;
+      state.optionSets = await api("/api/option-sets");
+      window.refreshItemOptionSets(saved.id);
+    } else {
+      await loadAll();
+    }
+  } catch (e) { toast(e.message, true); }
+};
+
+// Shortcut from the item editor: create a set without losing the item form.
+// The new set is refreshed into the item's checkbox grid and ticked for them.
+window.openOptionSetFromItem = () => window.openOptionSet(null, true);
+
+window.refreshItemOptionSets = (selectedId) => {
+  const mount = $("#f-optionsets");
+  if (!mount) return;
+  const checked = new Set($$("#f-optionsets input:checked").map((c) => Number(c.value)));
+  if (selectedId) checked.add(Number(selectedId));
+  mount.innerHTML = state.optionSets.length
+    ? state.optionSets.map((s) => `
+      <label><input type="checkbox" value="${s.id}" ${checked.has(s.id) ? "checked" : ""}> ${esc(s.name)}${s.sizeLabel ? " (" + esc(s.sizeLabel) + ")" : ""}</label>`).join("")
+    : '<span class="muted" style="font-size:12px">No option sets yet — add them in Menu → Option sets.</span>';
+};
+
+window.delOptionSet = async (id) => {
+  if (!confirm("Delete this option set? It will be removed from all items.")) return;
+  try { await api(`/api/option-sets/${id}`, { method: "DELETE" }); toast("Option set deleted"); await loadAll(); }
+  catch (e) { toast(e.message, true); }
+};
 
 // -------------------------------------------------------------- Pasta types
 function renderPastaTypes() {
@@ -1140,8 +1272,7 @@ function render() {
   renderSpecials();
   renderDeals();
   renderToppings();
-  renderBases();
-  renderPastaTypes();
+  renderOptionSets();
   renderCategories();
   renderOrders();
   if (state.me?.role === "admin") renderUsers();
@@ -1288,9 +1419,9 @@ window.openItem = (id) => {
       <button class="ghost" onclick="addSizeRow()" style="margin-top:6px">+ Add size</button>`)}
     <div class="row">
       ${field("Toppings", `<div id="f-toppings" class="link-grid"></div>`)}
-      ${field("Bases", `<div id="f-bases" class="link-grid"></div>`)}
+      ${field("Option sets", `<div id="f-optionsets" class="link-grid"></div>
+        <button type="button" class="ghost mini" onclick="openOptionSetFromItem()" style="margin-top:6px">+ New option set</button>`)}
     </div>
-    ${field("Pasta types", `<div id="f-pastatypes" class="link-grid"></div>`)}
     <div class="modal-actions">
       <button class="ghost" onclick="this.closest('.overlay').remove()">Cancel</button>
       <button class="primary" onclick="saveItem(${id ?? ""})">Save</button>
@@ -1318,12 +1449,10 @@ window.openItem = (id) => {
 
   $("#f-toppings").innerHTML = state.toppings.map((t) => `
     <label><input type="checkbox" value="${t.id}" ${item?.toppings.some((x) => x.toppingId===t.id) ? "checked" : ""}> ${t.name}</label>`).join("");
-  $("#f-bases").innerHTML = state.bases.map((b) => `
-    <label><input type="checkbox" value="${b.id}" ${item?.bases.some((x) => x.baseId===b.id) ? "checked" : ""}> ${b.name}</label>`).join("");
-  $("#f-pastatypes").innerHTML = state.pastaTypes.length
-    ? state.pastaTypes.map((t) => `
-      <label><input type="checkbox" value="${t.id}" ${(item?.pastaTypes || []).some((x) => x.pastaTypeId===t.id) ? "checked" : ""}> ${esc(t.name)}</label>`).join("")
-    : '<span class="muted" style="font-size:12px">No pasta types yet — add them in Menu → Pasta Types.</span>';
+  $("#f-optionsets").innerHTML = state.optionSets.length
+    ? state.optionSets.map((s) => `
+      <label><input type="checkbox" value="${s.id}" ${(item?.optionSets || []).some((x) => x.optionSetId===s.id) ? "checked" : ""}> ${esc(s.name)}${s.sizeLabel ? " (" + esc(s.sizeLabel) + ")" : ""}</label>`).join("")
+    : '<span class="muted" style="font-size:12px">No option sets yet — add them in Menu → Option sets.</span>';
 };
 
 window.saveItem = async (id) => {
@@ -1337,8 +1466,7 @@ window.saveItem = async (id) => {
     sortOrder: Number($("#f-sort").value) || 0,
     sizes: currentSizes.map((s) => ({ sizeLabel: s.sizeLabel, price: Number(s.price) || 0 })),
     toppingIds: $$("#f-toppings input:checked").map((c) => Number(c.value)),
-    baseIds: $$("#f-bases input:checked").map((c) => Number(c.value)),
-    pastaTypeIds: $$("#f-pastatypes input:checked").map((c) => Number(c.value)),
+    optionSetIds: $$("#f-optionsets input:checked").map((c) => Number(c.value)),
     images: (window.currentImages || []).map((im, i) => ({ url: im.url, alt: im.alt, sortOrder: i })),
   };
   if (!payload.name) return toast("Name is required", true);

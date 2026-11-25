@@ -330,7 +330,7 @@
     root.innerHTML = `
     <section class="aw-step is-active" data-step="1">
       <h2 class="aw-question">Where do you live?</h2>
-      <p class="aw-hint">Type your street and house number, for example <b>12 High Street</b>. Pick the address from the list.</p>
+      <p class="aw-hint">Type the <b>street name only</b> (no number), for example <b>High Street</b>. Pick it from the list, then enter your street number in the field above the map.</p>
       <div class="aw-search" data-role="search"></div>
       <div class="aw-status" data-role="search-status" role="status" aria-live="polite"></div>
       <button type="button" class="aw-btn ghost" data-role="manual">I can't find my address \u2014 let me put the pin on the map</button>
@@ -418,7 +418,7 @@
       collapsed: false,
       defaultMarkGeocode: false,
       showUniqueResult: true,
-      placeholder: "Type your street and house number",
+      placeholder: "Type street name only",
       queryMinLength: 3,
       suggestMinLength: 3,
       suggestTimeout: 250,
@@ -434,7 +434,7 @@
       if (!e.results || !e.results.length) {
         status(
           "search-status",
-          "We couldn't find that address. Try just the street name, or put the pin on the map yourself.",
+          "We couldn't find that street. Try a shorter street name, or put the pin on the map yourself.",
           "err"
         );
       } else {

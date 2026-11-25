@@ -14,6 +14,7 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "streets:refresh": "node --env-file-if-exists=.env scripts/refresh-delivery-streets.mjs",
+    "option-sets:import": "node --env-file-if-exists=.env scripts/migrate-option-sets.mjs",
     "build:delivery-map": "node delivery-map/build.mjs",
     "paygate:test": "node scripts/paygate-selftest.mjs",
     "paygate:test:live": "node scripts/paygate-selftest.mjs --live",

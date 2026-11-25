@@ -337,7 +337,7 @@
         </div>
         <div id="addr-wizard"></div>
         <div id="addr-found" hidden style="background:#eef5ff;border:1px solid #cfe0f7;border-radius:10px;padding:12px 14px;font-size:15px;margin-top:8px;"></div>
-        <div class="hint" id="addr-geo-hint">Type your street and house number, then pick the address from the list.</div>
+        <div class="hint" id="addr-geo-hint">Type the street name only (no number), then pick the street from the list. Add your street number in the field above the map.</div>
         <div style="display:flex;gap:8px;margin-top:8px;">
           <button class="primary" type="button" id="addr-save">Save location</button>
           <button class="ghost" type="button" id="addr-cancel" hidden>Cancel</button>
@@ -796,7 +796,7 @@ function startAddrWizard() {
   const box = document.getElementById("addr-found");
   if (box) { box.hidden = true; box.innerHTML = ""; }
   const h = $("#addr-geo-hint");
-  if (h) h.textContent = "Type your street and house number, then pick the address from the list.";
+  if (h) h.textContent = "Type the street name only (no number), then pick the street from the list. Add your street number in the field above the map.";
   mountPortalAddressWizard();
 }
 

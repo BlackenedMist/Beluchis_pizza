@@ -87,7 +87,25 @@
   const availPastaTypes = (item, size) => (item.pastaTypes || [])
     .filter((pt) => pt.pastaType && pt.pastaType.isActive !== false && pastaPriceOf(pt, size) !== null)
     .sort((a, b) => (a.pastaType.sortOrder || 0) - (b.pastaType.sortOrder || 0) || a.pastaType.name.localeCompare(b.pastaType.name));
-  const hasCustom = (item) => Boolean((item.bases && item.bases.length) || (item.toppings && item.toppings.length) || (item.pastaTypes && item.pastaTypes.length));
+  // Generic option sets: one flat-priced choice per set. A set with a size
+  // label only applies to that size; a set without one applies to every size.
+  const availOptionSets = (item, size) => (item.optionSets || [])
+    .map((link) => link.optionSet)
+    .filter((s) => s && s.isActive !== false && (!s.sizeLabel || s.sizeLabel === size))
+    .filter((s) => (s.values || []).some((v) => v.isActive !== false))
+    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || a.name.localeCompare(b.name));
+  const optionExtraName = (set, value) => (set.receiptName || set.name) + ": " + value.name;
+  const findOptionValue = (item, setId, valueId, sizeLabel) => {
+    for (const link of item.optionSets || []) {
+      const set = link.optionSet;
+      if (!set || set.isActive === false || (setId != null && set.id !== Number(setId))) continue;
+      if (set.sizeLabel && set.sizeLabel !== sizeLabel) continue;
+      const value = (set.values || []).find((v) => v.id === Number(valueId) && v.isActive !== false);
+      if (value) return { set, value };
+    }
+    return null;
+  };
+  const hasCustom = (item) => Boolean((item.bases && item.bases.length) || (item.toppings && item.toppings.length) || (item.pastaTypes && item.pastaTypes.length) || (item.optionSets && item.optionSets.length));
   const categoryOf = (item) => DATA.catById.get(item.categoryId);
   const specialCurrentlyActive = (s) => {
     if (!s || s.isActive === false) return false;
@@ -446,6 +464,22 @@
           l.sizeLabel = sl;
           l.unitPrice = sz.price;
         }
+        // Move a legacy pasta choice onto its migrated option set when one
+        // exists, so old carts keep the same label and correctly repriced cost.
+        if (l.pastaTypeId != null) {
+          for (const link of item.optionSets || []) {
+            const set = link.optionSet;
+            const value = set && (set.values || []).find(
+              (v) => v.legacyType === "pastaType" && v.legacyId === Number(l.pastaTypeId) &&
+                (v.legacySizeLabel || null) === (l.sizeLabel || null) && v.isActive !== false
+            );
+            if (value) {
+              l.optionValueIds = [...new Set([...(l.optionValueIds || []), value.id])];
+              l.pastaTypeId = null;
+              break;
+            }
+          }
+        }
         // Keep a pasta-type choice honest across menu edits/deletions and price
         // changes; if the type is gone, charge nothing for it and drop the row.
         if (l.pastaTypeId != null) {
@@ -457,6 +491,20 @@
           } else {
             l.pastaTypeId = null;
           }
+        }
+        // Reprice generic option-set choices from the current menu data and
+        // drop any value that has since been deleted, disabled or repriced.
+        if (Array.isArray(l.optionValueIds) && l.optionValueIds.length) {
+          const nextIds = [];
+          for (const rawId of l.optionValueIds) {
+            const found = findOptionValue(item, null, rawId, l.sizeLabel);
+            if (!found) continue;
+            const escaped = (found.set.receiptName || found.set.name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            l.extras = (l.extras || []).filter((e) => !new RegExp("^" + escaped + ":\\s", "i").test(e.name || ""));
+            l.extras.push({ name: optionExtraName(found.set, found.value), price: Number(found.value.price) || 0 });
+            nextIds.push(found.value.id);
+          }
+          l.optionValueIds = nextIds;
         }
         keep.push(l);
         continue;
@@ -593,7 +641,7 @@
     CART_KEY, $, $$, money, esc,
     lines, count, total, gross, deals, lineKey, addLine, changeQty, removeLine, setLines, clear, renderCart, syncUI,
     sizeRowOf, basePriceOf, topPriceOf, availBases, availToppings, hasCustom, categoryOf, activeSpecials, specialCurrentlyActive,
-    pastaPriceOf, availPastaTypes,
+    pastaPriceOf, availPastaTypes, availOptionSets, optionExtraName, findOptionValue,
     outOfSeasonToppings, affordableSwaps, bogoBaseTotal, extrasTotal, applyDeals, refreshDeals, setFulfilment,
     specialBreakdown, bundleGroups, bundleGroupIndex: bundleGroupIndexOf, bundleGroupPrice, bundlePickBase,
     load, reconcile, toast, data: DATA, hooks,

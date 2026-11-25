@@ -165,3 +165,21 @@ Date: 2026-11-25
 - Removed the wizard's driver-note field — driver notes belong in checkout's **Notes & tip** step, so there is no duplicate input.
 - Checkout confirmation now saves the address (or records a once-off address), selects it, and advances straight to **Notes & tip**. The earlier blocked state (Continue disabled until the address was saved separately) is gone.
 - The customer portal's address wizard behaves the same way: confirming saves the location, generating a unique default name when the name field is left empty. The Save button stays available as a retry path if the request fails.
+
+---
+
+# Beluchis Pizza — Generic option sets
+
+Date: 2026-11-25
+
+## Summary
+
+- Admin → Menu → **Option sets** replaces the hard-coded Bases and Pasta Types screens. A set is a named list (Pasta type, Base, Sauce, …) with flat-priced values, a size label, a receipt label, sort order and active flag. It can be bulk-assigned to a category and attached per item from the item editor.
+- The storefront shows one dropdown per applicable set with a **No preference** default. Choices travel on the cart line as `optionValueIds`; the server validates them (attached set, active set/value, matching size, one per set) and re-prices from the DB, so client-supplied prices are ignored. Receipts show `<receipt label>: <value>`.
+- Cart reconciliation drops deleted/disabled values and recharges from the live menu. Legacy pasta choices are mapped onto migrated option sets.
+- Old Base/PastaType tables and API endpoints remain for historical orders; only their admin UI and storefront pickers were removed.
+
+## Data
+
+- Migration `20261125120000_add_option_sets`: `OptionSet`, `OptionValue`, `ItemOptionSet`.
+- `npm run option-sets:import` (`scripts/migrate-option-sets.mjs`) folds existing per-size base/pasta prices into size-labelled option sets, preserving item links and legacy ids. Safe to re-run.

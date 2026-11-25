@@ -3124,6 +3124,7 @@ app.post(
         include: {
           sizes: true,
           pastaTypes: { include: { pastaType: { include: { prices: true } } } },
+          optionSets: { include: { optionSet: { include: { values: true } } } },
         },
       });
       if (!item) return res.status(400).json({ error: `item ${line.itemId} not found` });
@@ -3158,6 +3159,36 @@ app.post(
           if (/^Pasta:\s/i.test(extras[i].name)) extras.splice(i, 1);
         }
         extras.push({ name: "Pasta: " + link.pastaType.name, price: Number(priceRow.price) || 0 });
+      }
+
+      // Generic option sets: each chosen value is validated against the sets
+      // attached to this item and repriced from the DB. Client prices are
+      // discarded, so a stale or tampered price cannot survive.
+      const optionIds = [...new Set(
+        (Array.isArray(line.optionValueIds) ? line.optionValueIds : [])
+          .map(Number).filter((n) => Number.isFinite(n) && n > 0)
+      )];
+      const seenSets = new Set();
+      for (const valueId of optionIds) {
+        const link = (item.optionSets || []).find(
+          (os) => os.optionSet && (os.optionSet.values || []).some((v) => v.id === valueId)
+        );
+        if (!link) return res.status(400).json({ error: `option value ${valueId} is not available for ${item.name}` });
+        const set = link.optionSet;
+        const value = set.values.find((v) => v.id === valueId);
+        if (set.isActive === false || value.isActive === false)
+          return res.status(400).json({ error: `${set.name} / ${value.name} is not available` });
+        if (set.sizeLabel && set.sizeLabel !== sizeLabel)
+          return res.status(400).json({ error: `${set.name} is only available in size ${set.sizeLabel}` });
+        if (seenSets.has(set.id))
+          return res.status(400).json({ error: `only one value per option set (${set.name})` });
+        seenSets.add(set.id);
+        const label = set.receiptName || set.name;
+        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        for (let i = extras.length - 1; i >= 0; i--) {
+          if (new RegExp("^" + escaped + ":\\s", "i").test(extras[i].name || "")) extras.splice(i, 1);
+        }
+        extras.push({ name: label + ": " + value.name, price: Number(value.price) || 0 });
       }
 
       const extrasTotal = extras.reduce((sum, x) => sum + x.price, 0);
@@ -4094,6 +4125,7 @@ const itemIncludes = {
   toppings: { include: { topping: { include: { prices: true } } } },
   bases: { include: { base: { include: { prices: true } } } },
   pastaTypes: { include: { pastaType: { include: { prices: true } } } },
+  optionSets: { include: { optionSet: { include: { values: true } } } },
 };
 
 app.get(
@@ -4111,7 +4143,7 @@ app.post(
   "/api/items",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    const { name, description = null, itemType = "menuitem", categoryId = null, imageUrl = null, showOnHome = false, sizes = [], toppingIds = [], baseIds = [], pastaTypeIds = [], images = [], sortOrder = 0 } = req.body || {};
+    const { name, description = null, itemType = "menuitem", categoryId = null, imageUrl = null, showOnHome = false, sizes = [], toppingIds = [], baseIds = [], pastaTypeIds = [], optionSetIds = [], images = [], sortOrder = 0 } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     const row = await prisma.$transaction(async (tx) => {
@@ -4147,6 +4179,11 @@ app.post(
           data: pastaTypeIds.map((id) => ({ itemId: item.id, pastaTypeId: Number(id) })),
         });
       }
+      if (optionSetIds.length) {
+        await tx.itemOptionSet.createMany({
+          data: optionSetIds.map((id) => ({ itemId: item.id, optionSetId: Number(id) })),
+        });
+      }
       if (Array.isArray(images) && images.length) {
         await tx.itemImage.createMany({
           data: images.map((im, i) => ({ itemId: item.id, url: (im && im.url) || String(im), alt: (im && im.alt) || null, sortOrder: (im && im.sortOrder) ?? i })),
@@ -4163,7 +4200,7 @@ app.put(
   "/api/items/:id",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    const { name, description, itemType, categoryId, imageUrl, showOnHome, sizes, toppingIds, baseIds, pastaTypeIds, images, sortOrder, isActive } = req.body || {};
+    const { name, description, itemType, categoryId, imageUrl, showOnHome, sizes, toppingIds, baseIds, pastaTypeIds, optionSetIds, images, sortOrder, isActive } = req.body || {};
     const id = Number(req.params.id);
     const row = await prisma.$transaction(async (tx) => {
       const item = await tx.item.update({
@@ -4209,6 +4246,14 @@ app.put(
         if (pastaTypeIds.length) {
           await tx.itemPastaType.createMany({
             data: pastaTypeIds.map((pid) => ({ itemId: id, pastaTypeId: Number(pid) })),
+          });
+        }
+      }
+      if (Array.isArray(optionSetIds)) {
+        await tx.itemOptionSet.deleteMany({ where: { itemId: id } });
+        if (optionSetIds.length) {
+          await tx.itemOptionSet.createMany({
+            data: optionSetIds.map((sid) => ({ itemId: id, optionSetId: Number(sid) })),
           });
         }
       }
@@ -4488,6 +4533,120 @@ app.delete(
   })
 );
 
+// ---------------------------------------------------------------- Option sets
+// Generic, reusable lists that replace the hard-coded Bases / PastaTypes UI.
+// A set has flat-priced values and can be attached to any number of items.
+const optionSetInclude = {
+  values: { orderBy: [{ sortOrder: "asc" }, { name: "asc" }] },
+  _count: { select: { items: true } },
+};
+
+const optionSetSlug = (name, sizeLabel) =>
+  slugify(`${name}-${sizeLabel || "all"}`);
+
+const cleanOptionValues = (values) =>
+  (Array.isArray(values) ? values : [])
+    .map((v) => ({
+      name: String(v?.name || "").trim(),
+      price: Number(v?.price) || 0,
+      sortOrder: Number(v?.sortOrder) || 0,
+      isActive: v?.isActive !== false,
+    }))
+    .filter((v) => v.name);
+
+const linkOptionSetToCategory = async (optionSetId, categoryId) => {
+  const cid = Number(categoryId);
+  if (!cid) return 0;
+  const items = await prisma.item.findMany({ where: { categoryId: cid }, select: { id: true } });
+  if (!items.length) return 0;
+  const existing = await prisma.itemOptionSet.findMany({ where: { optionSetId }, select: { itemId: true } });
+  const have = new Set(existing.map((x) => x.itemId));
+  const rows = items.filter((i) => !have.has(i.id)).map((i) => ({ itemId: i.id, optionSetId }));
+  if (rows.length) await prisma.itemOptionSet.createMany({ data: rows });
+  return rows.length;
+};
+
+app.get(
+  "/api/option-sets",
+  asyncHandler(async (_req, res) => {
+    const rows = await prisma.optionSet.findMany({
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }, { sizeLabel: "asc" }],
+      include: optionSetInclude,
+    });
+    res.json(rows);
+  })
+);
+
+app.post(
+  "/api/option-sets",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    const { name, description = null, receiptName = null, sizeLabel = null, sortOrder = 0, isActive = true, values = [], applyToCategoryId = null } = req.body || {};
+    if (!String(name || "").trim()) return res.status(400).json({ error: "name is required" });
+    const size = sizeLabel ? String(sizeLabel).trim() : null;
+    const row = await prisma.optionSet.create({
+      data: {
+        name: String(name).trim(),
+        slug: optionSetSlug(name, size),
+        description: description ? String(description).trim() : null,
+        receiptName: receiptName ? String(receiptName).trim() : null,
+        sizeLabel: size,
+        sortOrder: Number(sortOrder) || 0,
+        isActive: isActive !== false,
+        values: cleanOptionValues(values).length ? { create: cleanOptionValues(values) } : undefined,
+      },
+      include: optionSetInclude,
+    });
+    const linked = applyToCategoryId ? await linkOptionSetToCategory(row.id, applyToCategoryId) : 0;
+    res.status(201).json({ ...row, linked });
+  })
+);
+
+app.put(
+  "/api/option-sets/:id",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const { name, description, receiptName, sizeLabel, sortOrder, isActive, values, applyToCategoryId = null } = req.body || {};
+    const existing = await prisma.optionSet.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: "option set not found" });
+    const finalName = name !== undefined ? String(name).trim() : existing.name;
+    const finalSize = sizeLabel !== undefined ? (sizeLabel ? String(sizeLabel).trim() : null) : existing.sizeLabel;
+    if (!finalName) return res.status(400).json({ error: "name is required" });
+    await prisma.$transaction(async (tx) => {
+      await tx.optionSet.update({
+        where: { id },
+        data: {
+          name: finalName,
+          slug: optionSetSlug(finalName, finalSize),
+          ...(description !== undefined ? { description: description ? String(description).trim() : null } : {}),
+          ...(receiptName !== undefined ? { receiptName: receiptName ? String(receiptName).trim() : null } : {}),
+          ...(sizeLabel !== undefined ? { sizeLabel: finalSize } : {}),
+          ...(sortOrder !== undefined ? { sortOrder: Number(sortOrder) || 0 } : {}),
+          ...(isActive !== undefined ? { isActive: Boolean(isActive) } : {}),
+        },
+      });
+      if (Array.isArray(values)) {
+        await tx.optionValue.deleteMany({ where: { optionSetId: id } });
+        const clean = cleanOptionValues(values);
+        if (clean.length) await tx.optionValue.createMany({ data: clean.map((v) => ({ ...v, optionSetId: id })) });
+      }
+    });
+    const linked = applyToCategoryId ? await linkOptionSetToCategory(id, applyToCategoryId) : 0;
+    const full = await prisma.optionSet.findUnique({ where: { id }, include: optionSetInclude });
+    res.json({ ...full, linked });
+  })
+);
+
+app.delete(
+  "/api/option-sets/:id",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    await prisma.optionSet.delete({ where: { id: Number(req.params.id) } });
+    res.json({ ok: true });
+  })
+);
+
 // --------------------------------------------------------- PayGate callbacks
 app.post(
   "/paygate/notify",
@@ -4534,11 +4693,12 @@ async function paygateReturn(req, res) {
 app.get(
   "/api/stats",
   asyncHandler(async (_req, res) => {
-    const [items, toppings, bases, pastaTypes, categories, links, customers, orders, orderItems, specials, contact, coupons, orderStatusEvents] = await Promise.all([
+    const [items, toppings, bases, pastaTypes, optionSets, categories, links, customers, orders, orderItems, specials, contact, coupons, orderStatusEvents] = await Promise.all([
       prisma.item.count(),
       prisma.topping.count(),
       prisma.base.count(),
       prisma.pastaType.count(),
+      prisma.optionSet.count(),
       prisma.category.count(),
       prisma.itemTopping.count(),
       prisma.customer.count(),
@@ -4554,6 +4714,7 @@ app.get(
       toppings,
       bases,
       pastaTypes,
+      optionSets,
       categories,
       links,
       customers,
